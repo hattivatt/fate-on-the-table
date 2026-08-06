@@ -1,0 +1,61 @@
+<section class="chars-to-table-settings">
+  <div class="form-group">
+    <label>{{localize "chars-to-table.settings.defaultTemplate"}}</label>
+    <div class="form-fields">
+      <select name="defaultTemplate">
+        {{selectOptions templates selected=current.defaultTemplate localize=false}}
+      </select>
+    </div>
+    <p class="hint">{{localize "chars-to-table.settings.defaultTemplateHint"}}</p>
+  </div>
+
+  <div class="form-group">
+    <label>{{localize "chars-to-table.settings.scale"}}</label>
+    <div class="form-fields">
+      <input type="number" name="scale" value="{{current.scale}}" min="0.25" max="4" step="0.05">
+    </div>
+    <p class="hint">{{localize "chars-to-table.settings.scaleHint"}}</p>
+  </div>
+
+  <div class="form-group">
+    <label>{{localize "chars-to-table.settings.snapToGrid"}}</label>
+    <div class="form-fields">
+      <input type="checkbox" name="snapToGrid" {{checked current.snapToGrid}}>
+    </div>
+    <p class="hint">{{localize "chars-to-table.settings.snapToGridHint"}}</p>
+  </div>
+
+  <div class="form-group">
+    <label>{{localize "chars-to-table.settings.fontFamily"}}</label>
+    <div class="form-fields">
+      <select name="fontFamily">
+        <option value="">—</option>
+        {{selectOptions fonts selected=current.fontFamily localize=false}}
+      </select>
+    </div>
+    <p class="hint">{{localize "chars-to-table.settings.fontFamilyHint"}}</p>
+  </div>
+
+  <div class="form-group">
+    <label>{{localize "chars-to-table.settings.textColor"}}</label>
+    <div class="form-fields">
+      <input type="color" name="textColor" value="{{current.textColor}}">
+    </div>
+    <p class="hint">{{localize "chars-to-table.settings.textColorHint"}}</p>
+  </div>
+
+  <div class="form-group">
+    <label>{{localize "chars-to-table.settings.fatePointImage"}}</label>
+    <div class="form-fields">
+      <input type="text" name="fatePointImage" value="{{current.fatePointImage}}" placeholder="path/to/image.webp">
+      <button type="button" data-action="pickFatePointImage" class="file-picker">
+        <i class="fas fa-folder-open"></i>
+      </button>
+    </div>
+    <p class="hint">{{localize "chars-to-table.settings.fatePointImageHint"}}</p>
+  </div>
+
+  <footer class="sheet-footer">
+    <button type="submit"><i class="fas fa-save"></i> {{localize "SETTINGS.Save"}}</button>
+  </footer>
+</section>

@@ -1,0 +1,8 @@
+.chars-to-table-settings .form-group {
+  margin-bottom: 10px;
+}
+
+.chars-to-table-settings .form-group .hint {
+  opacity: 0.7;
+  font-size: 0.85em;
+}

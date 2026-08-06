@@ -1,0 +1,56 @@
+{
+  "id": "chars-to-table",
+  "title": "Chars to Table",
+  "description": "Places a Fate Core character sheet onto the canvas as a group of drawings and tiles, with drag-to-place placement and automatic sync with the actor.",
+  "version": "#{VERSION}#",
+  "library": "false",
+  "manifestPlusVersion": "1.2.0",
+  "compatibility": {
+    "minimum": "14",
+    "verified": "14"
+  },
+  "authors": [
+    {
+      "name": "Hattivatt"
+    }
+  ],
+  "relationships": {
+    "systems": [
+      {
+        "id": "fate-core-official",
+        "type": "system",
+        "manifest": "https://raw.githubusercontent.com/Sk1mble/fate-core-official/main/system.json",
+        "compatibility": {
+          "minimum": "4.7.14.12"
+        }
+      }
+    ],
+    "requires": []
+  },
+  "system": [
+    "fate-core-official"
+  ],
+  "esmodules": [
+    "scripts/module.js"
+  ],
+  "styles": [
+    "styles/module.css"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "languages/en.json"
+    },
+    {
+      "lang": "ru",
+      "name": "Русский",
+      "path": "languages/ru.json"
+    }
+  ],
+  "url": "#{URL}#",
+  "manifest": "#{MANIFEST}#",
+  "download": "#{DOWNLOAD}#",
+  "license": "LICENSE",
+  "readme": "README.md"
+}
