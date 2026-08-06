@@ -185,6 +185,37 @@ export async function build(actor, layout, options = {}) {
     }
   }
 
+  // Background "card" under the whole widget: plain solid fill by default,
+  // or a texture pattern (v14 Drawing `texture` field) when one is set in
+  // the module settings. Rendered below everything (first + low elevation).
+  const bg = layout.background;
+  const bgTexture = options.backgroundTexture || "";
+  if (docs.length > 0 && bg?.enabled !== false) {
+    docs.unshift({
+      kind: "drawing",
+      part: "widgetBackground",
+      index: -1,
+      x: minX,
+      y: minY,
+      w: maxX - minX,
+      h: maxY - minY,
+      font: "Montserrat",
+      size: 8,
+      color: bg?.fillColor || "#ffffff",
+      align: "left",
+      stroke: 0,
+      text: "",
+      fillType: bgTexture
+        ? CONST.DRAWING_FILL_TYPES.PATTERN
+        : CONST.DRAWING_FILL_TYPES.SOLID,
+      fillColor: bg?.fillColor || "#ffffff",
+      fillAlpha: bg?.alpha ?? 1,
+      texture: bgTexture || null,
+      elevation: bg?.elevation ?? -10,
+      sort: bg?.sort ?? -1000,
+    });
+  }
+
   const boundsConfig = layout.bounds;
   if (docs.length > 0 && boundsConfig?.enabled !== false) {
     // "Grab" box covering the whole widget: transparent, thin outline, drawn
@@ -262,9 +293,10 @@ export function toDocumentData(doc, flags) {
     x: Math.round(doc.x),
     y: Math.round(doc.y),
     shape: { width: Math.round(doc.w), height: Math.round(doc.h) },
-    fillType: CONST.DRAWING_FILL_TYPES.NONE,
-    fillColor: "#ffffff",
-    fillAlpha: 0,
+    fillType: doc.fillType ?? CONST.DRAWING_FILL_TYPES.NONE,
+    fillColor: doc.fillColor ?? "#ffffff",
+    fillAlpha: doc.fillAlpha ?? 0,
+    texture: doc.texture ?? null,
     strokeWidth,
     strokeColor: strokeWidth ? doc.color : "#000000",
     strokeAlpha: doc.strokeAlpha ?? (strokeWidth ? 1 : 0),

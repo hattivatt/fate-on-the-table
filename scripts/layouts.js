@@ -29,6 +29,9 @@ export const layouts = {
     // "Grab" box over the whole widget: transparent, thin outline, on top.
     // Drag it to move the whole widget (widgetDrag). `alpha: 0` = invisible.
     bounds: { stroke: 1, alpha: 0.2, color: "#000000", elevation: 10, sort: 1000 },
+    // Background "card" under the widget. Texture comes from the module
+    // setting `backgroundTexture`; empty texture = plain solid fill.
+    background: { fillColor: "#ffffff", alpha: 1 },
     elements: [
       // 1. Имя — по центру виджета, над портретом; ширина = ширина листа
       {

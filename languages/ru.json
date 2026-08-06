@@ -28,5 +28,7 @@
   "chars-to-table.remove.confirmTitle": "Удалить виджет",
   "chars-to-table.remove.confirm": "Убрать виджет персонажа «{name}» со сцены? Все его рисунки и тайлы будут удалены.",
   "chars-to-table.remove.none": "Виджетов этого персонажа на сцене нет.",
-  "chars-to-table.remove.done": "Виджет убран со сцены ({count})."
+  "chars-to-table.remove.done": "Виджет убран со сцены ({count}).",
+  "chars-to-table.settings.backgroundTexture": "Текстура фона",
+  "chars-to-table.settings.backgroundTextureHint": "Изображение-текстура фона виджета (старая бумага и т.п.). Пусто — обычная белая заливка."
 }

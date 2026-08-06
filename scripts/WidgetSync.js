@@ -19,6 +19,10 @@ const DRAWING_FIELDS = [
   "fontFamily",
   "textColor",
   "textAlign",
+  "fillType",
+  "fillColor",
+  "fillAlpha",
+  "texture",
   "strokeWidth",
   "strokeColor",
   "strokeAlpha",
@@ -114,6 +118,7 @@ async function syncActor(actor) {
     fontFamily: opts.fontFamily,
     textColor: opts.textColor,
     fatePointImage: opts.fatePointImage,
+    backgroundTexture: opts.backgroundTexture,
   });
 
   const widgets = actor.getFlag(FLAG_SCOPE, WIDGETS_FLAG) ?? [];

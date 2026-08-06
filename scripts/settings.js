@@ -1,5 +1,6 @@
 /**
- * Module settings and the settings application (ApplicationV2).
+ * Module settings (all exposed in the standard module settings section) and
+ * the renderSettingsConfig tweaks (font select refresh + file pickers).
  */
 
 import { getLayout, getLayoutIds } from "./layouts.js";
@@ -7,37 +8,33 @@ import { getLayout, getLayoutIds } from "./layouts.js";
 export const MODULE_ID = "chars-to-table";
 
 export function registerSettings() {
-  game.settings.registerMenu(MODULE_ID, "settingsMenu", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.name`),
-    label: game.i18n.localize(`${MODULE_ID}.settings.label`),
-    icon: "fas fa-dice-d20",
-    type: CharsToTableSettingsForm,
-    restricted: true,
-  });
-
   game.settings.register(MODULE_ID, "defaultTemplate", {
     name: game.i18n.localize(`${MODULE_ID}.settings.defaultTemplate`),
     hint: game.i18n.localize(`${MODULE_ID}.settings.defaultTemplateHint`),
     scope: "world",
-    config: false,
+    config: true,
     type: String,
     default: "default",
+    choices: Object.fromEntries(
+      getLayoutIds().map((id) => [id, getLayout(id).name]),
+    ),
   });
 
   game.settings.register(MODULE_ID, "scale", {
     name: game.i18n.localize(`${MODULE_ID}.settings.scale`),
     hint: game.i18n.localize(`${MODULE_ID}.settings.scaleHint`),
     scope: "world",
-    config: false,
+    config: true,
     type: Number,
     default: 1,
+    range: { min: 0.25, max: 4, step: 0.05 },
   });
 
   game.settings.register(MODULE_ID, "snapToGrid", {
     name: game.i18n.localize(`${MODULE_ID}.settings.snapToGrid`),
     hint: game.i18n.localize(`${MODULE_ID}.settings.snapToGridHint`),
     scope: "world",
-    config: false,
+    config: true,
     type: Boolean,
     default: false,
   });
@@ -46,16 +43,17 @@ export function registerSettings() {
     name: game.i18n.localize(`${MODULE_ID}.settings.fontFamily`),
     hint: game.i18n.localize(`${MODULE_ID}.settings.fontFamilyHint`),
     scope: "world",
-    config: false,
+    config: true,
     type: String,
     default: "",
+    choices: {},
   });
 
   game.settings.register(MODULE_ID, "textColor", {
     name: game.i18n.localize(`${MODULE_ID}.settings.textColor`),
     hint: game.i18n.localize(`${MODULE_ID}.settings.textColorHint`),
     scope: "world",
-    config: false,
+    config: true,
     type: String,
     default: "#000000",
   });
@@ -64,10 +62,21 @@ export function registerSettings() {
     name: game.i18n.localize(`${MODULE_ID}.settings.fatePointImage`),
     hint: game.i18n.localize(`${MODULE_ID}.settings.fatePointImageHint`),
     scope: "world",
-    config: false,
+    config: true,
     type: String,
     default: "",
   });
+
+  game.settings.register(MODULE_ID, "backgroundTexture", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.backgroundTexture`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.backgroundTextureHint`),
+    scope: "world",
+    config: true,
+    type: String,
+    default: "",
+  });
+
+  Hooks.on("renderSettingsConfig", onRenderSettingsConfig);
 }
 
 /** Reads the current placement options from the settings. */
@@ -79,6 +88,8 @@ export function getPlacementOptions() {
     fontFamily: game.settings.get(MODULE_ID, "fontFamily") ?? "",
     textColor: game.settings.get(MODULE_ID, "textColor") ?? "",
     fatePointImage: game.settings.get(MODULE_ID, "fatePointImage") ?? "",
+    backgroundTexture:
+      game.settings.get(MODULE_ID, "backgroundTexture") ?? "",
   };
 }
 
@@ -91,74 +102,55 @@ function getFontList() {
   }
 }
 
-export class CharsToTableSettingsForm extends foundry.applications.api.HandlebarsApplicationMixin(
-  foundry.applications.api.ApplicationV2,
-) {
-  static DEFAULT_OPTIONS = {
-    id: "chars-to-table-settings",
-    tag: "form",
-    window: {
-      resizable: true,
-    },
-    position: { width: 500, height: "auto" },
-    form: { closeOnSubmit: true },
-  };
-
-  get title() {
-    return game.i18n.localize(`${MODULE_ID}.settings.label`);
+/**
+ * Enhances the standard settings view: refreshes the font select with the
+ * currently registered fonts and adds file picker buttons to image settings.
+ */
+function onRenderSettingsConfig(app, html) {
+  const fontInput = html.querySelector?.(
+    `[name="${MODULE_ID}.fontFamily"]`,
+  );
+  if (fontInput) {
+    const current = game.settings.get(MODULE_ID, "fontFamily") ?? "";
+    fontInput.innerHTML = "";
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "—";
+    if (!current) empty.selected = true;
+    fontInput.append(empty);
+    for (const font of getFontList()) {
+      const option = document.createElement("option");
+      option.value = font;
+      option.textContent = font;
+      if (font === current) option.selected = true;
+      fontInput.append(option);
+    }
   }
 
-  static PARTS = {
-    settingsForm: {
-      template: "modules/chars-to-table/templates/settings.html",
-    },
-  };
+  const colorInput = html.querySelector?.(
+    `[name="${MODULE_ID}.textColor"]`,
+  );
+  if (colorInput) colorInput.type = "color";
 
-  async _prepareContext(options) {
-    return {
-      current: {
-        defaultTemplate: game.settings.get(MODULE_ID, "defaultTemplate"),
-        scale: game.settings.get(MODULE_ID, "scale"),
-        snapToGrid: game.settings.get(MODULE_ID, "snapToGrid"),
-        fontFamily: game.settings.get(MODULE_ID, "fontFamily"),
-        textColor: game.settings.get(MODULE_ID, "textColor"),
-        fatePointImage: game.settings.get(MODULE_ID, "fatePointImage"),
-      },
-      templates: getLayoutIds().map((id) => ({
-        value: id,
-        label: getLayout(id).name,
-      })),
-      fonts: getFontList(),
-    };
-  }
-
-  async _onSubmit(context, event, formData) {
-    const data = formData.object;
-    await game.settings.set(MODULE_ID, "defaultTemplate", data.defaultTemplate);
-    await game.settings.set(MODULE_ID, "scale", Number(data.scale) || 1);
-    await game.settings.set(MODULE_ID, "snapToGrid", !!data.snapToGrid);
-    await game.settings.set(MODULE_ID, "fontFamily", data.fontFamily ?? "");
-    await game.settings.set(MODULE_ID, "textColor", data.textColor ?? "#000000");
-    await game.settings.set(
-      MODULE_ID,
-      "fatePointImage",
-      data.fatePointImage ?? "",
-    );
-    ui.notifications.info("Chars to Table: settings saved.");
-  }
-
-  _onRender(context, options) {
-    this.element
-      ?.querySelector('[data-action="pickFatePointImage"]')
-      ?.addEventListener("click", async (event) => {
-        const input = this.element.querySelector('[name="fatePointImage"]');
-        new FilePicker({
+  for (const key of ["fatePointImage", "backgroundTexture"]) {
+    const input = html.querySelector?.(`[name="${MODULE_ID}.${key}"]`);
+    const fields = input?.closest(".form-fields");
+    if (input && fields && !fields.querySelector("[data-ctt-picker]")) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.cttPicker = "";
+      button.classList.add("file-picker");
+      button.innerHTML = '<i class="fas fa-folder-open"></i>';
+      button.addEventListener("click", () => {
+        new foundry.applications.apps.FilePicker({
           type: "imagevideo",
-          current: input?.value || "",
+          current: input.value,
           callback: (path) => {
-            if (input) input.value = path;
+            input.value = path;
           },
         }).browse();
       });
+      fields.append(button);
+    }
   }
 }

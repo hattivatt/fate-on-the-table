@@ -41,6 +41,7 @@ export class PlacementManager {
       fontFamily: opts.fontFamily,
       textColor: opts.textColor,
       fatePointImage: opts.fatePointImage,
+      backgroundTexture: opts.backgroundTexture,
     });
 
     const manager = new PlacementManager(actor, docs, bounds, opts);

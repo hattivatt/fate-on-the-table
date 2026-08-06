@@ -28,5 +28,7 @@
   "chars-to-table.remove.confirmTitle": "Remove widget",
   "chars-to-table.remove.confirm": "Remove the widget of \"{name}\" from the scene? All its drawings and tiles will be deleted.",
   "chars-to-table.remove.none": "There are no widgets of this character on the scene.",
-  "chars-to-table.remove.done": "Widget removed ({count})."
+  "chars-to-table.remove.done": "Widget removed ({count}).",
+  "chars-to-table.settings.backgroundTexture": "Background texture",
+  "chars-to-table.settings.backgroundTextureHint": "Texture image for the widget background (old paper, etc.). Empty = plain white fill."
 }
