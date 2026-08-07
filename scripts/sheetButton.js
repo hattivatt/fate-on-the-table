@@ -1,8 +1,8 @@
 /**
- * Adds the "Place on Table" / "Remove from Table" buttons to the Fate Core
- * character sheet WINDOW frame via the supported ApplicationV2
- * `_getFrameButtons` extension point (no modification of system files;
- * patched on the sheet class prototype).
+ * Adds "Place on Table" / "Remove from Table" entries to the Fate Core
+ * character sheet WINDOW header menu (the "⋮" menu) via the supported
+ * ApplicationV2 `_headerControlContextEntries` extension point (no
+ * modification of system files; patched on the sheet class prototype).
  */
 
 import { PlacementManager } from "./PlacementManager.js";
@@ -15,7 +15,7 @@ export function initSheetButton() {
     console.warn("[chars-to-table] fcoCharacter sheet class not found");
     return;
   }
-  patchFrameButtons(cls);
+  patchSheetMenu(cls);
 }
 
 function findSheetClass() {
@@ -31,48 +31,27 @@ function findSheetClass() {
   return null;
 }
 
-function patchFrameButtons(cls) {
+function patchSheetMenu(cls) {
   // Guard against re-patching on module hot-reload.
   if (cls.prototype.__charsToTablePatched) return;
   cls.prototype.__charsToTablePatched = true;
 
-  const originalButtons = cls.prototype._getFrameButtons;
-  cls.prototype._getFrameButtons = function (options) {
-    const buttons = originalButtons ? originalButtons.call(this, options) : [];
-    if (!buttons.some((b) => b.action === "charsToTablePlace")) {
-      buttons.push({
-        type: "button",
-        action: "charsToTablePlace",
-        icon: "fas fa-dice-d20",
-        label: game.i18n.localize("chars-to-table.placeOnTable.title"),
-      });
+  const original = cls.prototype._headerControlContextEntries;
+  cls.prototype._headerControlContextEntries = function* () {
+    if (original) yield* original.call(this);
+    const actor = this.actor ?? this.object;
+    yield {
+      name: game.i18n.localize("chars-to-table.placeOnTable.title"),
+      icon: "fas fa-level-down-alt",
+      callback: () => PlacementManager.place(actor),
+    };
+    if ((actor?.getFlag?.(FLAG_SCOPE, WIDGETS_FLAG) ?? []).length > 0) {
+      yield {
+        name: game.i18n.localize("chars-to-table.remove.title"),
+        icon: "fas fa-level-up-alt",
+        callback: () => removeWithConfirmation(actor),
+      };
     }
-    if (
-      !buttons.some((b) => b.action === "charsToTableRemove") &&
-      (this.actor?.getFlag?.(FLAG_SCOPE, WIDGETS_FLAG) ?? []).length > 0
-    ) {
-      buttons.push({
-        type: "button",
-        action: "charsToTableRemove",
-        icon: "fas fa-user-minus",
-        label: game.i18n.localize("chars-to-table.remove.title"),
-      });
-    }
-    return buttons;
-  };
-
-  const originalClick = cls.prototype._onClickAction;
-  cls.prototype._onClickAction = function (event, target) {
-    const action = target?.dataset?.action;
-    if (action === "charsToTablePlace") {
-      PlacementManager.place(this.actor ?? this.object);
-      return;
-    }
-    if (action === "charsToTableRemove") {
-      removeWithConfirmation(this.actor ?? this.object);
-      return;
-    }
-    return originalClick ? originalClick.call(this, event, target) : undefined;
   };
 }
 
