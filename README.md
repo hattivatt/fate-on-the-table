@@ -1,71 +1,59 @@
-![](https://img.shields.io/badge/Foundry-v10-informational)
-<!--- Downloads @ Latest Badge -->
-<!--- replace <user>/<repo> with your username/repository -->
-<!--- ![Latest Release Download Count](https://img.shields.io/github/downloads/<user>/<repo>/latest/module.zip) -->
+# Chars to Table
 
-<!--- Forge Bazaar Install % Badge -->
-<!--- replace <your-module-name> with the `name` in your manifest -->
-<!--- ![Forge Installs](https://img.shields.io/badge/dynamic/json?label=Forge%20Installs&query=package.installs&suffix=%25&url=https%3A%2F%2Fforge-vtt.com%2Fapi%2Fbazaar%2Fpackage%2F<your-module-name>&colorB=4aa94a) -->
+Модуль Foundry VTT, который выносит персонажа из чарника на стол (канвас сцены) в виде набора объектов `Drawing` + `Tile`, позволяя разместить его перетаскиванием мыши и автоматически синхронизируя с изменениями актёра. Включает менеджер Fate Points игроков и мастера и операцию «Новая сцена».
 
+Система: `fate-core-official`. Foundry: v14 (минимум `14.354`).
 
-# How to use this Template to create a versioned Release
+## Возможности
 
-1. Open your repository's releases page.
+### Вынос персонажа на стол
 
-![Where to click to open repository releases.](https://user-images.githubusercontent.com/7644614/93409301-9fd25080-f864-11ea-9e0c-bdd09e4418e4.png)
+- В меню «⋮» окна чарника (`fcoCharacter`) — пункты **«Вынести на стол»** и **«Убрать со стола»**.
+- Размещение в режиме «в руке»: превью следует за мышью, левый клик — подтверждение, ПКМ или Esc — отмена; опциональная привязка к сетке.
+- Виджет — группа документов на сцене: портрет, имя, аспекты, блок жетонов FP, таблица компетенций, фон-подложка и прозрачный «хватательный» бокс.
+- Автосинхронизация с актёром (тексты, портрет, число жетонов FP, навыки) с дебаунсом; несколько виджетов одного актёра на разных сценах синхронизируются одновременно.
+- Перетаскивание любого элемента виджета двигает всю группу; якорь сохраняется.
+- Удаление виджета — со сцены исчезают все его рисунки и тайлы, запись очищается.
 
-2. Click "Draft a new release"
+### Менеджер Fate Points (GM)
 
-![Draft a new release button.](https://user-images.githubusercontent.com/7644614/93409364-c1333c80-f864-11ea-89f1-abfcb18a8d9f.png)
+Инструмент сцены **«Менеджер Fate Points»** (иконка звезды в группе «Жетоны», виден мастеру):
 
-3. Fill out the release version as the tag name.
+- строки игроков: текущие FP / refresh, кнопки «дать» `+` / «забрать» `−` (не ниже нуля), признак наличия виджета на активной сцене;
+- секция мастера: текущие FP (`fate-core-official.gmfatepoints`), `+`/`−`, размещение/переразмещение/удаление отдельного ряда жетонов FP мастера;
+- **«Синхронизировать всех»** — пересобирает виджеты актёров активной сцены и ряд мастера (новые виджеты не создаются);
+- **«Рефреш всех»** — поднимает текущий запас игроков до refresh (завышенный запас не уменьшается);
+- **«Новая сцена»** — диалог с выбором количества игроков и переносимым списком ситуативных аспектов; после подтверждения: сохраняются выбранные аспекты в `scene.flags["fate-core-official"].situation_aspects`, FP мастера устанавливаются равным числу игроков, очищается быстротечный стресс (только `Fleeting`: боксы и связанный аспект), выдаётся итоговое уведомление. Отмена не меняет ни одного документа.
 
-If you want to add details at this stage you can, or you can always come back later and edit them.
+Ряд FP мастера — отдельная группа тайлов (без `actorUuid`), реестр `scene.flags["chars-to-table"].gmFatePointWidget` `{ widgetId, anchor }`. Перетаскивание ряда сдвигает его целиком и обновляет якорь. При значении FP = 0 реестр сохраняется, тайлы отсутствуют. Если ряд удалён вручную при положительном значении — реестр очищается и ряд не воссоздаётся сам.
 
-![Release Creation Form](https://user-images.githubusercontent.com/7644614/93409543-225b1000-f865-11ea-9a19-f1906a724421.png)
+### Настройки
 
-4. Hit submit.
+- шаблон раскладки, масштаб, привязка к сетке, шрифт, цвет текста;
+- изображение FP (общее для виджета игрока и ряда мастера), ширина/высота/шаг жетонов — применяются как runtime-оверрайд к уже размещённым виджетам и ряду мастера без сдвига якоря (рамка жетонов расширяется под фактический ряд);
+- текстура фона виджета.
 
-5. Wait a few minutes.
+## Установка
 
-A Github Action will run to populate the `module.json` and `module.zip` with the correct urls that you can then use to distribute this release. You can check on its status in the "Actions" tab.
+В Foundry: **Add-on Modules → Install Module → Manifest URL**:
 
-![Actions Tab](https://user-images.githubusercontent.com/7644614/93409820-c1800780-f865-11ea-8c6b-c3792e35e0c8.png)
+```
+https://github.com/<user>/<repo>/releases/latest/download/module.json
+```
 
-6. Grab the module.json url from the release's details page.
+Либо скопируйте папку модуля в `Data/modules/chars-to-table`.
 
-![image](https://user-images.githubusercontent.com/7644614/93409960-10c63800-f866-11ea-83f6-270cc5d10b71.png)
+## Использование
 
-This `module.json` will only ever point at this release's `module.zip`, making it useful for sharing a specific version for compatibility purposes.
+1. Откройте чарник персонажа Fate Core → меню «⋮» → **«Вынести на стол»**, кликните по сцене.
+2. Задайте изображение FP в настройках модуля, иначе жетоны не рисуются (числовые значения при этом всё равно корректны).
+3. Мастер: инструмент **«Менеджер Fate Points»** — раздача FP, размещение ряда мастера, «Новая сцена».
 
-7. You can use the url `https://github.com/<user>/<repo>/releases/latest/download/module.json` to refer to the manifest.
+## Совместимость
 
-This is the url you want to use to install the module typically, as it will get updated automatically.
+- Проверено с включённым модулем Advanced Drawing Tools (тексты получают ADT-флаги выравнивания).
+- Старые standalone-тайлы макроса `core.fatePointTrackerPlayer` / `core.gmFatePointTracker` не удаляются и не управляются модулем; системный флаг FP мастера (`fate-core-official.gmfatepoints`) используется напрямую.
 
-# How to List Your Releases on Package Admin
+## Разработка
 
-To request a package listing for your first release, go to the [Package Submission Form](https://foundryvtt.com/packages/submit) (accessible via a link at the bottom of the "[Systems and Modules](https://foundryvtt.com/packages/)" page on the Foundry website).
-
-Fill in the form. "Package Name" must match the name in the module manifest.  Package Title will be the display name for the package.  Package URL should be your repo URL.
-![image](https://user-images.githubusercontent.com/36359784/120664263-b49e5500-c482-11eb-9126-af7006389903.png)
-
-
-One of the Foundry staff will typically get back to you with an approval or any further questions within a few days, and give you access to the package admin pages.
-
-Once you have access to the [module admin page](https://foundryvtt.com/admin/packages/package/), you can release a new version by going into the page for your module, scrolling to the bottom, and filling in a new Package Version.
-
-When listing a new version, Version should be the version number you set above, and the Manifest URL should be the manifest __for that specific version__ (do not use /latest/ here).
-![image](https://user-images.githubusercontent.com/36359784/120664346-c4b63480-c482-11eb-9d8b-731b50d70939.png)
-
-> ### :warning: Important :warning:
-> 
-> It is very important that you use the specific release manifest url, and not the `/latest` url here. For more details about why this is important and how Foundry Installs/Updates packages, read [this wiki article](https://foundryvtt.wiki/en/development/guides/releases-and-history).
-
-Clicking "Save" in the bottom right will save the new version, which means that anyone installing your module from within Foundry will get that version, and a post will be generated in the #release-announcements channel on the official Foundry VTT Discord.
-
-
-# FoundryVTT Module
-
-Does something, probably
-
-## Changelog
+Подробный план и зафиксированные решения — в [PLAN.md](PLAN.md).

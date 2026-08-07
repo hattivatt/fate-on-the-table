@@ -1,11 +1,12 @@
 /**
  * widgetDrag — moves all parts of a widget together when any single part is
  * dragged on the canvas (drawings and tiles live in different layers and
- * cannot be grouped natively). Also updates the widget anchor on the actor so
- * the next sync does not snap the widget back.
+ * cannot be grouped natively). Also updates the widget anchor (the actor
+ * flag for actor widgets, the scene flag for the GM fate point row) so the
+ * next sync does not snap the widget back.
  */
 
-import { FLAG_SCOPE, WIDGETS_FLAG } from "./constants.js";
+import { FLAG_SCOPE, WIDGETS_FLAG, GM_FP_WIDGET_FLAG, GM_OWNER_TYPE } from "./constants.js";
 import { allWidgetDocs } from "./widgetDocs.js";
 
 export function initWidgetDrag() {
@@ -30,27 +31,35 @@ async function propagate(sourceDoc, widgetId, dx, dy) {
   const siblings = allWidgetDocs(scene, widgetId).filter(
     (d) => d.id !== sourceDoc.id,
   );
-  if (!siblings.length) return;
 
-  const drawUpdates = [];
-  const tileUpdates = [];
-  for (const s of siblings) {
-    const update = {
-      _id: s.id,
-      x: Math.round(s.x + dx),
-      y: Math.round(s.y + dy),
-    };
-    (s.documentName === "Tile" ? tileUpdates : drawUpdates).push(update);
+  if (siblings.length) {
+    const drawUpdates = [];
+    const tileUpdates = [];
+    for (const s of siblings) {
+      const update = {
+        _id: s.id,
+        x: Math.round(s.x + dx),
+        y: Math.round(s.y + dy),
+      };
+      (s.documentName === "Tile" ? tileUpdates : drawUpdates).push(update);
+    }
+
+    const syncOptions = { charsToTableSync: true };
+    if (drawUpdates.length) {
+      await scene.updateEmbeddedDocuments("Drawing", drawUpdates, syncOptions);
+    }
+    if (tileUpdates.length) {
+      await scene.updateEmbeddedDocuments("Tile", tileUpdates, syncOptions);
+    }
   }
 
-  const syncOptions = { charsToTableSync: true };
-  if (drawUpdates.length) {
-    await scene.updateEmbeddedDocuments("Drawing", drawUpdates, syncOptions);
+  // The anchor must be shifted even for a single-document widget (e.g. a GM
+  // fate point row with one token).
+  const ownerType = sourceDoc.getFlag(FLAG_SCOPE, "ownerType");
+  if (ownerType === GM_OWNER_TYPE) {
+    await shiftSceneAnchor(scene, widgetId, dx, dy);
+    return;
   }
-  if (tileUpdates.length) {
-    await scene.updateEmbeddedDocuments("Tile", tileUpdates, syncOptions);
-  }
-
   const actorUuid = sourceDoc.getFlag(FLAG_SCOPE, "actorUuid");
   if (actorUuid) {
     try {
@@ -60,6 +69,19 @@ async function propagate(sourceDoc, widgetId, dx, dy) {
       console.warn("[chars-to-table] anchor update failed:", err);
     }
   }
+}
+
+/** Updates the GM row anchor stored in the scene flag. */
+async function shiftSceneAnchor(scene, widgetId, dx, dy) {
+  const registry = scene.getFlag(FLAG_SCOPE, GM_FP_WIDGET_FLAG);
+  if (!registry || registry.widgetId !== widgetId) return;
+  await scene.setFlag(FLAG_SCOPE, GM_FP_WIDGET_FLAG, {
+    ...registry,
+    anchor: {
+      x: (registry.anchor?.x ?? 0) + dx,
+      y: (registry.anchor?.y ?? 0) + dy,
+    },
+  });
 }
 
 async function shiftAnchor(actor, sceneId, widgetId, dx, dy) {

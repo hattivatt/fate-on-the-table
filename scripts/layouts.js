@@ -101,7 +101,9 @@ export const layouts = {
         align: "center",
         color: "#000000",
       },
-      // 4. Рамка с жетонами (пустой текст + обводка)
+      // 4. Рамка с жетонами (пустой текст + обводка). Ширина/высота — это
+      //    минимальный размер: при переполнении рамка расширяется под
+      //    фактический ряд жетонов (см. frameFor/pad в WidgetBuilder).
       {
         id: "fatePointsFrame",
         type: "drawing",
@@ -112,8 +114,14 @@ export const layouts = {
         h: 97,
         stroke: 2,
         color: "#000000",
+        frameFor: "fatePointTokens",
+        pad: 7,
       },
-      // 4. Ряд жетонов FP (70×70, шаг 20)
+      // 4. Ряд жетонов FP (w/h/step переопределяются настройками).
+      //    Ряд привязан к левой границе рамки fatePointsFrame (frameAnchor):
+      //    начинается ровно от неё (padX = 0),
+      //    по вертикали центрируется в рамке. x/y ниже — фолбэк на случай
+      //    отсутствия рамки.
       {
         id: "fatePointTokens",
         type: "tileRow",
@@ -123,6 +131,7 @@ export const layouts = {
         w: 70,
         h: 70,
         step: 20,
+        frameAnchor: { frame: "fatePointsFrame", padX: 0 },
       },
       // 5. Заголовок «Компетенции»
       {

@@ -3,6 +3,11 @@
  *
  * Shows a preview rectangle that follows the mouse; left-click commits the
  * widget documents onto the scene, right-click or Esc cancels.
+ *
+ * The flow is generic: `placeGroup` accepts an arbitrary set of documents
+ * and a commit callback, so both actor widgets and the GM fate point row
+ * share the same interaction. `place(actor)` stays as a convenience wrapper
+ * for the actor widget behaviour.
  */
 
 import { build, toDocumentData } from "./WidgetBuilder.js";
@@ -15,10 +20,56 @@ export class PlacementManager {
   static active = null;
 
   /**
-   * Starts the placement flow for an actor.
+   * Starts the placement flow for an actor (convenience wrapper).
    * @param {object} actor
    */
   static async place(actor) {
+    const opts = getPlacementOptions();
+    const layout = getLayout(opts.templateId);
+    const { docs, bounds } = await build(actor, layout, {
+      scale: opts.scale,
+      fontFamily: opts.fontFamily,
+      textColor: opts.textColor,
+      fatePointImage: opts.fatePointImage,
+      fatePointTileWidth: opts.fatePointTileWidth,
+      fatePointTileHeight: opts.fatePointTileHeight,
+      fatePointStep: opts.fatePointStep,
+      backgroundTexture: opts.backgroundTexture,
+    });
+
+    await PlacementManager.placeGroup({
+      docs,
+      bounds,
+      label: actor.name,
+      options: opts,
+      hintKey: `${MODULE_ID}.placeOnTable.hint`,
+      commit: async (anchor, widgetId) => {
+        await commitActorWidget(actor, docs, anchor, widgetId);
+      },
+    });
+  }
+
+  /**
+   * Generic placement flow for an arbitrary document group.
+   * @param {object} cfg  {
+   *   docs: object[],          WidgetBuilder descriptors (relative coords).
+   *   bounds: {x, y, width, height},
+   *   label: string,           Preview label.
+   *   options: object,         Placement options (snapToGrid etc).
+   *   hintKey: string,         i18n hint notification key.
+   *   successKey: string,      i18n key shown after a successful commit.
+   *   commit: (anchor, widgetId) => Promise,  Creates docs + registers.
+   * }
+   */
+  static async placeGroup({
+    docs,
+    bounds,
+    label,
+    options,
+    hintKey,
+    successKey,
+    commit,
+  }) {
     if (this.active) {
       ui.notifications.warn(game.i18n.localize(`${MODULE_ID}.placement.busy`));
       return;
@@ -27,24 +78,19 @@ export class PlacementManager {
       ui.notifications.warn(game.i18n.localize(`${MODULE_ID}.placement.noScene`));
       return;
     }
-    if (!game.user.isGM && !game.user.can("DRAWING_CREATE")) {
+    // Widgets consist of drawings AND tiles; only the GM and Assistant GM
+    // roles can create tiles on the scene, so placement is GM-only.
+    if (!game.user.isGM) {
       ui.notifications.error(
         game.i18n.localize(`${MODULE_ID}.placement.noPermission`),
       );
       return;
     }
 
-    const opts = getPlacementOptions();
-    const layout = getLayout(opts.templateId);
-    const { docs, bounds } = await build(actor, layout, {
-      scale: opts.scale,
-      fontFamily: opts.fontFamily,
-      textColor: opts.textColor,
-      fatePointImage: opts.fatePointImage,
-      backgroundTexture: opts.backgroundTexture,
-    });
-
-    const manager = new PlacementManager(actor, docs, bounds, opts);
+    const manager = new PlacementManager(
+      { docs, bounds, label, options, hintKey, commit },
+      canvas.scene,
+    );
     this.active = manager;
     try {
       const point = await manager.run();
@@ -61,16 +107,18 @@ export class PlacementManager {
   }
 
   /**
-   * @param {object} actor
-   * @param {object[]} docs  WidgetBuilder document descriptors (relative coords).
-   * @param {{width: number, height: number}} bounds
-   * @param {object} opts  Placement options (snapToGrid etc).
+   * @param {object} cfg  See placeGroup.
+   * @param {object} scene  Target scene (created into).
    */
-  constructor(actor, docs, bounds, opts) {
-    this.actor = actor;
-    this.docs = docs;
-    this.bounds = bounds;
-    this.opts = opts;
+  constructor(cfg, scene) {
+    this.docs = cfg.docs;
+    this.bounds = cfg.bounds;
+    this.label = cfg.label;
+    this.opts = cfg.options;
+    this.hintKey = cfg.hintKey;
+    this.successKey = cfg.successKey ?? `${MODULE_ID}.placement.success`;
+    this._commit = cfg.commit;
+    this.scene = scene;
     this.widgetId = foundry.utils.randomID();
     this._resolve = null;
     this._graphics = null;
@@ -81,9 +129,7 @@ export class PlacementManager {
 
   /** Runs the interactive placement loop. Resolves with {x, y} or null. */
   run() {
-    ui.notifications.info(
-      game.i18n.localize(`${MODULE_ID}.placeOnTable.hint`),
-    );
+    ui.notifications.info(game.i18n.localize(this.hintKey));
     this._setup();
     return new Promise((resolve) => {
       this._resolve = resolve;
@@ -99,7 +145,7 @@ export class PlacementManager {
     this._graphics = g;
 
     try {
-      const label = new PIXI.Text(this.actor.name, {
+      const label = new PIXI.Text(this.label, {
         fontFamily: "Montserrat",
         fontSize: 18,
         fill: 0x22ff22,
@@ -169,7 +215,7 @@ export class PlacementManager {
     g.drawRect(p.x + bx, p.y + by, width, height);
     g.endFill();
     if (this._label) {
-      this._label.text = this.actor.name;
+      this._label.text = this.label;
       this._label.position.set(p.x + bx, p.y + by - 24);
       this._label.visible = true;
     }
@@ -236,41 +282,43 @@ export class PlacementManager {
   /** Creates the widget documents on the scene and registers the widget. */
   async commit(point) {
     const anchor = { x: Math.round(point.x), y: Math.round(point.y) };
-    const flagsBase = { widgetId: this.widgetId, actorUuid: this.actor.uuid };
-
-    const drawings = [];
-    const tiles = [];
-    for (const doc of this.docs) {
-      const data = toDocumentData(
-        { ...doc, x: doc.x + anchor.x, y: doc.y + anchor.y },
-        { ...flagsBase, part: doc.part, index: doc.index },
-      );
-      (doc.kind === "tile" ? tiles : drawings).push(data);
-    }
-
-    if (drawings.length) {
-      await canvas.scene.createEmbeddedDocuments("Drawing", drawings);
-    }
-    if (tiles.length) {
-      await canvas.scene.createEmbeddedDocuments("Tile", tiles);
-    }
-
-    const widgets = (this.actor.getFlag(FLAG_SCOPE, WIDGETS_FLAG) ?? []).filter(
-      (w) => {
-        const scene = game.scenes.get(w.sceneId);
-        if (!scene) return false;
-        return allWidgetDocs(scene, w.widgetId).length > 0;
-      },
-    );
-    widgets.push({
-      widgetId: this.widgetId,
-      sceneId: canvas.scene.id,
-      anchor,
-    });
-    await this.actor.setFlag(FLAG_SCOPE, WIDGETS_FLAG, widgets);
-
-    ui.notifications.info(
-      game.i18n.localize(`${MODULE_ID}.placement.success`),
-    );
+    await this._commit(anchor, this.widgetId);
+    ui.notifications.info(game.i18n.localize(this.successKey));
   }
+}
+
+/** Default actor-widget commit: create docs + register on the actor. */
+async function commitActorWidget(actor, docs, anchor, widgetId) {
+  const flagsBase = { widgetId, actorUuid: actor.uuid };
+
+  const drawings = [];
+  const tiles = [];
+  for (const doc of docs) {
+    const data = toDocumentData(
+      { ...doc, x: doc.x + anchor.x, y: doc.y + anchor.y },
+      { ...flagsBase, part: doc.part, index: doc.index },
+    );
+    (doc.kind === "tile" ? tiles : drawings).push(data);
+  }
+
+  if (drawings.length) {
+    await canvas.scene.createEmbeddedDocuments("Drawing", drawings);
+  }
+  if (tiles.length) {
+    await canvas.scene.createEmbeddedDocuments("Tile", tiles);
+  }
+
+  const widgets = (actor.getFlag(FLAG_SCOPE, WIDGETS_FLAG) ?? []).filter(
+    (w) => {
+      const scene = game.scenes.get(w.sceneId);
+      if (!scene) return false;
+      return allWidgetDocs(scene, w.widgetId).length > 0;
+    },
+  );
+  widgets.push({
+    widgetId,
+    sceneId: canvas.scene.id,
+    anchor,
+  });
+  await actor.setFlag(FLAG_SCOPE, WIDGETS_FLAG, widgets);
 }

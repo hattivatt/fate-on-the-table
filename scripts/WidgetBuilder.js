@@ -10,9 +10,15 @@
  *   - "tileRow":  horizontal row of images (e.g. fate point tokens).
  *                 `content` resolves to a count; `src` comes from
  *                 options.fatePointImage; `step` is the horizontal pitch.
+ *                 `w`, `h` and `step` come from the layout but can be
+ *                 overridden at runtime (options.fatePointTileWidth/Height
+ *                 and options.fatePointStep).
  *   - "drawing":  text (or a shape frame if `content` resolves to "").
  *                 Either `content` (single drawing) or `rows` (one drawing
  *                 per row, stacked with `lineHeight`).
+ *                 Optional `frameFor: "<tileRow id>"` + `pad` makes the
+ *                 frame grow to cover the actual token row (never below the
+ *                 layout-defined size).
  */
 
 const warnedFonts = new Set();
@@ -71,10 +77,64 @@ function resolveFont(family) {
 }
 
 /**
+ * Builds a horizontal row of tile descriptors (fate point tokens).
+ * Shared by the actor widget layout ("tileRow" elements) and the GM fate
+ * point row, so both rows share one geometry implementation.
+ * @param {object} opts  { part, count, src, x, y, w, h, step, ox, oy, scale,
+ *   direction }
+ *   `direction` lays the row out from the anchor point: "ltr" (default,
+ *   rightwards), "rtl" (leftwards), "ttb" (downwards), "btt" (upwards).
+ * @returns {object[]}  Tile descriptors (kind: "tile", index per tile).
+ */
+export function buildTileRow({
+  part,
+  count,
+  src,
+  x,
+  y,
+  w,
+  h,
+  step,
+  ox = 0,
+  oy = 0,
+  scale = 1,
+  direction = "ltr",
+}) {
+  const docs = [];
+  const n = Math.max(0, Number(count) || 0);
+  if (!src || n === 0) return docs;
+  const pitch = (step ?? w + 20) * scale;
+  const oxScaled = (x + ox) * scale;
+  const oyScaled = (y + oy) * scale;
+  const wScaled = w * scale;
+  const hScaled = h * scale;
+  const dirX = direction === "rtl" ? -1 : direction === "ltr" ? 1 : 0;
+  const dirY = direction === "ttb" ? 1 : direction === "btt" ? -1 : 0;
+  for (let i = 0; i < n; i++) {
+    docs.push({
+      kind: "tile",
+      part,
+      index: i,
+      x: oxScaled + dirX * i * pitch,
+      y: oyScaled + dirY * i * pitch,
+      w: wScaled,
+      h: hScaled,
+      src,
+      // Row coordinates are visible top-left coordinates. Keep the texture
+      // anchor at the top-left as well; Foundry otherwise centers the image.
+      textureAnchor: { x: 0, y: 0 },
+    });
+  }
+  return docs;
+}
+
+/**
  * Builds the widget layout for an actor.
  * @param {object} actor
  * @param {object} layout  Layout template object.
- * @param {object} [options]  { scale, fontFamily, textColor, fatePointImage } overrides.
+ * @param {object} [options]  Overrides: { scale, fontFamily, textColor,
+ *   fatePointImage, fatePointTileWidth, fatePointTileHeight, fatePointStep,
+ *   backgroundTexture }.
  * @returns {Promise<{docs: object[], bounds: {width: number, height: number}}>}
  */
 export async function build(actor, layout, options = {}) {
@@ -110,21 +170,23 @@ export async function build(actor, layout, options = {}) {
     if (el.type === "tileRow") {
       const count = Math.max(0, Number(resolveValue(el.content, actor)) || 0);
       const src = options.fatePointImage || "";
-      if (src && count > 0) {
-        const step = (el.step ?? el.w + 20) * scale;
-        for (let i = 0; i < count; i++) {
-          docs.push({
-            kind: "tile",
-            part: el.id,
-            index: i,
-            x: (el.x + ox + i * step) * scale,
-            y: (el.y + oy) * scale,
-            w: el.w * scale,
-            h: el.h * scale,
-            src,
-          });
-        }
+      const rowDocs = buildTileRow({
+        part: el.id,
+        count,
+        src,
+        x: el.x,
+        y: el.y,
+        w: options.fatePointTileWidth ?? el.w,
+        h: options.fatePointTileHeight ?? el.h,
+        step: options.fatePointStep ?? el.step,
+        ox,
+        oy,
+        scale,
+      });
+      if (el.frameAnchor) {
+        for (const d of rowDocs) d.frameAnchor = el.frameAnchor;
       }
+      docs.push(...rowDocs);
       continue;
     }
 
@@ -147,6 +209,8 @@ export async function build(actor, layout, options = {}) {
       align: el.align || "left",
       stroke,
       weight: el.weight ?? null,
+      frameFor: el.frameFor ?? null,
+      pad: el.pad ?? null,
     };
 
     if (el.rows) {
@@ -164,6 +228,39 @@ export async function build(actor, layout, options = {}) {
       const text = resolveValue(el.content, actor);
       docs.push({ ...base, index: -1, text: String(text ?? "") });
     }
+  }
+
+  // Rows anchored to a frame (frameAnchor) start at the frame's left border
+  // and are vertically centered in it.
+  // Runs BEFORE the frame growth so the frame hugs the anchored row.
+  for (const frame of docs) {
+    if (frame.kind !== "drawing") continue;
+    const anchored = docs.filter(
+      (d) => d.frameAnchor?.frame === frame.part,
+    );
+    if (!anchored.length) continue;
+    const first = anchored.find((d) => d.index === 0) ?? anchored[0];
+    const dx = frame.x + (first.frameAnchor.padX ?? 2) - first.x;
+    const dy = frame.y + (frame.h - first.h) / 2 - first.y;
+    for (const d of anchored) {
+      d.x += dx;
+      d.y += dy;
+    }
+  }
+
+  // Frame elements (frameFor) grow to cover their tile row + padding, but
+  // never shrink below the layout-defined size (minimum width/height).
+  for (const frame of docs) {
+    if (frame.kind !== "drawing" || !frame.frameFor) continue;
+    const row = docs.filter(
+      (d) => d.kind === "tile" && d.part === frame.frameFor,
+    );
+    if (!row.length) continue;
+    const pad = frame.pad ?? 7;
+    const rowMaxX = Math.max(...row.map((d) => d.x + d.w)) + pad;
+    const rowMaxY = Math.max(...row.map((d) => d.y + d.h)) + pad;
+    if (rowMaxX > frame.x + frame.w) frame.w = rowMaxX - frame.x;
+    if (rowMaxY > frame.y + frame.h) frame.h = rowMaxY - frame.y;
   }
 
   let minX = Infinity;
@@ -254,7 +351,7 @@ export async function build(actor, layout, options = {}) {
  * Converts a built document descriptor into a Drawing/Tile create payload
  * with the widget identity flags.
  * @param {object} doc
- * @param {object} flags  { widgetId, part, index, actorUuid }
+ * @param {object} flags  { widgetId, part, index, actorUuid? | ownerType? }
  * @returns {object}
  */
 function getRectangleType() {
@@ -265,8 +362,13 @@ function getRectangleType() {
 
 export function toDocumentData(doc, flags) {
   if (doc.kind === "tile") {
+    const texture = { src: doc.src };
+    if (doc.textureAnchor) {
+      texture.anchorX = doc.textureAnchor.x;
+      texture.anchorY = doc.textureAnchor.y;
+    }
     return {
-      texture: { src: doc.src },
+      texture,
       x: Math.round(doc.x),
       y: Math.round(doc.y),
       width: Math.round(doc.w),

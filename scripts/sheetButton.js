@@ -40,16 +40,24 @@ function patchSheetMenu(cls) {
   cls.prototype._headerControlContextEntries = function* () {
     if (original) yield* original.call(this);
     const actor = this.actor ?? this.object;
-    yield {
-      name: game.i18n.localize("chars-to-table.placeOnTable.title"),
-      icon: "fas fa-level-down-alt",
-      callback: () => PlacementManager.place(actor),
-    };
-    if ((actor?.getFlag?.(FLAG_SCOPE, WIDGETS_FLAG) ?? []).length > 0) {
+    const widgets = actor?.getFlag?.(FLAG_SCOPE, WIDGETS_FLAG) ?? [];
+    // Widget placement is restricted to the GM and Assistant GM roles.
+    // Plain players cannot create tiles on the scene, and in v14 there is
+    // no TILE_CREATE permission to check for a finer-grained rule.
+    const canCreate = game.user.isGM;
+    if (canCreate) {
       yield {
-        name: game.i18n.localize("chars-to-table.remove.title"),
+        label: game.i18n.localize("chars-to-table.placeOnTable.title"),
+        icon: "fas fa-level-down-alt",
+        onClick: () => PlacementManager.place(actor),
+      };
+    }
+    // Removing widgets is a GM-only operation.
+    if (game.user.isGM && widgets.length > 0) {
+      yield {
+        label: game.i18n.localize("chars-to-table.remove.title"),
         icon: "fas fa-level-up-alt",
-        callback: () => removeWithConfirmation(actor),
+        onClick: () => removeWithConfirmation(actor),
       };
     }
   };
@@ -61,14 +69,14 @@ async function removeWithConfirmation(actor) {
     ui.notifications.info(game.i18n.localize("chars-to-table.remove.none"));
     return;
   }
-  const confirmed = await Dialog.confirm({
-    title: game.i18n.localize("chars-to-table.remove.confirmTitle"),
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    window: {
+      title: game.i18n.localize("chars-to-table.remove.confirmTitle"),
+    },
     content: game.i18n.format("chars-to-table.remove.confirm", {
       name: actor.name,
     }),
-    yes: () => true,
-    no: () => false,
-    defaultYes: false,
+    rejectClose: false,
   });
   if (!confirmed) return;
   const count = await removeActorWidgets(actor);

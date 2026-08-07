@@ -67,6 +67,53 @@ export function registerSettings() {
     default: "",
   });
 
+  game.settings.register(MODULE_ID, "fatePointTileWidth", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.fatePointTileWidth`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.fatePointTileWidthHint`),
+    scope: "world",
+    config: true,
+    type: Number,
+    default: 70,
+    range: { min: 16, max: 256, step: 1 },
+  });
+
+  game.settings.register(MODULE_ID, "fatePointTileHeight", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.fatePointTileHeight`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.fatePointTileHeightHint`),
+    scope: "world",
+    config: true,
+    type: Number,
+    default: 70,
+    range: { min: 16, max: 256, step: 1 },
+  });
+
+  game.settings.register(MODULE_ID, "fatePointStep", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.fatePointStep`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.fatePointStepHint`),
+    scope: "world",
+    config: true,
+    type: Number,
+    default: 20,
+    range: { min: 0, max: 256, step: 1 },
+  });
+
+  game.settings.register(MODULE_ID, "gmFatePointDirection", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.gmFatePointDirection`),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.gmFatePointDirectionHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: String,
+    default: "ltr",
+    choices: {
+      ltr: game.i18n.localize(`${MODULE_ID}.settings.direction.ltr`),
+      rtl: game.i18n.localize(`${MODULE_ID}.settings.direction.rtl`),
+      ttb: game.i18n.localize(`${MODULE_ID}.settings.direction.ttb`),
+      btt: game.i18n.localize(`${MODULE_ID}.settings.direction.btt`),
+    },
+  });
+
   game.settings.register(MODULE_ID, "backgroundTexture", {
     name: game.i18n.localize(`${MODULE_ID}.settings.backgroundTexture`),
     hint: game.i18n.localize(`${MODULE_ID}.settings.backgroundTextureHint`),
@@ -88,6 +135,14 @@ export function getPlacementOptions() {
     fontFamily: game.settings.get(MODULE_ID, "fontFamily") ?? "",
     textColor: game.settings.get(MODULE_ID, "textColor") ?? "",
     fatePointImage: game.settings.get(MODULE_ID, "fatePointImage") ?? "",
+    fatePointTileWidth:
+      Number(game.settings.get(MODULE_ID, "fatePointTileWidth")) || 70,
+    fatePointTileHeight:
+      Number(game.settings.get(MODULE_ID, "fatePointTileHeight")) || 70,
+    fatePointStep:
+      Number(game.settings.get(MODULE_ID, "fatePointStep")) || 20,
+    gmFatePointDirection:
+      game.settings.get(MODULE_ID, "gmFatePointDirection") ?? "ltr",
     backgroundTexture:
       game.settings.get(MODULE_ID, "backgroundTexture") ?? "",
   };

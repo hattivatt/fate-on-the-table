@@ -34,7 +34,15 @@ const DRAWING_FIELDS = [
   "flags.advanced-drawing-tools.textStyle.fontWeight",
 ];
 
-const TILE_FIELDS = ["x", "y", "width", "height", "texture.src"];
+const TILE_FIELDS = [
+  "x",
+  "y",
+  "width",
+  "height",
+  "texture.src",
+  "texture.anchorX",
+  "texture.anchorY",
+];
 
 const pending = new Map();
 
@@ -52,6 +60,17 @@ export function scheduleActorSync(actor) {
       );
     }, DEBOUNCE_MS),
   );
+}
+
+/**
+ * Immediate (non-debounced) sync of every widget of an actor on the active
+ * scene. Public API for the FatePointManager so UI actions get an instant
+ * response without waiting for the debounced updateActor hook.
+ * @param {object} actor
+ */
+export async function syncActorNow(actor) {
+  if (actor.type !== "fate-core-official") return;
+  await syncActor(actor);
 }
 
 /** Removes all widget documents when an actor is deleted. */
@@ -74,6 +93,29 @@ export async function removeActorWidgets(actor) {
   }
   await actor.unsetFlag(FLAG_SCOPE, WIDGETS_FLAG);
   return widgets.length;
+}
+
+/**
+ * Deletes a single widget of an actor: its scene documents and its registry
+ * record on the actor.
+ * @param {object} actor
+ * @param {string} widgetId
+ * @returns {Promise<boolean>}  True when a widget record was found and removed.
+ */
+export async function removeWidgetRecord(actor, widgetId) {
+  const widgets = actor.getFlag(FLAG_SCOPE, WIDGETS_FLAG) ?? [];
+  const record = widgets.find((w) => w.widgetId === widgetId);
+  if (!record) return false;
+  const scene = game.scenes.get(record.sceneId);
+  if (scene) {
+    await deleteWidgetDocs(scene, widgetId);
+  }
+  await actor.setFlag(
+    FLAG_SCOPE,
+    WIDGETS_FLAG,
+    widgets.filter((w) => w.widgetId !== widgetId),
+  );
+  return true;
 }
 
 /**
@@ -118,6 +160,9 @@ async function syncActor(actor) {
     fontFamily: opts.fontFamily,
     textColor: opts.textColor,
     fatePointImage: opts.fatePointImage,
+    fatePointTileWidth: opts.fatePointTileWidth,
+    fatePointTileHeight: opts.fatePointTileHeight,
+    fatePointStep: opts.fatePointStep,
     backgroundTexture: opts.backgroundTexture,
   });
 

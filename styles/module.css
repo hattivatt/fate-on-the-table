@@ -1,1 +1,190 @@
 /* Chars to Table module styles. */
+
+/* --- Fate Point Manager dialog --- */
+
+.fp-manager .window-content {
+  padding: 5px;
+}
+
+.fp-manager .ctt-fp-manager {
+  padding: 5px;
+}
+
+.fp-manager .ctt-fp-section {
+  margin-top: 12px;
+  border-top: 2px solid rgba(0, 0, 0, 0.6);
+  padding-top: 8px;
+}
+
+.fp-manager h3 {
+  margin: 0 0 6px 0;
+  text-align: center;
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.fp-manager .ctt-fp-global {
+  display: flex;
+  gap: 6px;
+}
+
+.fp-manager .ctt-fp-btn-wide {
+  flex: 1;
+  margin: 0;
+}
+
+.fp-manager .ctt-fp-player {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.fp-manager .ctt-fp-player-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fp-manager .ctt-fp-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.fp-manager .ctt-fp-values {
+  white-space: nowrap;
+  font-size: 0.95em;
+}
+
+.fp-manager .ctt-fp-sep {
+  opacity: 0.6;
+  margin: 0 2px;
+}
+
+.fp-manager .ctt-fp-badge {
+  font-size: 0.7em;
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.fp-manager .ctt-fp-badge.ctt-fp-on-scene {
+  background: rgba(30, 130, 60, 0.35);
+  color: #0a7a33;
+}
+
+.fp-manager .ctt-fp-badge.ctt-fp-off-scene {
+  background: rgba(120, 120, 120, 0.25);
+  color: #777;
+}
+
+.fp-manager .ctt-fp-player-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.fp-manager .ctt-fp-btn {
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  margin: 0;
+}
+
+.fp-manager .ctt-fp-empty {
+  text-align: center;
+  opacity: 0.7;
+  margin: 4px 0;
+}
+
+.fp-manager .ctt-fp-gm-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.fp-manager .ctt-fp-gm-value {
+  font-size: 1.2em;
+  min-width: 1.5em;
+  text-align: center;
+}
+
+.fp-manager .ctt-fp-gm-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.fp-manager .ctt-fp-gm-row-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.fp-manager .ctt-fp-new-scene {
+  margin: 0;
+}
+
+.fp-manager.ctt-busy button {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+/* --- New Scene prompt dialog --- */
+
+.new-scene .window-content {
+  padding: 10px;
+}
+
+.new-scene .ctt-new-scene-buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  justify-content: center;
+}
+
+.new-scene .ctt-new-scene-buttons button {
+  flex: 1;
+  margin: 0;
+}
+
+/* --- Widget context menu (right-click on a character widget) --- */
+
+.ctt-widget-menu {
+  position: fixed;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--fco-sheet-background-colour, #ffffff);
+  color: var(--fco-sheet-text-colour, #000000);
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.ctt-widget-menu button {
+  text-align: left;
+  padding: 4px 10px;
+  margin: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.ctt-widget-menu button:hover {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.ctt-widget-menu button.ctt-menu-sep {
+  border-top: 1px solid rgba(0, 0, 0, 0.25);
+  margin-top: 4px;
+  padding-top: 5px;
+  border-radius: 0;
+}
