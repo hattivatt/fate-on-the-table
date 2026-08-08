@@ -19,3 +19,11 @@ export const GM_OWNER_TYPE = "gm";
 // Situation aspects scene flag (fate-core-official).
 export const SITUATION_ASPECTS_SCOPE = "fate-core-official";
 export const SITUATION_ASPECTS_KEY = "situation_aspects";
+// Scene registry of the situation aspects widget.
+export const SITUATION_ASPECTS_WIDGET_FLAG = "situationAspectsWidget";
+// ownerType marker: standalone scene widget without actorUuid.
+export const SA_OWNER_TYPE = "situationAspects";
+// Part names of the situation aspects widget drawings.
+export const SA_TEXT_PART = "situationAspectsText";
+export const SA_FRAME_PART = "situationAspectsFrame";
+export const SA_BACKGROUND_PART = "situationAspectsBackground";

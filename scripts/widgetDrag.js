@@ -2,11 +2,18 @@
  * widgetDrag — moves all parts of a widget together when any single part is
  * dragged on the canvas (drawings and tiles live in different layers and
  * cannot be grouped natively). Also updates the widget anchor (the actor
- * flag for actor widgets, the scene flag for the GM fate point row) so the
- * next sync does not snap the widget back.
+ * flag for actor widgets, the scene flag for the GM fate point row and the
+ * situation aspects widget) so the next sync does not snap the widget back.
  */
 
-import { FLAG_SCOPE, WIDGETS_FLAG, GM_FP_WIDGET_FLAG, GM_OWNER_TYPE } from "./constants.js";
+import {
+  FLAG_SCOPE,
+  WIDGETS_FLAG,
+  GM_FP_WIDGET_FLAG,
+  GM_OWNER_TYPE,
+  SITUATION_ASPECTS_WIDGET_FLAG,
+  SA_OWNER_TYPE,
+} from "./constants.js";
 import { allWidgetDocs } from "./widgetDocs.js";
 
 export function initWidgetDrag() {
@@ -57,7 +64,17 @@ async function propagate(sourceDoc, widgetId, dx, dy) {
   // fate point row with one token).
   const ownerType = sourceDoc.getFlag(FLAG_SCOPE, "ownerType");
   if (ownerType === GM_OWNER_TYPE) {
-    await shiftSceneAnchor(scene, widgetId, dx, dy);
+    await shiftSceneAnchor(scene, widgetId, dx, dy, GM_FP_WIDGET_FLAG);
+    return;
+  }
+  if (ownerType === SA_OWNER_TYPE) {
+    await shiftSceneAnchor(
+      scene,
+      widgetId,
+      dx,
+      dy,
+      SITUATION_ASPECTS_WIDGET_FLAG,
+    );
     return;
   }
   const actorUuid = sourceDoc.getFlag(FLAG_SCOPE, "actorUuid");
@@ -71,11 +88,11 @@ async function propagate(sourceDoc, widgetId, dx, dy) {
   }
 }
 
-/** Updates the GM row anchor stored in the scene flag. */
-async function shiftSceneAnchor(scene, widgetId, dx, dy) {
-  const registry = scene.getFlag(FLAG_SCOPE, GM_FP_WIDGET_FLAG);
+/** Updates a scene-owned widget anchor stored in a scene flag registry. */
+async function shiftSceneAnchor(scene, widgetId, dx, dy, flagKey) {
+  const registry = scene.getFlag(FLAG_SCOPE, flagKey);
   if (!registry || registry.widgetId !== widgetId) return;
-  await scene.setFlag(FLAG_SCOPE, GM_FP_WIDGET_FLAG, {
+  await scene.setFlag(FLAG_SCOPE, flagKey, {
     ...registry,
     anchor: {
       x: (registry.anchor?.x ?? 0) + dx,

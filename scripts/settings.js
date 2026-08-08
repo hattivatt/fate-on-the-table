@@ -4,6 +4,7 @@
  */
 
 import { getLayout, getLayoutIds } from "./layouts.js";
+import { resolveFont } from "./WidgetBuilder.js";
 
 export const MODULE_ID = "chars-to-table";
 
@@ -123,6 +124,111 @@ export function registerSettings() {
     default: "",
   });
 
+  game.settings.register(MODULE_ID, "situationAspectsWidth", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.situationAspectsWidth`),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.situationAspectsWidthHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: Number,
+    default: 500,
+    range: { min: 100, max: 4000, step: 10 },
+  });
+
+  game.settings.register(MODULE_ID, "situationAspectsHeight", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.situationAspectsHeight`),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.situationAspectsHeightHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: Number,
+    default: 800,
+    range: { min: 100, max: 4000, step: 10 },
+  });
+
+  game.settings.register(MODULE_ID, "situationAspectsFontFamily", {
+    name: game.i18n.localize(
+      `${MODULE_ID}.settings.situationAspectsFontFamily`,
+    ),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.situationAspectsFontFamilyHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: String,
+    default: "",
+    choices: {},
+  });
+
+  game.settings.register(MODULE_ID, "situationAspectsFontSize", {
+    name: game.i18n.localize(
+      `${MODULE_ID}.settings.situationAspectsFontSize`,
+    ),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.situationAspectsFontSizeHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: Number,
+    default: 32,
+    range: { min: 8, max: 300, step: 1 },
+  });
+
+  game.settings.register(MODULE_ID, "situationAspectsTextColor", {
+    name: game.i18n.localize(
+      `${MODULE_ID}.settings.situationAspectsTextColor`,
+    ),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.situationAspectsTextColorHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: String,
+    default: "#000000",
+  });
+
+  game.settings.register(MODULE_ID, "situationAspectsBackgroundTexture", {
+    name: game.i18n.localize(
+      `${MODULE_ID}.settings.situationAspectsBackgroundTexture`,
+    ),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.situationAspectsBackgroundTextureHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: String,
+    default: "",
+  });
+
+  game.settings.register(MODULE_ID, "situationAspectsBackgroundColor", {
+    name: game.i18n.localize(
+      `${MODULE_ID}.settings.situationAspectsBackgroundColor`,
+    ),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.situationAspectsBackgroundColorHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: String,
+    default: "#ffffff",
+  });
+
+  game.settings.register(MODULE_ID, "situationAspectsBackgroundAlpha", {
+    name: game.i18n.localize(
+      `${MODULE_ID}.settings.situationAspectsBackgroundAlpha`,
+    ),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.situationAspectsBackgroundAlphaHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: Number,
+    default: 1,
+    range: { min: 0, max: 1, step: 0.05 },
+  });
+
   Hooks.on("renderSettingsConfig", onRenderSettingsConfig);
 }
 
@@ -148,6 +254,39 @@ export function getPlacementOptions() {
   };
 }
 
+/**
+ * Reads the current situation aspect widget options from the settings.
+ * The font follows the legacy macro default: empty setting means BadScript
+ * when it is registered, otherwise the Montserrat fallback.
+ */
+export function getSituationAspectOptions() {
+  const fontSetting =
+    game.settings.get(MODULE_ID, "situationAspectsFontFamily") ?? "";
+  const alpha = Number(
+    game.settings.get(MODULE_ID, "situationAspectsBackgroundAlpha"),
+  );
+  return {
+    width: Number(game.settings.get(MODULE_ID, "situationAspectsWidth")) || 500,
+    height:
+      Number(game.settings.get(MODULE_ID, "situationAspectsHeight")) || 800,
+    fontFamily: resolveFont(fontSetting || "BadScript"),
+    fontSize:
+      Number(game.settings.get(MODULE_ID, "situationAspectsFontSize")) || 32,
+    textColor:
+      game.settings.get(MODULE_ID, "situationAspectsTextColor") || "#000000",
+    backgroundTexture:
+      game.settings.get(MODULE_ID, "situationAspectsBackgroundTexture") ?? "",
+    backgroundColor:
+      game.settings.get(MODULE_ID, "situationAspectsBackgroundColor") ||
+      "#ffffff",
+    // Foundry requires every Drawing to have a visible fill, text or line:
+    // a fully transparent fill (alpha 0) is invalid, so keep a tiny floor.
+    backgroundAlpha: Number.isFinite(alpha)
+      ? Math.max(alpha, 0.01)
+      : 1,
+  };
+}
+
 function getFontList() {
   try {
     return foundry.applications.settings.menus.FontConfig.getAvailableFonts();
@@ -158,15 +297,16 @@ function getFontList() {
 }
 
 /**
- * Enhances the standard settings view: refreshes the font select with the
+ * Enhances the standard settings view: refreshes the font selects with the
  * currently registered fonts and adds file picker buttons to image settings.
  */
 function onRenderSettingsConfig(app, html) {
-  const fontInput = html.querySelector?.(
-    `[name="${MODULE_ID}.fontFamily"]`,
-  );
-  if (fontInput) {
-    const current = game.settings.get(MODULE_ID, "fontFamily") ?? "";
+  for (const key of ["fontFamily", "situationAspectsFontFamily"]) {
+    const fontInput = html.querySelector?.(
+      `[name="${MODULE_ID}.${key}"]`,
+    );
+    if (!fontInput) continue;
+    const current = game.settings.get(MODULE_ID, key) ?? "";
     fontInput.innerHTML = "";
     const empty = document.createElement("option");
     empty.value = "";
@@ -182,12 +322,22 @@ function onRenderSettingsConfig(app, html) {
     }
   }
 
-  const colorInput = html.querySelector?.(
-    `[name="${MODULE_ID}.textColor"]`,
-  );
-  if (colorInput) colorInput.type = "color";
+  for (const key of [
+    "textColor",
+    "situationAspectsTextColor",
+    "situationAspectsBackgroundColor",
+  ]) {
+    const colorInput = html.querySelector?.(
+      `[name="${MODULE_ID}.${key}"]`,
+    );
+    if (colorInput) colorInput.type = "color";
+  }
 
-  for (const key of ["fatePointImage", "backgroundTexture"]) {
+  for (const key of [
+    "fatePointImage",
+    "backgroundTexture",
+    "situationAspectsBackgroundTexture",
+  ]) {
     const input = html.querySelector?.(`[name="${MODULE_ID}.${key}"]`);
     const fields = input?.closest(".form-fields");
     if (input && fields && !fields.querySelector("[data-ctt-picker]")) {

@@ -1,0 +1,5 @@
+# Local layout format draft; keep it available in the workspace without tracking it.
+/LAYOUT-FORMAT.md
+
+# Local agent instructions; not part of the module distribution.
+/AGENTS.md

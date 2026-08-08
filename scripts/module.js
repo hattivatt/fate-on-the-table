@@ -16,10 +16,14 @@ import {
   initCanvasClickFallback,
 } from "./FatePointManager.js";
 import { syncGmFatePointRow } from "./FatePointSync.js";
+import { SituationAspectManager } from "./SituationAspectManager.js";
+import { syncSituationAspects } from "./SituationAspectSync.js";
 import {
   MODULE_ID,
   GM_FP_SCOPE,
   GM_FP_KEY,
+  SITUATION_ASPECTS_SCOPE,
+  SITUATION_ASPECTS_KEY,
 } from "./constants.js";
 
 // Canvas interaction patches must be applied on every module load (page
@@ -36,8 +40,20 @@ const FATE_POINT_SETTINGS = [
   "gmFatePointDirection",
 ];
 
+const SITUATION_ASPECT_SETTINGS = [
+  "situationAspectsWidth",
+  "situationAspectsHeight",
+  "situationAspectsFontFamily",
+  "situationAspectsFontSize",
+  "situationAspectsTextColor",
+  "situationAspectsBackgroundTexture",
+  "situationAspectsBackgroundColor",
+  "situationAspectsBackgroundAlpha",
+];
+
 let gmSyncTimer = null;
 let actorReconcileTimer = null;
+let saSyncTimer = null;
 let sceneControlsRegistered = false;
 
 Hooks.once("init", () => {
@@ -62,8 +78,10 @@ Hooks.once("ready", () => {
   Hooks.on("deleteActor", cleanupActor);
   Hooks.on("updateUser", onUpdateUser);
   Hooks.on("updateSetting", onUpdateSetting);
+  Hooks.on("updateScene", onUpdateScene);
   Hooks.on("canvasReady", onCanvasReady);
   Hooks.on("renderFateUtilities", onRenderFateUtilities);
+  Hooks.on(`${MODULE_ID}.newScene`, onNewScene);
   registerSceneControl();
   console.log("[chars-to-table] hooks wired");
 });
@@ -76,6 +94,9 @@ function onCanvasReady() {
   );
   syncGmFatePointRow(canvas.scene).catch((err) =>
     console.error("[chars-to-table] GM fate point sync failed:", err),
+  );
+  syncSituationAspects(canvas.scene).catch((err) =>
+    console.error("[chars-to-table] situation aspects sync failed:", err),
   );
 }
 
@@ -94,16 +115,39 @@ function onUpdateUser(user, changed) {
 function onUpdateSetting(setting) {
   if (!setting.key?.startsWith(`${MODULE_ID}.`)) return;
   const key = setting.key.split(".")[1];
-  if (!FATE_POINT_SETTINGS.includes(key)) return;
-  scheduleGmSync();
-  if (canvas?.scene) {
-    clearTimeout(actorReconcileTimer);
-    actorReconcileTimer = setTimeout(() => {
-      reconcileScene(canvas.scene).catch((err) =>
-        console.error("[chars-to-table] reconcile failed:", err),
-      );
-    }, 400);
+  if (FATE_POINT_SETTINGS.includes(key)) {
+    scheduleGmSync();
+    if (canvas?.scene) {
+      clearTimeout(actorReconcileTimer);
+      actorReconcileTimer = setTimeout(() => {
+        reconcileScene(canvas.scene).catch((err) =>
+          console.error("[chars-to-table] reconcile failed:", err),
+        );
+      }, 400);
+    }
+    return;
   }
+  if (SITUATION_ASPECT_SETTINGS.includes(key)) {
+    scheduleSituationAspectSync();
+  }
+}
+
+/** Situation aspects flag changed on a scene: re-sync its widget (debounced). */
+function onUpdateScene(scene, changed) {
+  if (
+    !foundry.utils.hasProperty(
+      changed,
+      `flags.${SITUATION_ASPECTS_SCOPE}.${SITUATION_ASPECTS_KEY}`,
+    )
+  ) {
+    return;
+  }
+  scheduleSituationAspectSync(scene);
+}
+
+/** "New Scene" from the FatePointManager: update an already placed widget. */
+function onNewScene({ scene } = {}) {
+  scheduleSituationAspectSync(scene);
 }
 
 function scheduleGmSync() {
@@ -116,7 +160,17 @@ function scheduleGmSync() {
   }, 400);
 }
 
-/** GM-only scene control tool opening the Fate Point Manager dialog. */
+function scheduleSituationAspectSync(scene = canvas?.scene) {
+  if (!scene) return;
+  clearTimeout(saSyncTimer);
+  saSyncTimer = setTimeout(() => {
+    syncSituationAspects(scene).catch((err) =>
+      console.error("[chars-to-table] situation aspects sync failed:", err),
+    );
+  }, 400);
+}
+
+/** GM-only scene control tools opening the manager dialogs. */
 function registerSceneControl() {
   if (sceneControlsRegistered) return;
   sceneControlsRegistered = true;
@@ -131,13 +185,22 @@ function registerSceneControl() {
       onClick: () => FatePointManager.open(),
       button: true,
     });
+    group.tools.push({
+      name: "charsToTableSituationAspects",
+      title: game.i18n.localize(`${MODULE_ID}.situationAspects.tool`),
+      icon: "fas fa-fire",
+      visible: game.user.isGM,
+      onClick: () => SituationAspectManager.open(),
+      button: true,
+    });
   });
 }
 
 /**
- * Adds a "Place GM fate points" button next to the Scene Fate Points
- * control of the current GM inside the system's Fate Utilities app
- * (no modification of system files).
+ * Adds buttons to the system's Fate Utilities app (no modification of
+ * system files): a "Place GM fate points" button next to the Scene Fate
+ * Points control of the current GM, and a "Place situation aspects" button
+ * in the situation aspects row of the scene tab.
  */
 function onRenderFateUtilities(app, html) {
   if (!game.user.isGM) return;
@@ -145,24 +208,48 @@ function onRenderFateUtilities(app, html) {
     `input[name="gmfp"][data-gmid="${game.user.id}"]`,
   );
   const cell = input?.closest?.("td");
-  if (!cell || cell.querySelector("[data-ctt-gm-place]")) return;
-
-  const button = document.createElement("button");
-  button.type = "button";
-  button.dataset.cttGmPlace = "";
-  button.className = "fu_button";
-  button.innerHTML = `<i class="fas fa-level-down-alt"></i> ${game.i18n.localize(
-    `${MODULE_ID}.manager.placeGmRow`,
-  )}`;
-  button.style.cssText =
-    "border:2px groove var(--fco-foundry-interactable-color); " +
-    "margin-left:8px; background-color:var(--fco-sheet-input-colour); " +
-    "color:var(--fco-sheet-text-colour); font-size:inherit;";
-  button.addEventListener("click", () => {
-    button.disabled = true;
-    FatePointManager.placeGmFatePointRow().finally(() => {
-      button.disabled = false;
+  if (cell && !cell.querySelector("[data-ctt-gm-place]")) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.cttGmPlace = "";
+    button.className = "fu_button";
+    button.innerHTML = `<i class="fas fa-level-down-alt"></i> ${game.i18n.localize(
+      `${MODULE_ID}.manager.placeGmRow`,
+    )}`;
+    button.style.cssText =
+      "border:2px groove var(--fco-foundry-interactable-color); " +
+      "margin-left:8px; background-color:var(--fco-sheet-input-colour); " +
+      "color:var(--fco-sheet-text-colour); font-size:inherit;";
+    button.addEventListener("click", () => {
+      button.disabled = true;
+      FatePointManager.placeGmFatePointRow().finally(() => {
+        button.disabled = false;
+      });
     });
-  });
-  cell.append(button);
+    cell.append(button);
+  }
+
+  // The situation aspects section of the scene tab: the first child div is
+  // the GM-only action row (Add New Aspect, label settings, countdowns).
+  const saRow = html.querySelector?.("#fu_scene_sit_aspects_container > div");
+  if (saRow && !saRow.querySelector("[data-ctt-sa-place]")) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.cttSaPlace = "";
+    button.className = "fu_button";
+    button.innerHTML = `<i class="fas fa-fire"></i> ${game.i18n.localize(
+      `${MODULE_ID}.situationAspects.placeFromFateUtils`,
+    )}`;
+    button.style.cssText =
+      "border:2px groove var(--fco-foundry-interactable-color); " +
+      "margin-left:8px; background-color:var(--fco-sheet-input-colour); " +
+      "color:var(--fco-sheet-text-colour); font-size:inherit;";
+    button.addEventListener("click", () => {
+      button.disabled = true;
+      SituationAspectManager.placeWidget().finally(() => {
+        button.disabled = false;
+      });
+    });
+    saRow.append(button);
+  }
 }

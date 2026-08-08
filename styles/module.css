@@ -188,3 +188,123 @@
   padding-top: 5px;
   border-radius: 0;
 }
+
+/* --- Situation Aspects Manager dialog --- */
+
+.situation-aspects .window-content {
+  padding: 5px;
+}
+
+.situation-aspects .ctt-sa-manager {
+  padding: 5px;
+}
+
+.situation-aspects .ctt-sa-section {
+  margin-top: 12px;
+  border-top: 2px solid rgba(0, 0, 0, 0.6);
+  padding-top: 8px;
+}
+
+.situation-aspects h3 {
+  margin: 0 0 6px 0;
+  text-align: center;
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.situation-aspects .ctt-sa-empty {
+  text-align: center;
+  opacity: 0.7;
+  margin: 4px 0;
+}
+
+.situation-aspects .ctt-sa-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.situation-aspects .ctt-sa-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.situation-aspects .ctt-sa-invokes {
+  white-space: nowrap;
+  opacity: 0.8;
+  min-width: 2.2em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.situation-aspects .ctt-sa-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.situation-aspects .ctt-sa-btn {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+}
+
+.situation-aspects .ctt-sa-form {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+}
+
+.situation-aspects .ctt-sa-form input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.situation-aspects .ctt-sa-form input[type="number"] {
+  width: 64px;
+}
+
+.situation-aspects .ctt-sa-add-form {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.situation-aspects .ctt-sa-add-options {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.situation-aspects .ctt-sa-add-options input[type="number"] {
+  width: 64px;
+}
+
+.situation-aspects .ctt-sa-add-options select {
+  flex: 1;
+  min-width: 0;
+  max-width: 180px;
+}
+
+.situation-aspects .ctt-sa-actions-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.situation-aspects .ctt-sa-actions-row .ctt-sa-btn-wide {
+  flex: 1;
+  margin: 0;
+}
+
+.situation-aspects.ctt-busy button {
+  pointer-events: none;
+  opacity: 0.55;
+}

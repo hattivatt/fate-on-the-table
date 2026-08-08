@@ -65,7 +65,7 @@ function resolveValue(key, actor) {
   return key;
 }
 
-function resolveFont(family) {
+export function resolveFont(family) {
   if (CONFIG.fontDefinitions?.[family]) return family;
   if (family && family !== "Montserrat" && !warnedFonts.has(family)) {
     warnedFonts.add(family);

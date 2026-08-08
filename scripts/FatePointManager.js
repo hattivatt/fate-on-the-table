@@ -14,6 +14,7 @@ import { toDocumentData } from "./WidgetBuilder.js";
 import { getPlacementOptions } from "./settings.js";
 import { syncActorNow, reconcileScene, removeWidgetRecord } from "./WidgetSync.js";
 import { allWidgetDocs } from "./widgetDocs.js";
+import { SituationAspectManager } from "./SituationAspectManager.js";
 import {
   buildGmRowDocs,
   buildGmFrameDoc,
@@ -32,6 +33,7 @@ import {
   GM_FP_KEY,
   GM_FP_WIDGET_FLAG,
   GM_OWNER_TYPE,
+  SA_OWNER_TYPE,
   SITUATION_ASPECTS_SCOPE,
   SITUATION_ASPECTS_KEY,
 } from "./constants.js";
@@ -118,8 +120,9 @@ let interactionsPatched = false;
 /**
  * Canvas interactions for chars-to-table widgets:
  * - double-click on a GM fate point box (or its tokens) opens the Fate Point
- *   Manager; double-click on an actor widget part opens the actor sheet
- *   (when the clicking user can view the actor);
+ *   Manager; double-click on the situation aspects widget opens its manager;
+ *   double-click on an actor widget part opens the actor sheet (when the
+ *   clicking user can view the actor);
  * - right-click on an actor widget part opens a small menu with
  *   give/take fate point actions (owner-only).
  * Patching runs at module load (top level), so it survives page reloads.
@@ -153,6 +156,12 @@ function patchDoubleClick(proto) {
       event?.preventDefault?.();
       event?.stopPropagation?.();
       FatePointManager.open();
+      return;
+    }
+    if (ownerType === SA_OWNER_TYPE) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      SituationAspectManager.open();
       return;
     }
     const actorUuid = doc?.getFlag?.(FLAG_SCOPE, "actorUuid");
@@ -1008,11 +1017,15 @@ function selectWidgetPart(part) {
   }
 }
 
-/** Double click on a widget part: actor sheet or the GM manager. */
+/** Double click on a widget part: actor sheet or the GM managers. */
 function handleWidgetDoubleClick(part) {
   const ownerType = part.getFlag?.(FLAG_SCOPE, "ownerType");
   if (ownerType === GM_OWNER_TYPE) {
     FatePointManager.open();
+    return;
+  }
+  if (ownerType === SA_OWNER_TYPE) {
+    SituationAspectManager.open();
     return;
   }
   const actorUuid = part.getFlag?.(FLAG_SCOPE, "actorUuid");
