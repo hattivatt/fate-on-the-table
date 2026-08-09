@@ -11,8 +11,11 @@
  */
 
 import { build, toDocumentData } from "./WidgetBuilder.js";
-import { getLayout } from "./layouts.js";
-import { getPlacementOptions } from "./settings.js";
+import { getLayout } from "./layoutRegistry.js";
+import {
+  getPlacementOptions,
+  selectLayoutIdForActor,
+} from "./settings.js";
 import { MODULE_ID, FLAG_SCOPE, WIDGETS_FLAG } from "./constants.js";
 import { allWidgetDocs } from "./widgetDocs.js";
 
@@ -21,11 +24,19 @@ export class PlacementManager {
 
   /**
    * Starts the placement flow for an actor (convenience wrapper).
+   * The layout is chosen by the actor role settings (playerLayout/npcLayout).
    * @param {object} actor
    */
   static async place(actor) {
     const opts = getPlacementOptions();
-    const layout = getLayout(opts.templateId);
+    const layoutId = selectLayoutIdForActor(actor);
+    const layout = getLayout(layoutId);
+    if (!layout) {
+      ui.notifications.error(
+        game.i18n.localize(`${MODULE_ID}.layouts.notFound`),
+      );
+      return;
+    }
     const { docs, bounds } = await build(actor, layout, {
       scale: opts.scale,
       fontFamily: opts.fontFamily,
@@ -44,7 +55,14 @@ export class PlacementManager {
       options: opts,
       hintKey: `${MODULE_ID}.placeOnTable.hint`,
       commit: async (anchor, widgetId) => {
-        await commitActorWidget(actor, docs, anchor, widgetId);
+        await commitActorWidget(
+          actor,
+          docs,
+          anchor,
+          widgetId,
+          layoutId,
+          layout.version,
+        );
       },
     });
   }
@@ -288,7 +306,14 @@ export class PlacementManager {
 }
 
 /** Default actor-widget commit: create docs + register on the actor. */
-async function commitActorWidget(actor, docs, anchor, widgetId) {
+async function commitActorWidget(
+  actor,
+  docs,
+  anchor,
+  widgetId,
+  layoutId,
+  layoutVersion,
+) {
   const flagsBase = { widgetId, actorUuid: actor.uuid };
 
   const drawings = [];
@@ -319,6 +344,8 @@ async function commitActorWidget(actor, docs, anchor, widgetId) {
     widgetId,
     sceneId: canvas.scene.id,
     anchor,
+    layoutId,
+    layoutVersion,
   });
   await actor.setFlag(FLAG_SCOPE, WIDGETS_FLAG, widgets);
 }

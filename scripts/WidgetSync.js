@@ -4,8 +4,11 @@
  */
 
 import { build, toDocumentData } from "./WidgetBuilder.js";
-import { getLayout } from "./layouts.js";
-import { getPlacementOptions } from "./settings.js";
+import { getLayout, getLayoutRecord } from "./layoutRegistry.js";
+import {
+  getPlacementOptions,
+  selectLayoutIdForActor,
+} from "./settings.js";
 import { FLAG_SCOPE, WIDGETS_FLAG } from "./constants.js";
 import { allWidgetDocs } from "./widgetDocs.js";
 
@@ -151,25 +154,79 @@ async function deleteWidgetDocs(scene, widgetId) {
   if (tileIds.length) await scene.deleteEmbeddedDocuments("Tile", tileIds);
 }
 
+/**
+ * Resolves the layout id of a widget record. Explicit records keep their
+ * layout identity; legacy records (placed before layouts existed) fall back
+ * to the role-based selection and get the identity written back after a
+ * successful sync.
+ */
+function resolveRecordLayoutId(actor, record) {
+  if (record.layoutId && getLayoutRecord(record.layoutId)) return record.layoutId;
+  if (record.layoutId) {
+    console.warn(
+      `[chars-to-table] widget layout "${record.layoutId}" is not registered; falling back.`,
+    );
+  }
+  return selectLayoutIdForActor(actor);
+}
+
 async function syncActor(actor) {
   if (!canvas?.scene) return;
   const opts = getPlacementOptions();
-  const layout = getLayout(opts.templateId);
-  const { docs } = await build(actor, layout, {
-    scale: opts.scale,
-    fontFamily: opts.fontFamily,
-    textColor: opts.textColor,
-    fatePointImage: opts.fatePointImage,
-    fatePointTileWidth: opts.fatePointTileWidth,
-    fatePointTileHeight: opts.fatePointTileHeight,
-    fatePointStep: opts.fatePointStep,
-    backgroundTexture: opts.backgroundTexture,
-  });
-
   const widgets = actor.getFlag(FLAG_SCOPE, WIDGETS_FLAG) ?? [];
-  for (const record of widgets) {
-    if (record.sceneId !== canvas.scene.id) continue;
-    await syncWidget(actor, record, docs);
+  const records = widgets.filter(
+    (record) => record.sceneId === canvas.scene.id,
+  );
+  if (!records.length) return;
+
+  const byLayout = new Map();
+  for (const record of records) {
+    const layoutId = resolveRecordLayoutId(actor, record);
+    if (!byLayout.has(layoutId)) byLayout.set(layoutId, []);
+    byLayout.get(layoutId).push(record);
+  }
+
+  const identityWrites = new Map();
+  for (const [layoutId, group] of byLayout) {
+    const layout = getLayout(layoutId);
+    if (!layout) continue;
+    const { docs } = await build(actor, layout, {
+      scale: opts.scale,
+      fontFamily: opts.fontFamily,
+      textColor: opts.textColor,
+      fatePointImage: opts.fatePointImage,
+      fatePointTileWidth: opts.fatePointTileWidth,
+      fatePointTileHeight: opts.fatePointTileHeight,
+      fatePointStep: opts.fatePointStep,
+      backgroundTexture: opts.backgroundTexture,
+    });
+    for (const record of group) {
+      try {
+        await syncWidget(actor, record, docs);
+        if (!record.layoutId) {
+          identityWrites.set(record.widgetId, {
+            layoutId,
+            layoutVersion: layout.version,
+          });
+        }
+      } catch (err) {
+        console.warn(
+          `[chars-to-table] widget sync failed (${record.widgetId}):`,
+          err,
+        );
+      }
+    }
+  }
+
+  // Legacy records get their layout identity written back only after the
+  // widget synced successfully with the resolved layout.
+  if (identityWrites.size) {
+    const next = widgets.map((w) =>
+      identityWrites.has(w.widgetId)
+        ? { ...w, ...identityWrites.get(w.widgetId) }
+        : w,
+    );
+    await actor.setFlag(FLAG_SCOPE, WIDGETS_FLAG, next);
   }
 }
 

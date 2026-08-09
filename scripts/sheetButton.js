@@ -6,7 +6,9 @@
  */
 
 import { PlacementManager } from "./PlacementManager.js";
-import { removeActorWidgets } from "./WidgetSync.js";
+import { removeActorWidgets, syncActorNow } from "./WidgetSync.js";
+import { getLayoutIds, getLayoutRecord } from "./layoutRegistry.js";
+import { layoutDisplayName } from "./settings.js";
 import { FLAG_SCOPE, WIDGETS_FLAG } from "./constants.js";
 
 export function initSheetButton() {
@@ -59,8 +61,61 @@ function patchSheetMenu(cls) {
         icon: "fas fa-level-up-alt",
         onClick: () => removeWithConfirmation(actor),
       };
+      // Explicit layout change for already placed widgets: the stored layout
+      // identity wins over the role-based default settings.
+      yield {
+        label: game.i18n.localize("chars-to-table.layouts.change.title"),
+        icon: "fas fa-table-columns",
+        onClick: () => changeWidgetLayout(actor),
+      };
     }
   };
+}
+
+/** Explicitly re-layouts every placed widget of the actor. */
+async function changeWidgetLayout(actor) {
+  const layouts = getLayoutIds();
+  if (layouts.length <= 1) {
+    ui.notifications.info(
+      game.i18n.localize("chars-to-table.layouts.change.none"),
+    );
+    return;
+  }
+  const options = layouts
+    .map(
+      (id) =>
+        `<option value="${id}">${layoutDisplayName(id)}</option>`,
+    )
+    .join("");
+  const choice = await foundry.applications.api.DialogV2.prompt({
+    window: {
+      title: game.i18n.localize("chars-to-table.layouts.change.title"),
+    },
+    content: `<p>${game.i18n.format(
+      "chars-to-table.layouts.change.prompt",
+      { name: actor.name },
+    )}</p><select name="layout">${options}</select>`,
+    ok: {
+      label: game.i18n.localize("chars-to-table.layouts.change.confirm"),
+    },
+    rejectClose: false,
+  });
+  const layoutId = choice?.layout;
+  const record = getLayoutRecord(layoutId);
+  if (!layoutId || !record) return;
+
+  const widgets = (actor.getFlag(FLAG_SCOPE, WIDGETS_FLAG) ?? []).map((w) => ({
+    ...w,
+    layoutId,
+    layoutVersion: record.version,
+  }));
+  await actor.setFlag(FLAG_SCOPE, WIDGETS_FLAG, widgets);
+  await syncActorNow(actor);
+  ui.notifications.info(
+    game.i18n.format("chars-to-table.layouts.change.done", {
+      name: layoutDisplayName(layoutId),
+    }),
+  );
 }
 
 async function removeWithConfirmation(actor) {

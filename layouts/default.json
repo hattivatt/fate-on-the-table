@@ -1,0 +1,374 @@
+{
+  "format": "chars-to-table.layout",
+  "version": 1,
+  "id": "default",
+  "name": "Default",
+  "description": "Character sheet widget based on the current Fate Core layout.",
+  "anchor": {
+    "element": "portrait",
+    "point": "topLeft"
+  },
+  "scale": 1,
+  "canvas": {
+    "origin": {
+      "x": -150,
+      "y": -200
+    },
+    "size": {
+      "width": 659,
+      "height": 849
+    },
+    "sizePolicy": {
+      "mode": "content",
+      "minimum": {
+        "width": 659,
+        "height": 568
+      },
+      "overflow": "expand"
+    }
+  },
+  "background": {
+    "enabled": true,
+    "fill": {
+      "color": "#ffffff",
+      "alpha": 1
+    },
+    "texture": {
+      "source": "@setting.backgroundTexture",
+      "whenEmpty": "fill"
+    },
+    "layer": {
+      "elevation": -10,
+      "sort": -1000
+    }
+  },
+  "bounds": {
+    "enabled": true,
+    "rect": "canvas",
+    "stroke": {
+      "width": 1,
+      "color": "#000000",
+      "alpha": 0.2
+    },
+    "layer": {
+      "elevation": 10,
+      "sort": 1000
+    }
+  },
+  "elements": [
+    {
+      "id": "name",
+      "type": "drawing",
+      "rect": {
+        "x": 0,
+        "y": 1,
+        "width": 659,
+        "height": 28
+      },
+      "content": {
+        "resolver": "@name",
+        "mode": "value"
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 26,
+        "fontWeight": 800,
+        "textColor": "#000000",
+        "textAlign": "center"
+      },
+      "sizing": {
+        "width": "canvas"
+      }
+    },
+    {
+      "id": "portrait",
+      "type": "tile",
+      "rect": {
+        "x": 149,
+        "y": 177,
+        "width": 270,
+        "height": 270
+      },
+      "content": {
+        "resolver": "@portrait",
+        "mode": "image"
+      }
+    },
+    {
+      "id": "aspectsHeader",
+      "type": "drawing",
+      "rect": {
+        "x": 325,
+        "y": 50,
+        "width": 300,
+        "height": 68
+      },
+      "content": {
+        "resolver": "@headerAspects",
+        "mode": "value"
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 20,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "aspects",
+      "type": "drawing",
+      "rect": {
+        "x": 315,
+        "y": 118,
+        "width": 333,
+        "height": 450
+      },
+      "content": {
+        "resolver": "@aspects",
+        "mode": "value"
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 20,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "fatePointsLabel",
+      "type": "drawing",
+      "rect": {
+        "x": 48,
+        "y": 319,
+        "width": 200,
+        "height": 17
+      },
+      "content": {
+        "resolver": "@headerFatePoints",
+        "mode": "value"
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 18,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "fatePointsFrame",
+      "type": "drawing",
+      "rect": {
+        "x": 4,
+        "y": 342,
+        "width": 307,
+        "height": 97
+      },
+      "content": {
+        "resolver": "@empty",
+        "mode": "empty"
+      },
+      "style": {
+        "fill": {
+          "type": "none",
+          "color": "#ffffff",
+          "alpha": 0
+        },
+        "stroke": {
+          "width": 2,
+          "color": "#000000",
+          "alpha": 1
+        }
+      },
+      "sizing": {
+        "growTo": "fatePointTokens",
+        "padding": 7,
+        "minimum": true
+      }
+    },
+    {
+      "id": "fatePointTokens",
+      "type": "tileRow",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 70,
+        "height": 70
+      },
+      "content": {
+        "resolver": "@fatePointTokens",
+        "mode": "count"
+      },
+      "position": {
+        "anchorTo": "fatePointsFrame",
+        "anchorPoint": "centerLeft",
+        "selfPoint": "centerLeft",
+        "offset": {
+          "x": 0,
+          "y": 0
+        }
+      },
+      "repeat": {
+        "axis": "x",
+        "direction": "forward",
+        "pitch": 20
+      }
+    },
+    {
+      "id": "skillsHeader",
+      "type": "drawing",
+      "rect": {
+        "x": 134,
+        "y": 538,
+        "width": 300,
+        "height": 17
+      },
+      "content": {
+        "resolver": "@headerSkills",
+        "mode": "value"
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 18,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "skillName",
+      "type": "drawing",
+      "rect": {
+        "x": 4,
+        "y": 575,
+        "width": 583,
+        "height": 68
+      },
+      "content": {
+        "resolver": "@skillNames",
+        "mode": "rows"
+      },
+      "repeat": {
+        "axis": "y",
+        "pitch": 68,
+        "itemHeight": 68
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 16,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "center",
+        "stroke": {
+          "width": 2,
+          "color": "#000000",
+          "alpha": 1
+        }
+      }
+    },
+    {
+      "id": "skillValue",
+      "type": "drawing",
+      "rect": {
+        "x": 586,
+        "y": 575,
+        "width": 68,
+        "height": 68
+      },
+      "content": {
+        "resolver": "@skillValues",
+        "mode": "rows"
+      },
+      "repeat": {
+        "axis": "y",
+        "pitch": 68,
+        "itemHeight": 68
+      },
+      "style": {
+        "fontFamily": "Bruno Ace",
+        "fontSize": 30,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "center",
+        "stroke": {
+          "width": 2,
+          "color": "#000000",
+          "alpha": 1
+        }
+      }
+    },
+    {
+      "id": "stressTrackNames",
+      "type": "drawing",
+      "rect": {
+        "x": 13,
+        "y": 440,
+        "width": 182,
+        "height": 44
+      },
+      "content": {
+        "resolver": "@stressTrackNames",
+        "mode": "rows"
+      },
+      "repeat": {
+        "axis": "y",
+        "pitch": 44,
+        "itemHeight": 44
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 20,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "stressBoxRows",
+      "type": "drawing",
+      "rect": {
+        "x": 195,
+        "y": 440,
+        "width": 20,
+        "height": 20
+      },
+      "content": {
+        "resolver": "@stressBoxRows",
+        "mode": "boxRow"
+      },
+      "repeat": {
+        "axis": "y",
+        "pitch": 44,
+        "itemHeight": 44
+      },
+      "position": {
+        "anchorTo": "stressTrackNames",
+        "anchorPoint": "topLeft",
+        "selfPoint": "topLeft",
+        "offset": {
+          "x": 6,
+          "y": 0
+        }
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 14,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "center",
+        "fill": {
+          "type": "none",
+          "color": "#ffffff",
+          "alpha": 0
+        },
+        "stroke": {
+          "width": 2,
+          "color": "#000000",
+          "alpha": 1
+        }
+      }
+    }
+  ]
+}

@@ -3,6 +3,7 @@
  */
 
 import { registerSettings } from "./settings.js";
+import { initialize as initializeLayouts } from "./layoutLoader.js";
 import {
   scheduleActorSync,
   cleanupActor,
@@ -18,6 +19,7 @@ import {
 import { syncGmFatePointRow } from "./FatePointSync.js";
 import { SituationAspectManager } from "./SituationAspectManager.js";
 import { syncSituationAspects } from "./SituationAspectSync.js";
+import { LayoutImportExport } from "./LayoutImportExport.js";
 import {
   MODULE_ID,
   GM_FP_SCOPE,
@@ -40,6 +42,12 @@ const FATE_POINT_SETTINGS = [
   "gmFatePointDirection",
 ];
 
+const LAYOUT_SETTINGS = [
+  "defaultTemplate",
+  "playerLayout",
+  "npcLayout",
+];
+
 const SITUATION_ASPECT_SETTINGS = [
   "situationAspectsWidth",
   "situationAspectsHeight",
@@ -56,9 +64,12 @@ let actorReconcileTimer = null;
 let saSyncTimer = null;
 let sceneControlsRegistered = false;
 
-Hooks.once("init", () => {
+Hooks.once("init", async () => {
   console.log("[chars-to-table] init hook");
   try {
+    // The built-in layout JSON must be registered BEFORE the settings so
+    // their choices already list every layout.
+    await initializeLayouts();
     registerSettings();
     console.log("[chars-to-table] settings registered");
   } catch (err) {
@@ -117,6 +128,20 @@ function onUpdateSetting(setting) {
   const key = setting.key.split(".")[1];
   if (FATE_POINT_SETTINGS.includes(key)) {
     scheduleGmSync();
+    if (canvas?.scene) {
+      clearTimeout(actorReconcileTimer);
+      actorReconcileTimer = setTimeout(() => {
+        reconcileScene(canvas.scene).catch((err) =>
+          console.error("[chars-to-table] reconcile failed:", err),
+        );
+      }, 400);
+    }
+    return;
+  }
+  if (LAYOUT_SETTINGS.includes(key)) {
+    // Role-based layout changes affect legacy widgets (records without an
+    // explicit layout identity) and new placements only; widgets with an
+    // explicit identity keep their layout.
     if (canvas?.scene) {
       clearTimeout(actorReconcileTimer);
       actorReconcileTimer = setTimeout(() => {
@@ -191,6 +216,14 @@ function registerSceneControl() {
       icon: "fas fa-fire",
       visible: game.user.isGM,
       onClick: () => SituationAspectManager.open(),
+      button: true,
+    });
+    group.tools.push({
+      name: "charsToTableLayouts",
+      title: game.i18n.localize(`${MODULE_ID}.layouts.tool`),
+      icon: "fas fa-table-columns",
+      visible: game.user.isGM,
+      onClick: () => LayoutImportExport.open(),
       button: true,
     });
   });

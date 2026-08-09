@@ -1,0 +1,192 @@
+{
+  "format": "chars-to-table.layout",
+  "version": 1,
+  "id": "minimal",
+  "name": "Minimal",
+  "description": "Only the character name, portrait and aspects.",
+  "anchor": {
+    "element": "portrait",
+    "point": "topLeft"
+  },
+  "scale": 1,
+  "canvas": {
+    "origin": {
+      "x": -150,
+      "y": -200
+    },
+    "size": {
+      "width": 659,
+      "height": 450
+    },
+    "sizePolicy": {
+      "mode": "content",
+      "minimum": {
+        "width": 659,
+        "height": 443
+      },
+      "overflow": "expand"
+    }
+  },
+  "background": {
+    "enabled": true,
+    "fill": {
+      "color": "#ffffff",
+      "alpha": 1
+    },
+    "texture": {
+      "source": "@setting.backgroundTexture",
+      "whenEmpty": "fill"
+    },
+    "layer": {
+      "elevation": -10,
+      "sort": -1000
+    }
+  },
+  "bounds": {
+    "enabled": true,
+    "rect": "canvas",
+    "stroke": {
+      "width": 1,
+      "color": "#000000",
+      "alpha": 0.2
+    },
+    "layer": {
+      "elevation": 10,
+      "sort": 1000
+    }
+  },
+  "elements": [
+    {
+      "id": "name",
+      "type": "drawing",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 659,
+        "height": 28
+      },
+      "content": {
+        "resolver": "@name",
+        "mode": "value"
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 26,
+        "fontWeight": 800,
+        "textColor": "#000000",
+        "textAlign": "center"
+      },
+      "sizing": {
+        "width": "canvas"
+      }
+    },
+    {
+      "id": "portrait",
+      "type": "tile",
+      "rect": {
+        "x": 150,
+        "y": 175,
+        "width": 270,
+        "height": 270
+      },
+      "content": {
+        "resolver": "@portrait",
+        "mode": "image"
+      }
+    },
+    {
+      "id": "aspectsHeader",
+      "type": "drawing",
+      "rect": {
+        "x": 325,
+        "y": 33,
+        "width": 300,
+        "height": 68
+      },
+      "content": {
+        "resolver": "@headerAspects",
+        "mode": "value"
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 20,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "aspects",
+      "type": "drawing",
+      "rect": {
+        "x": 320,
+        "y": 80,
+        "width": 320,
+        "height": 220
+      },
+      "content": {
+        "resolver": "@aspects",
+        "mode": "value"
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 20,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "stressTracks",
+      "type": "drawing",
+      "rect": {
+        "x": 20,
+        "y": 320,
+        "width": 320,
+        "height": 40
+      },
+      "content": {
+        "resolver": "@stressTracks",
+        "mode": "rows"
+      },
+      "repeat": {
+        "axis": "y",
+        "pitch": 32,
+        "itemHeight": 40
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 16,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "consequences",
+      "type": "drawing",
+      "rect": {
+        "x": 20,
+        "y": 360,
+        "width": 320,
+        "height": 40
+      },
+      "content": {
+        "resolver": "@consequences",
+        "mode": "rows"
+      },
+      "repeat": {
+        "axis": "y",
+        "pitch": 32,
+        "itemHeight": 40
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 16,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "left"
+      }
+    }
+  ]
+}
