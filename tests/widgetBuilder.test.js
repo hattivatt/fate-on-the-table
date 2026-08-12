@@ -12,6 +12,7 @@ import {
   stressTrackBoxes,
   stressTrackBoxRows,
   resolveElement,
+  stressBoxTarget,
 } from "../scripts/WidgetBuilder.js";
 
 function makeActor(tracks) {
@@ -175,4 +176,59 @@ test("all boxes render checked once box_values are marked", () => {
     },
   });
   assert.deepEqual(stressTrackRows(actor), ["Physical Stress: \u2612"]);
+});
+
+test("stressBoxTarget maps a flat box index to its track and box", () => {
+  const actor = makeActor({
+    phys: {
+      name: "Physical Stress",
+      enabled: true,
+      boxes: 4,
+      box_values: [false, false, false, false],
+      aspect: "No",
+    },
+    ment: {
+      name: "Mental Stress",
+      enabled: true,
+      boxes: 3,
+      box_values: [false, false, false],
+      aspect: "No",
+    },
+  });
+  // first track: boxes 0..3, second track: boxes 0..2
+  assert.deepEqual(stressBoxTarget(actor, 0), { trackKey: "phys", boxIndex: 0 });
+  assert.deepEqual(stressBoxTarget(actor, 3), { trackKey: "phys", boxIndex: 3 });
+  assert.deepEqual(stressBoxTarget(actor, 4), { trackKey: "ment", boxIndex: 0 });
+  assert.deepEqual(stressBoxTarget(actor, 6), { trackKey: "ment", boxIndex: 2 });
+  assert.equal(stressBoxTarget(actor, 7), null);
+  assert.equal(stressBoxTarget(actor, -1), null);
+});
+
+test("stressBoxTarget skips disabled and aspect tracks, counts skill-granted boxes", () => {
+  const actor = makeActor({
+    off: {
+      name: "Disabled Stress",
+      enabled: false,
+      boxes: 4,
+      box_values: [false, false, false, false],
+      aspect: "No",
+    },
+    mild: {
+      name: "Mild Consequence",
+      enabled: true,
+      boxes: 0,
+      box_values: [],
+      aspect: { when_marked: true, name: "" },
+    },
+    extra: {
+      name: "Extra Stress",
+      enabled: true,
+      boxes: 0, // only granted by a linked skill
+      box_values: [false, false],
+      aspect: "No",
+    },
+  });
+  assert.deepEqual(stressBoxTarget(actor, 0), { trackKey: "extra", boxIndex: 0 });
+  assert.deepEqual(stressBoxTarget(actor, 1), { trackKey: "extra", boxIndex: 1 });
+  assert.equal(stressBoxTarget(actor, 2), null);
 });

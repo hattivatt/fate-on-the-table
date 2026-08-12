@@ -20,6 +20,7 @@ import { syncGmFatePointRow } from "./FatePointSync.js";
 import { SituationAspectManager } from "./SituationAspectManager.js";
 import { syncSituationAspects } from "./SituationAspectSync.js";
 import { LayoutImportExport } from "./LayoutImportExport.js";
+import { initStressBoxInteractions } from "./StressBoxes.js";
 import {
   MODULE_ID,
   GM_FP_SCOPE,
@@ -31,6 +32,7 @@ import {
 // Canvas interaction patches must be applied on every module load (page
 // reloads included), so this runs at top level — not inside a one-shot hook.
 initWidgetInteractions();
+initStressBoxInteractions();
 
 console.log("[chars-to-table] module loaded");
 

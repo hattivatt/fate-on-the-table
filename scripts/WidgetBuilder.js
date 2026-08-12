@@ -170,6 +170,32 @@ export function stressTrackBoxRows(actor) {
 }
 
 /**
+ * Maps a flat stress box index (the `index` flag of a boxRow drawing) back
+ * to its track key and within-track box index, using the same ordering as
+ * `stressTrackBoxRows`: enabled tracks with checkboxes, aspect tracks
+ * (consequences/conditions) excluded.
+ * @param {object} actor
+ * @param {number} flatIndex  Flat box index (0-based across all tracks).
+ * @returns {{trackKey: string, boxIndex: number}|null}
+ */
+export function stressBoxTarget(actor, flatIndex) {
+  const index = Number(flatIndex);
+  if (!Number.isInteger(index) || index < 0) return null;
+  let remaining = index;
+  for (const [key, track] of Object.entries(actor.system?.tracks ?? {})) {
+    if (!track?.enabled || isAspectTrack(track)) continue;
+    const count = Math.max(
+      Number(track.boxes) || 0,
+      Array.isArray(track.box_values) ? track.box_values.length : 0,
+    );
+    if (count <= 0) continue;
+    if (remaining < count) return { trackKey: key, boxIndex: remaining };
+    remaining -= count;
+  }
+  return null;
+}
+
+/**
  * Combined rows ("Name: ☐ ☐ ☐") for layouts with a single stress element.
  * @param {object} actor
  * @returns {string[]}

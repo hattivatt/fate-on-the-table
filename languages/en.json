@@ -134,6 +134,7 @@
   "chars-to-table.manager.newSceneAspectsLabel": "Which situation aspects should be carried over to the new scene?",
   "chars-to-table.manager.newSceneDone": "New scene started: GM fate points set to {gmFp}, {aspects} aspect(s) carried over, {tracks} stress track(s) cleared.",
   "chars-to-table.context.giveFatePoint": "Give fate point",
+  "chars-to-table.stressBoxes.notOwner": "You can only toggle the stress boxes of characters you own.",
   "chars-to-table.context.takeFatePoint": "Take fate point",
   "chars-to-table.context.removeWidget": "Remove widget",
   "chars-to-table.context.removeWidgetTitle": "Remove widget",

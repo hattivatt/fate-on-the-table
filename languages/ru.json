@@ -134,6 +134,7 @@
   "chars-to-table.manager.newSceneAspectsLabel": "Какие ситуативные аспекты перенести в новую сцену?",
   "chars-to-table.manager.newSceneDone": "Новая сцена начата: FP мастера установлены в {gmFp}, перенесено аспектов: {aspects}, очищено треков стресса: {tracks}.",
   "chars-to-table.context.giveFatePoint": "Дать фейт-поинт",
+  "chars-to-table.stressBoxes.notOwner": "Переключать боксы стресса можно только у своих персонажей.",
   "chars-to-table.context.takeFatePoint": "Забрать фейт-поинт",
   "chars-to-table.context.removeWidget": "Удалить виджет",
   "chars-to-table.context.removeWidgetTitle": "Удалить виджет",

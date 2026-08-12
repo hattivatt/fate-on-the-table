@@ -352,6 +352,10 @@
           "y": 0
         }
       },
+      "layer": {
+        "elevation": 20,
+        "sort": 2000
+      },
       "style": {
         "fontFamily": "Montserrat",
         "fontSize": 14,

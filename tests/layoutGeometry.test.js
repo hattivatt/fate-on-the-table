@@ -203,6 +203,20 @@ test("default layout: full actor (4 skill rows, 3 FP tokens, 2 stress rows)", ()
   assert.equal(stressBoxes[1].text, ""); // empty box marker
   assert.equal(stressBoxes[4].x, -1); // second row starts after its own name
 
+  // The boxes must be the ONLY documents above the transparent grab frame
+  // (bounds elevation 10 / sort 1000), so clicks land on them.
+  stressBoxes.forEach((d) => {
+    assert.equal(d.elevation, 20);
+    assert.equal(d.sort, 2000);
+  });
+  const aboveFrame = docs.filter(
+    (d) => (d.elevation ?? 0) > 10 || (d.sort ?? 0) > 1000,
+  );
+  assert.deepEqual(
+    [...new Set(aboveFrame.map((d) => d.part))],
+    ["stressBoxRows"],
+  );
+
   // background and bounds span the full canvas
   const bg = find("widgetBackground");
   assert.deepEqual(
