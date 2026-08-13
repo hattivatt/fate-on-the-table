@@ -4,7 +4,7 @@
  * (text + frame + background drawings) in sync:
  *
  * - the widget is identified by the module scene registry
- *   `chars-to-table.situationAspectsWidget` ({ widgetId, anchor });
+ *   `fate-on-the-table.situationAspectsWidget` ({ widgetId, anchor });
  * - without a registry record nothing is ever auto-created;
  * - text/frame/background are separate Drawing parts sharing one widgetId
  *   and ownerType "situationAspects";
@@ -263,7 +263,7 @@ async function upsertPart(scene, existing, part, payload) {
       await scene.updateEmbeddedDocuments(
         "Drawing",
         [{ _id: current.id, ...delta }],
-        { charsToTableSync: true },
+        { fateOnTheTableSync: true },
       );
     }
   } else {

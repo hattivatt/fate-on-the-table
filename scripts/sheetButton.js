@@ -14,7 +14,7 @@ import { FLAG_SCOPE, WIDGETS_FLAG } from "./constants.js";
 export function initSheetButton() {
   const cls = findSheetClass();
   if (!cls) {
-    console.warn("[chars-to-table] fcoCharacter sheet class not found");
+    console.warn("[fate-on-the-table] fcoCharacter sheet class not found");
     return;
   }
   patchSheetMenu(cls);
@@ -35,8 +35,8 @@ function findSheetClass() {
 
 function patchSheetMenu(cls) {
   // Guard against re-patching on module hot-reload.
-  if (cls.prototype.__charsToTablePatched) return;
-  cls.prototype.__charsToTablePatched = true;
+  if (cls.prototype.__fateOnTheTablePatched) return;
+  cls.prototype.__fateOnTheTablePatched = true;
 
   const original = cls.prototype._headerControlContextEntries;
   cls.prototype._headerControlContextEntries = function* () {
@@ -49,7 +49,7 @@ function patchSheetMenu(cls) {
     const canCreate = game.user.isGM;
     if (canCreate) {
       yield {
-        label: game.i18n.localize("chars-to-table.placeOnTable.title"),
+        label: game.i18n.localize("fate-on-the-table.placeOnTable.title"),
         icon: "fas fa-level-down-alt",
         onClick: () => PlacementManager.place(actor),
       };
@@ -57,14 +57,14 @@ function patchSheetMenu(cls) {
     // Removing widgets is a GM-only operation.
     if (game.user.isGM && widgets.length > 0) {
       yield {
-        label: game.i18n.localize("chars-to-table.remove.title"),
+        label: game.i18n.localize("fate-on-the-table.remove.title"),
         icon: "fas fa-level-up-alt",
         onClick: () => removeWithConfirmation(actor),
       };
       // Explicit layout change for already placed widgets: the stored layout
       // identity wins over the role-based default settings.
       yield {
-        label: game.i18n.localize("chars-to-table.layouts.change.title"),
+        label: game.i18n.localize("fate-on-the-table.layouts.change.title"),
         icon: "fas fa-table-columns",
         onClick: () => changeWidgetLayout(actor),
       };
@@ -77,7 +77,7 @@ async function changeWidgetLayout(actor) {
   const layouts = getLayoutIds();
   if (layouts.length <= 1) {
     ui.notifications.info(
-      game.i18n.localize("chars-to-table.layouts.change.none"),
+      game.i18n.localize("fate-on-the-table.layouts.change.none"),
     );
     return;
   }
@@ -89,14 +89,14 @@ async function changeWidgetLayout(actor) {
     .join("");
   const choice = await foundry.applications.api.DialogV2.prompt({
     window: {
-      title: game.i18n.localize("chars-to-table.layouts.change.title"),
+      title: game.i18n.localize("fate-on-the-table.layouts.change.title"),
     },
     content: `<p>${game.i18n.format(
-      "chars-to-table.layouts.change.prompt",
+      "fate-on-the-table.layouts.change.prompt",
       { name: actor.name },
     )}</p><select name="layout">${options}</select>`,
     ok: {
-      label: game.i18n.localize("chars-to-table.layouts.change.confirm"),
+      label: game.i18n.localize("fate-on-the-table.layouts.change.confirm"),
     },
     rejectClose: false,
   });
@@ -112,7 +112,7 @@ async function changeWidgetLayout(actor) {
   await actor.setFlag(FLAG_SCOPE, WIDGETS_FLAG, widgets);
   await syncActorNow(actor);
   ui.notifications.info(
-    game.i18n.format("chars-to-table.layouts.change.done", {
+    game.i18n.format("fate-on-the-table.layouts.change.done", {
       name: layoutDisplayName(layoutId),
     }),
   );
@@ -121,14 +121,14 @@ async function changeWidgetLayout(actor) {
 async function removeWithConfirmation(actor) {
   const widgets = actor.getFlag(FLAG_SCOPE, WIDGETS_FLAG) ?? [];
   if (!widgets.length) {
-    ui.notifications.info(game.i18n.localize("chars-to-table.remove.none"));
+    ui.notifications.info(game.i18n.localize("fate-on-the-table.remove.none"));
     return;
   }
   const confirmed = await foundry.applications.api.DialogV2.confirm({
     window: {
-      title: game.i18n.localize("chars-to-table.remove.confirmTitle"),
+      title: game.i18n.localize("fate-on-the-table.remove.confirmTitle"),
     },
-    content: game.i18n.format("chars-to-table.remove.confirm", {
+    content: game.i18n.format("fate-on-the-table.remove.confirm", {
       name: actor.name,
     }),
     rejectClose: false,
@@ -136,6 +136,6 @@ async function removeWithConfirmation(actor) {
   if (!confirmed) return;
   const count = await removeActorWidgets(actor);
   ui.notifications.info(
-    game.i18n.format("chars-to-table.remove.done", { count }),
+    game.i18n.format("fate-on-the-table.remove.done", { count }),
   );
 }

@@ -27,8 +27,8 @@ import { MODULE_ID } from "./constants.js";
 
 export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS = {
-    id: "chars-to-table-layout-io",
-    classes: ["chars-to-table-layout-io"],
+    id: "fate-on-the-table-layout-io",
+    classes: ["fate-on-the-table-layout-io"],
     position: { width: 760, height: 640 },
     window: {
       title: `${MODULE_ID}.layouts.title`,
@@ -62,15 +62,15 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
     const root = document.createElement("div");
     root.classList.add("ctt-layout-io");
 
-    root.append(this._sectionTitle("chars-to-table.layouts.listHeader"));
+    root.append(this._sectionTitle("fate-on-the-table.layouts.listHeader"));
     const records = getLayoutRecords();
     root.append(
       records.length
         ? this._layoutList(records)
-        : this._emptyNote("chars-to-table.layouts.empty"),
+        : this._emptyNote("fate-on-the-table.layouts.empty"),
     );
 
-    root.append(this._sectionTitle("chars-to-table.layouts.importHeader"));
+    root.append(this._sectionTitle("fate-on-the-table.layouts.importHeader"));
     root.append(this._importSection());
 
     return root;
@@ -113,26 +113,26 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
       }`;
       tag.textContent = game.i18n.localize(
         readonly
-          ? "chars-to-table.layouts.builtinTag"
-          : "chars-to-table.layouts.customTag",
+          ? "fate-on-the-table.layouts.builtinTag"
+          : "fate-on-the-table.layouts.customTag",
       );
       li.append(tag);
 
       const actions = document.createElement("span");
       actions.className = "ctt-layout-io-actions";
       actions.append(
-        this._button("fas fa-download", "chars-to-table.layouts.exportButton", () =>
+        this._button("fas fa-download", "fate-on-the-table.layouts.exportButton", () =>
           this._export(record.id),
         ),
       );
       if (!readonly) {
         actions.append(
-          this._button("fas fa-pen", "chars-to-table.layouts.rename", () =>
+          this._button("fas fa-pen", "fate-on-the-table.layouts.rename", () =>
             this._rename(record.id),
           ),
           this._button(
             "fas fa-trash",
-            "chars-to-table.layouts.deleteButton",
+            "fate-on-the-table.layouts.deleteButton",
             () => this._delete(record.id),
             "ctt-layout-io-danger",
           ),
@@ -162,7 +162,7 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
 
     const textarea = document.createElement("textarea");
     textarea.placeholder = game.i18n.localize(
-      "chars-to-table.layouts.importHint",
+      "fate-on-the-table.layouts.importHint",
     );
     textarea.rows = 6;
     wrap.append(textarea);
@@ -176,7 +176,7 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
     fileInput.style.display = "none";
     const fileButton = this._button(
       "fas fa-folder-open",
-      "chars-to-table.layouts.importFile",
+      "fate-on-the-table.layouts.importFile",
       () => fileInput.click(),
     );
     fileInput.addEventListener("change", () => {
@@ -189,13 +189,13 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
           return this._import(text);
         })
         .catch((err) => {
-          console.error("[chars-to-table] file read failed:", err);
+          console.error("[fate-on-the-table] file read failed:", err);
         });
     });
 
     const importButton = this._button(
       "fas fa-file-import",
-      "chars-to-table.layouts.importButton",
+      "fate-on-the-table.layouts.importButton",
       () => this._import(textarea.value),
       "ctt-layout-io-import-main",
     );
@@ -225,9 +225,9 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
     const name = layoutDisplayName(id);
     const confirmed = await foundry.applications.api.DialogV2.confirm({
       window: {
-        title: game.i18n.localize("chars-to-table.layouts.deleteConfirmTitle"),
+        title: game.i18n.localize("fate-on-the-table.layouts.deleteConfirmTitle"),
       },
-      content: game.i18n.format("chars-to-table.layouts.deleteConfirm", {
+      content: game.i18n.format("fate-on-the-table.layouts.deleteConfirm", {
         name,
       }),
       rejectClose: false,
@@ -236,7 +236,7 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
     await deleteCustomLayout(id);
     refreshLayoutChoices();
     ui.notifications.info(
-      game.i18n.format("chars-to-table.layouts.deleted", { name }),
+      game.i18n.format("fate-on-the-table.layouts.deleted", { name }),
     );
     this.render(true);
   }
@@ -269,9 +269,9 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
 
     const confirmed = await foundry.applications.api.DialogV2.confirm({
       window: {
-        title: game.i18n.localize("chars-to-table.layouts.importConfirmTitle"),
+        title: game.i18n.localize("fate-on-the-table.layouts.importConfirmTitle"),
       },
-      content: game.i18n.format("chars-to-table.layouts.importConfirm", {
+      content: game.i18n.format("fate-on-the-table.layouts.importConfirm", {
         name: normalized.name,
         id: normalized.id,
       }),
@@ -290,7 +290,7 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
     }
     refreshLayoutChoices();
     ui.notifications.info(
-      game.i18n.format("chars-to-table.layouts.imported", {
+      game.i18n.format("fate-on-the-table.layouts.imported", {
         name: normalized.name,
       }),
     );
@@ -306,17 +306,17 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
     const choice = await foundry.applications.api.DialogV2.prompt({
       window: {
         title: game.i18n.localize(
-          "chars-to-table.layouts.importCollisionTitle",
+          "fate-on-the-table.layouts.importCollisionTitle",
         ),
       },
       content: `<p>${game.i18n.format(
-        "chars-to-table.layouts.importCollisionPrompt",
+        "fate-on-the-table.layouts.importCollisionPrompt",
         { id: escapeHtml(currentId) },
       )}</p><input type="text" name="id" value="${escapeHtml(
         `${currentId}-copy`,
       )}">`,
       ok: {
-        label: game.i18n.localize("chars-to-table.layouts.importButton"),
+        label: game.i18n.localize("fate-on-the-table.layouts.importButton"),
       },
       rejectClose: false,
     });
@@ -324,7 +324,7 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
     if (!newId) return null;
     if (getLayoutRecord(newId)) {
       ui.notifications.error(
-        game.i18n.format("chars-to-table.layouts.importCollisionTaken", {
+        game.i18n.format("fate-on-the-table.layouts.importCollisionTaken", {
           id: newId,
         }),
       );
@@ -346,21 +346,21 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
     const currentName = getLayoutJson(id).name ?? "";
     const choice = await foundry.applications.api.DialogV2.prompt({
       window: {
-        title: game.i18n.localize("chars-to-table.layouts.renameTitle"),
+        title: game.i18n.localize("fate-on-the-table.layouts.renameTitle"),
       },
       content: `<p>${game.i18n.format(
-        "chars-to-table.layouts.renamePrompt",
+        "fate-on-the-table.layouts.renamePrompt",
         { name: escapeHtml(currentName) },
       )}</p><input type="text" name="name" value="${escapeHtml(currentName)}">`,
       ok: {
-        label: game.i18n.localize("chars-to-table.layouts.importButton"),
+        label: game.i18n.localize("fate-on-the-table.layouts.importButton"),
       },
       rejectClose: false,
     });
     const newName = String(choice?.name ?? "").trim();
     if (!newName) {
       ui.notifications.error(
-        game.i18n.localize("chars-to-table.layouts.renameEmpty"),
+        game.i18n.localize("fate-on-the-table.layouts.renameEmpty"),
       );
       return false;
     }
@@ -370,13 +370,13 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
     if (!saved.ok) {
       ui.notifications.error(
         saved.error ??
-          game.i18n.localize("chars-to-table.layouts.renameFailed"),
+          game.i18n.localize("fate-on-the-table.layouts.renameFailed"),
       );
       return false;
     }
     refreshLayoutChoices();
     ui.notifications.info(
-      game.i18n.format("chars-to-table.layouts.renamed", { name: newName }),
+      game.i18n.format("fate-on-the-table.layouts.renamed", { name: newName }),
     );
     return true;
   }
@@ -388,7 +388,7 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
       .join("");
     foundry.applications.api.DialogV2.prompt({
       window: {
-        title: game.i18n.localize("chars-to-table.layouts.importFailed"),
+        title: game.i18n.localize("fate-on-the-table.layouts.importFailed"),
       },
       content: `<ul class="ctt-layout-io-errors">${list}</ul>`,
       rejectClose: true,
@@ -415,7 +415,7 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
           types: [
             {
               description: game.i18n.localize(
-                "chars-to-table.layouts.jsonDescription",
+                "fate-on-the-table.layouts.jsonDescription",
               ),
               accept: { "application/json": [".json"] },
             },
@@ -425,13 +425,13 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
         await writable.write(json);
         await writable.close();
         ui.notifications.info(
-          game.i18n.localize("chars-to-table.layouts.exportDone"),
+          game.i18n.localize("fate-on-the-table.layouts.exportDone"),
         );
         return;
       } catch (err) {
         if (err?.name === "AbortError") return; // user cancelled the picker
         console.warn(
-          "[chars-to-table] native save dialog failed; using the download fallback:",
+          "[fate-on-the-table] native save dialog failed; using the download fallback:",
           err,
         );
       }
@@ -465,7 +465,7 @@ function downloadBlob(name, json) {
     URL.revokeObjectURL(url);
   }, 1000);
   ui.notifications.info(
-    game.i18n.localize("chars-to-table.layouts.exportDone"),
+    game.i18n.localize("fate-on-the-table.layouts.exportDone"),
   );
 }
 

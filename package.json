@@ -1,8 +1,8 @@
 {
-  "name": "chars-to-table",
+  "name": "fate-on-the-table",
   "private": true,
   "type": "module",
-  "description": "Dev tooling for the chars-to-table Foundry module (pure logic tests only; not part of the module package).",
+  "description": "Dev tooling for the fate-on-the-table Foundry module (pure logic tests only; not part of the module package).",
   "scripts": {
     "test": "node --test tests/*.test.js"
   }

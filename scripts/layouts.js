@@ -1,5 +1,5 @@
 /**
- * Layout templates for the "chars-to-table" module.
+ * Layout templates for the "fate-on-the-table" module.
  *
  * A layout describes the character widget as a list of elements with
  * coordinates RELATIVE to the widget anchor (top-left corner of the

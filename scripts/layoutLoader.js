@@ -50,7 +50,7 @@ export async function initialize() {
     // Fallback: the legacy JS template keeps the widget working without the
     // JSON assets (e.g. a broken module install).
     console.warn(
-      "[chars-to-table] built-in layout JSON could not be loaded; using the legacy JS layout as a fallback.",
+      "[fate-on-the-table] built-in layout JSON could not be loaded; using the legacy JS layout as a fallback.",
     );
     registerBuiltins([legacyToJson(legacyLayouts.default)]);
   }
@@ -70,7 +70,7 @@ async function loadBuiltinLayouts() {
       const response = await fetch(`${base}layouts/${id}.json`);
       if (!response.ok) {
         console.warn(
-          `[chars-to-table] failed to fetch layout "${id}" (${response.status}); falling back to the legacy JS layout.`,
+          `[fate-on-the-table] failed to fetch layout "${id}" (${response.status}); falling back to the legacy JS layout.`,
         );
         continue;
       }
@@ -79,14 +79,14 @@ async function loadBuiltinLayouts() {
       const { ok, errors, normalized } = analyzeLayout(parsed);
       if (!ok) {
         console.warn(
-          `[chars-to-table] built-in layout "${id}" is invalid and was skipped:`,
+          `[fate-on-the-table] built-in layout "${id}" is invalid and was skipped:`,
           errors,
         );
         continue;
       }
       docs.push(normalized);
     } catch (err) {
-      console.warn(`[chars-to-table] failed to load layout "${id}":`, err);
+      console.warn(`[fate-on-the-table] failed to load layout "${id}":`, err);
     }
   }
   return docs;
@@ -101,7 +101,7 @@ function readCustomLayouts() {
     if (ok) {
       valid.push(normalized);
     } else {
-      console.warn("[chars-to-table] an invalid custom layout was skipped:", errors);
+      console.warn("[fate-on-the-table] an invalid custom layout was skipped:", errors);
     }
   }
   return valid;

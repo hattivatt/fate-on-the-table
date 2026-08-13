@@ -1,7 +1,7 @@
-/** Shared constants for the chars-to-table module. */
+/** Shared constants for the fate-on-the-table module. */
 
-export const MODULE_ID = "chars-to-table";
-export const FLAG_SCOPE = "chars-to-table";
+export const MODULE_ID = "fate-on-the-table";
+export const FLAG_SCOPE = "fate-on-the-table";
 export const WIDGETS_FLAG = "widgets";
 
 // GM fate points (system flag kept compatible with the legacy macro).

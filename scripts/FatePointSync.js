@@ -184,7 +184,7 @@ export async function syncGmFatePointRow(scene = canvas?.scene) {
   if (!scene) return false;
   const gm = activeGm();
   if (!gm) {
-    console.warn("[chars-to-table] no active GM; GM fate points not synced");
+    console.warn("[fate-on-the-table] no active GM; GM fate points not synced");
     return false;
   }
   const count = Number(gm.getFlag(GM_FP_SCOPE, GM_FP_KEY)) || 0;
@@ -200,7 +200,7 @@ export async function syncGmFatePointRow(scene = canvas?.scene) {
   if (count > 0 && existingTiles.length === 0 && existingFrames.length === 0) {
     await scene.unsetFlag(FLAG_SCOPE, GM_FP_WIDGET_FLAG);
     console.warn(
-      "[chars-to-table] GM fate point box deleted manually; registry cleared",
+      "[fate-on-the-table] GM fate point box deleted manually; registry cleared",
     );
     return false;
   }
@@ -235,7 +235,7 @@ export async function syncGmFatePointRow(scene = canvas?.scene) {
       await scene.updateEmbeddedDocuments(
         "Drawing",
         [{ _id: existingFrames[0].id, ...delta }],
-        { charsToTableSync: true },
+        { fateOnTheTableSync: true },
       );
     }
   } else {
@@ -307,7 +307,7 @@ export async function syncGmFatePointRow(scene = canvas?.scene) {
       (b.getFlag(FLAG_SCOPE, "index") ?? b.x),
   );
 
-  const syncOptions = { charsToTableSync: true };
+  const syncOptions = { fateOnTheTableSync: true };
   if (updates.length) {
     await scene.updateEmbeddedDocuments("Tile", updates, syncOptions);
   }

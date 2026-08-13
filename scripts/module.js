@@ -1,5 +1,5 @@
 /**
- * chars-to-table — module entry point.
+ * fate-on-the-table — module entry point.
  */
 
 import { registerSettings } from "./settings.js";
@@ -34,7 +34,7 @@ import {
 initWidgetInteractions();
 initStressBoxInteractions();
 
-console.log("[chars-to-table] module loaded");
+console.log("[fate-on-the-table] module loaded");
 
 const FATE_POINT_SETTINGS = [
   "fatePointImage",
@@ -66,24 +66,24 @@ let saSyncTimer = null;
 let sceneControlsRegistered = false;
 
 Hooks.once("init", async () => {
-  console.log("[chars-to-table] init hook");
+  console.log("[fate-on-the-table] init hook");
   try {
     // The built-in layout JSON must be registered BEFORE the settings so
     // their choices already list every layout.
     await initializeLayouts();
     registerSettings();
-    console.log("[chars-to-table] settings registered");
+    console.log("[fate-on-the-table] settings registered");
   } catch (err) {
-    console.error("[chars-to-table] failed to register settings:", err);
+    console.error("[fate-on-the-table] failed to register settings:", err);
   }
 });
 
 Hooks.once("ready", () => {
-  console.log("[chars-to-table] ready hook");
+  console.log("[fate-on-the-table] ready hook");
   try {
     initSheetButton();
   } catch (err) {
-    console.error("[chars-to-table] failed to init sheet button:", err);
+    console.error("[fate-on-the-table] failed to init sheet button:", err);
   }
   initWidgetDrag();
   Hooks.on("updateActor", scheduleActorSync);
@@ -95,20 +95,20 @@ Hooks.once("ready", () => {
   Hooks.on("renderFateUtilities", onRenderFateUtilities);
   Hooks.on(`${MODULE_ID}.newScene`, onNewScene);
   registerSceneControl();
-  console.log("[chars-to-table] hooks wired");
+  console.log("[fate-on-the-table] hooks wired");
 });
 
 function onCanvasReady() {
   if (!canvas?.scene) return;
   initCanvasClickFallback();
   reconcileScene(canvas.scene).catch((err) =>
-    console.error("[chars-to-table] reconcile failed:", err),
+    console.error("[fate-on-the-table] reconcile failed:", err),
   );
   syncGmFatePointRow(canvas.scene).catch((err) =>
-    console.error("[chars-to-table] GM fate point sync failed:", err),
+    console.error("[fate-on-the-table] GM fate point sync failed:", err),
   );
   syncSituationAspects(canvas.scene).catch((err) =>
-    console.error("[chars-to-table] situation aspects sync failed:", err),
+    console.error("[fate-on-the-table] situation aspects sync failed:", err),
   );
 }
 
@@ -133,7 +133,7 @@ function onUpdateSetting(setting) {
       clearTimeout(actorReconcileTimer);
       actorReconcileTimer = setTimeout(() => {
         reconcileScene(canvas.scene).catch((err) =>
-          console.error("[chars-to-table] reconcile failed:", err),
+          console.error("[fate-on-the-table] reconcile failed:", err),
         );
       }, 400);
     }
@@ -147,7 +147,7 @@ function onUpdateSetting(setting) {
       clearTimeout(actorReconcileTimer);
       actorReconcileTimer = setTimeout(() => {
         reconcileScene(canvas.scene).catch((err) =>
-          console.error("[chars-to-table] reconcile failed:", err),
+          console.error("[fate-on-the-table] reconcile failed:", err),
         );
       }, 400);
     }
@@ -181,7 +181,7 @@ function scheduleGmSync() {
   clearTimeout(gmSyncTimer);
   gmSyncTimer = setTimeout(() => {
     syncGmFatePointRow(canvas.scene).catch((err) =>
-      console.error("[chars-to-table] GM fate point sync failed:", err),
+      console.error("[fate-on-the-table] GM fate point sync failed:", err),
     );
   }, 400);
 }
@@ -191,7 +191,7 @@ function scheduleSituationAspectSync(scene = canvas?.scene) {
   clearTimeout(saSyncTimer);
   saSyncTimer = setTimeout(() => {
     syncSituationAspects(scene).catch((err) =>
-      console.error("[chars-to-table] situation aspects sync failed:", err),
+      console.error("[fate-on-the-table] situation aspects sync failed:", err),
     );
   }, 400);
 }
@@ -204,7 +204,7 @@ function registerSceneControl() {
     const group = controls.find((c) => c.name === "token");
     if (!group) return;
     group.tools.push({
-      name: "charsToTableFatePoints",
+      name: "fateOnTheTableFatePoints",
       title: game.i18n.localize(`${MODULE_ID}.manager.tool`),
       icon: "fas fa-star",
       visible: game.user.isGM,
@@ -212,7 +212,7 @@ function registerSceneControl() {
       button: true,
     });
     group.tools.push({
-      name: "charsToTableSituationAspects",
+      name: "fateOnTheTableSituationAspects",
       title: game.i18n.localize(`${MODULE_ID}.situationAspects.tool`),
       icon: "fas fa-fire",
       visible: game.user.isGM,
@@ -220,7 +220,7 @@ function registerSceneControl() {
       button: true,
     });
     group.tools.push({
-      name: "charsToTableLayouts",
+      name: "fateOnTheTableLayouts",
       title: game.i18n.localize(`${MODULE_ID}.layouts.tool`),
       icon: "fas fa-table-columns",
       visible: game.user.isGM,

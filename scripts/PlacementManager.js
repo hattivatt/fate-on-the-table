@@ -171,7 +171,7 @@ export class PlacementManager {
       canvas.controls.addChild(label);
       this._label = label;
     } catch (err) {
-      console.warn("[chars-to-table] label creation failed:", err);
+      console.warn("[fate-on-the-table] label creation failed:", err);
       this._label = null;
     }
 
@@ -204,7 +204,7 @@ export class PlacementManager {
       );
       return { x: world.x, y: world.y };
     } catch (err) {
-      console.warn("[chars-to-table] position resolve failed:", err);
+      console.warn("[fate-on-the-table] position resolve failed:", err);
       return { x: 0, y: 0 };
     }
   }
@@ -218,7 +218,7 @@ export class PlacementManager {
     } catch (err) {
       if (!this._drawErrorLogged) {
         this._drawErrorLogged = true;
-        console.warn("[chars-to-table] preview draw failed:", err);
+        console.warn("[fate-on-the-table] preview draw failed:", err);
       }
     }
   }
@@ -279,12 +279,12 @@ export class PlacementManager {
     try {
       this._graphics?.destroy({ children: true });
     } catch (err) {
-      console.warn("[chars-to-table] overlay cleanup:", err);
+      console.warn("[fate-on-the-table] overlay cleanup:", err);
     }
     try {
       this._label?.destroy({ children: true });
     } catch (err) {
-      console.warn("[chars-to-table] overlay label cleanup:", err);
+      console.warn("[fate-on-the-table] overlay label cleanup:", err);
     }
     this._graphics = null;
     this._label = null;

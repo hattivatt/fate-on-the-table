@@ -26,13 +26,13 @@ export const resolverCatalog = {
   "@name": { mode: "value", fn: (actor) => actor.name },
   "@portrait": { mode: "image", fn: (actor) => actor.img },
   "@empty": { mode: "empty", fn: () => "" },
-  "@headerAspects": { mode: "value", fn: () => i18n("chars-to-table.header.aspects") },
-  "@headerFatePoints": { mode: "value", fn: () => i18n("chars-to-table.header.fatePoints") },
-  "@headerSkills": { mode: "value", fn: () => i18n("chars-to-table.header.skills") },
-  "@headerTracks": { mode: "value", fn: () => i18n("chars-to-table.header.tracks") },
-  "@headerConsequences": { mode: "value", fn: () => i18n("chars-to-table.header.consequences") },
-  "@headerStunts": { mode: "value", fn: () => i18n("chars-to-table.header.stunts") },
-  "@headerExtras": { mode: "value", fn: () => i18n("chars-to-table.header.extras") },
+  "@headerAspects": { mode: "value", fn: () => i18n("fate-on-the-table.header.aspects") },
+  "@headerFatePoints": { mode: "value", fn: () => i18n("fate-on-the-table.header.fatePoints") },
+  "@headerSkills": { mode: "value", fn: () => i18n("fate-on-the-table.header.skills") },
+  "@headerTracks": { mode: "value", fn: () => i18n("fate-on-the-table.header.tracks") },
+  "@headerConsequences": { mode: "value", fn: () => i18n("fate-on-the-table.header.consequences") },
+  "@headerStunts": { mode: "value", fn: () => i18n("fate-on-the-table.header.stunts") },
+  "@headerExtras": { mode: "value", fn: () => i18n("fate-on-the-table.header.extras") },
   "@aspects": { mode: "value", fn: (actor) => aspectsText(actor) },
   "@skillNames": { mode: "rows", fn: (actor) => skillRows(actor).map((r) => r.names.join(", ")) },
   "@skillValues": { mode: "rows", fn: (actor) => skillRows(actor).map((r) => "+" + r.rank) },
@@ -329,7 +329,7 @@ export function resolveFont(family) {
   if (family && family !== "Montserrat" && !warnedFonts.has(family)) {
     warnedFonts.add(family);
     console.warn(
-      `[chars-to-table] font "${family}" is not registered; using Montserrat`,
+      `[fate-on-the-table] font "${family}" is not registered; using Montserrat`,
     );
   }
   return "Montserrat";
@@ -492,11 +492,11 @@ export function toDocumentData(doc, flags) {
       y: Math.round(doc.y),
       width: Math.round(doc.w),
       height: Math.round(doc.h),
-      flags: { "chars-to-table": flags },
+      flags: { "fate-on-the-table": flags },
     };
   }
   const strokeWidth = doc.stroke ?? 0;
-  const widgetFlags = { "chars-to-table": flags };
+  const widgetFlags = { "fate-on-the-table": flags };
   // Advanced Drawing Tools: without these flags ADT overrides the core text
   // styling (in particular alignment) with its own defaults.
   const textStyle = {

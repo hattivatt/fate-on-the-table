@@ -33,7 +33,7 @@ import {
   SA_OWNER_TYPE,
 } from "./constants.js";
 
-const DIALOG_ID = "chars-to-table-situation-aspects";
+const DIALOG_ID = "fate-on-the-table-situation-aspects";
 
 /** True while a dialog operation is running (double-click guard). */
 let busy = false;
@@ -81,7 +81,7 @@ export class SituationAspectManager {
 class SituationAspectsDialog extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS = {
     id: DIALOG_ID,
-    classes: ["chars-to-table", "situation-aspects"],
+    classes: ["fate-on-the-table", "situation-aspects"],
     position: { width: 460 },
     // Foundry localizes window.title itself — pass the raw i18n key.
     window: {
@@ -328,7 +328,7 @@ async function runAction(target, action) {
         return await removeWidget(app);
     }
   } catch (err) {
-    console.error("[chars-to-table] situation aspects operation failed:", err);
+    console.error("[fate-on-the-table] situation aspects operation failed:", err);
     ui.notifications.error(
       game.i18n.localize(`${MODULE_ID}.situationAspects.error`),
     );

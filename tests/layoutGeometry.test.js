@@ -33,7 +33,7 @@ function toAnchorRelative(docs, scale = 1) {
   }));
 }
 
-function resolvedData({ rows = 4, tokens = 3, portrait = "modules/chars-to-table/portrait.png" } = {}) {
+function resolvedData({ rows = 4, tokens = 3, portrait = "modules/fate-on-the-table/portrait.png" } = {}) {
   const skillName = [];
   const skillValue = [];
   for (let i = 0; i < rows; i++) {
@@ -63,7 +63,7 @@ function resolvedData({ rows = 4, tokens = 3, portrait = "modules/chars-to-table
 function renderDefault(data, options = {}) {
   const layout = loadNormalized("default");
   const { docs, canvas } = computeLayoutDocs(layout, data, {
-    fatePointImage: "modules/chars-to-table/fp.png",
+    fatePointImage: "modules/fate-on-the-table/fp.png",
     measureText: (text, style) =>
       String(text ?? "").length * (Number(style?.size) || 20) * 0.5,
     ...options,
@@ -98,7 +98,7 @@ test("default layout: full actor (4 skill rows, 3 FP tokens, 2 stress rows)", ()
     { x: -1, y: -23, w: 270, h: 270 },
   );
   assert.equal(portrait.kind, "tile");
-  assert.equal(portrait.src, "modules/chars-to-table/portrait.png");
+  assert.equal(portrait.src, "modules/fate-on-the-table/portrait.png");
 
   const aspectsHeader = find("aspectsHeader");
   assert.deepEqual(
@@ -240,11 +240,11 @@ test("default layout: full actor (4 skill rows, 3 FP tokens, 2 stress rows)", ()
 
 test("default layout: background uses a pattern when a texture is set", () => {
   const { docs } = renderDefault(resolvedData(), {
-    backgroundTexture: "modules/chars-to-table/bg.png",
+    backgroundTexture: "modules/fate-on-the-table/bg.png",
   });
   const bg = docs.find((d) => d.part === "widgetBackground");
   assert.equal(bg.fillType, 2); // PATTERN
-  assert.equal(bg.texture, "modules/chars-to-table/bg.png");
+  assert.equal(bg.texture, "modules/fate-on-the-table/bg.png");
 });
 
 test("default layout: no skills and no tokens keeps the canvas minimum 659x568", () => {

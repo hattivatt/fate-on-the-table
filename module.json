@@ -1,7 +1,7 @@
 {
-  "id": "chars-to-table",
-  "title": "Chars to Table",
-  "description": "Places a Fate Core character sheet onto the canvas as a group of drawings and tiles, with drag-to-place placement and automatic sync with the actor.",
+  "id": "fate-on-the-table",
+  "title": "Fate on the Table",
+  "description": "Fate Core on the virtual table: place character sheets as editable drawing groups, manage Fate Points, situation aspects and conflict boards on the scene — all synced with the system data.",
   "version": "#{VERSION}#",
   "library": "false",
   "manifestPlusVersion": "1.2.0",

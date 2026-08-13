@@ -1,4 +1,4 @@
-/* Chars to Table module styles. */
+/* Fate on the Table module styles. */
 
 /* --- Fate Point Manager dialog --- */
 
@@ -311,15 +311,15 @@
 
 /* --- Layout Import / Export Manager dialog --- */
 
-.chars-to-table-layout-io .window-content {
+.fate-on-the-table-layout-io .window-content {
   padding: 8px;
 }
 
-.chars-to-table-layout-io .ctt-layout-io {
+.fate-on-the-table-layout-io .ctt-layout-io {
   padding: 4px;
 }
 
-.chars-to-table-layout-io h3 {
+.fate-on-the-table-layout-io h3 {
   margin: 10px 0 6px 0;
   text-align: center;
   font-size: 0.9em;
@@ -329,19 +329,19 @@
   padding-top: 8px;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-empty {
+.fate-on-the-table-layout-io .ctt-layout-io-empty {
   text-align: center;
   opacity: 0.7;
   margin: 4px 0;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-list {
+.fate-on-the-table-layout-io .ctt-layout-io-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-list li {
+.fate-on-the-table-layout-io .ctt-layout-io-list li {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -349,7 +349,7 @@
   border-bottom: 1px solid rgba(0, 0, 0, 0.12);
 }
 
-.chars-to-table-layout-io .ctt-layout-io-name {
+.fate-on-the-table-layout-io .ctt-layout-io-name {
   font-weight: 700;
   min-width: 0;
   overflow: hidden;
@@ -357,13 +357,13 @@
   white-space: nowrap;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-meta {
+.fate-on-the-table-layout-io .ctt-layout-io-meta {
   opacity: 0.6;
   font-size: 0.85em;
   white-space: nowrap;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-tag {
+.fate-on-the-table-layout-io .ctt-layout-io-tag {
   font-size: 0.7em;
   padding: 1px 6px;
   border-radius: 8px;
@@ -372,42 +372,42 @@
   white-space: nowrap;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-actions {
+.fate-on-the-table-layout-io .ctt-layout-io-actions {
   margin-left: auto;
   display: flex;
   gap: 4px;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-btn {
+.fate-on-the-table-layout-io .ctt-layout-io-btn {
   margin: 0;
   padding: 2px 8px;
   line-height: 1.4;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-btn.ctt-layout-io-danger {
+.fate-on-the-table-layout-io .ctt-layout-io-btn.ctt-layout-io-danger {
   color: #b03030;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-import {
+.fate-on-the-table-layout-io .ctt-layout-io-import {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-import textarea {
+.fate-on-the-table-layout-io .ctt-layout-io-import textarea {
   width: 100%;
   resize: vertical;
   font-family: var(--font-mono, monospace);
   font-size: 0.85em;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-import-row {
+.fate-on-the-table-layout-io .ctt-layout-io-import-row {
   display: flex;
   gap: 6px;
   justify-content: flex-end;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-errors {
+.fate-on-the-table-layout-io .ctt-layout-io-errors {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -415,22 +415,22 @@
   overflow-y: auto;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-errors li {
+.fate-on-the-table-layout-io .ctt-layout-io-errors li {
   padding: 3px 0;
   border-bottom: 1px solid rgba(0, 0, 0, 0.12);
 }
 
-.chars-to-table-layout-io .ctt-layout-io-tag-builtin {
+.fate-on-the-table-layout-io .ctt-layout-io-tag-builtin {
   background: rgba(120, 120, 120, 0.25);
   color: #777;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-tag-custom {
+.fate-on-the-table-layout-io .ctt-layout-io-tag-custom {
   background: rgba(30, 130, 60, 0.2);
   color: #0a7a33;
 }
 
-.chars-to-table-layout-io .ctt-layout-io-import-main {
+.fate-on-the-table-layout-io .ctt-layout-io-import-main {
   flex: 1;
   margin: 0;
 }

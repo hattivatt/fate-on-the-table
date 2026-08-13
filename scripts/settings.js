@@ -7,13 +7,13 @@ import { getLayoutRecord, getLayoutIds } from "./layoutRegistry.js";
 import { resolveFont } from "./WidgetBuilder.js";
 import { LayoutImportExport } from "./LayoutImportExport.js";
 
-export const MODULE_ID = "chars-to-table";
+export const MODULE_ID = "fate-on-the-table";
 
 /** Layout settings whose choices must list every registered layout. */
 const LAYOUT_SETTING_KEYS = ["defaultTemplate", "playerLayout", "npcLayout"];
 
 /**
- * Human-readable layout name: the i18n key `chars-to-table.layouts.<id>.name`
+ * Human-readable layout name: the i18n key `fate-on-the-table.layouts.<id>.name`
  * when present, otherwise the layout document name.
  * @param {string} id
  */
@@ -43,7 +43,7 @@ export function isPlayerCharacter(actor) {
     );
     return !!owner;
   } catch (err) {
-    console.warn("[chars-to-table] player owner check failed:", err);
+    console.warn("[fate-on-the-table] player owner check failed:", err);
     return false;
   }
 }
@@ -424,7 +424,7 @@ function getFontList() {
   try {
     return foundry.applications.settings.menus.FontConfig.getAvailableFonts();
   } catch (err) {
-    console.error("[chars-to-table] Failed to list fonts:", err);
+    console.error("[fate-on-the-table] Failed to list fonts:", err);
     return [];
   }
 }

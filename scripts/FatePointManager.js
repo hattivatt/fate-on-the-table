@@ -41,7 +41,7 @@ import {
 const OWNER = CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
 const LIMITED = CONST.DOCUMENT_OWNERSHIP_LEVELS.LIMITED;
 
-const MANAGER_DIALOG_ID = "chars-to-table-fp-manager";
+const MANAGER_DIALOG_ID = "fate-on-the-table-fp-manager";
 
 /** True while a manager operation is running (double-click guard). */
 let busy = false;
@@ -78,7 +78,7 @@ export class FatePointManager {
 class FatePointManagerDialog extends foundry.applications.api.ApplicationV2 {
   static DEFAULT_OPTIONS = {
     id: MANAGER_DIALOG_ID,
-    classes: ["chars-to-table", "fp-manager"],
+    classes: ["fate-on-the-table", "fp-manager"],
     position: { width: 480 },
     // Foundry localizes window.title itself — pass the raw i18n key.
     window: {
@@ -118,7 +118,7 @@ class FatePointManagerDialog extends foundry.applications.api.ApplicationV2 {
 let interactionsPatched = false;
 
 /**
- * Canvas interactions for chars-to-table widgets:
+ * Canvas interactions for fate-on-the-table widgets:
  * - double-click on a GM fate point box (or its tokens) opens the Fate Point
  *   Manager; double-click on the situation aspects widget opens its manager;
  *   double-click on an actor widget part opens the actor sheet (when the
@@ -142,8 +142,8 @@ export function initWidgetInteractions() {
 }
 
 function patchDoubleClick(proto) {
-  if (proto.__charsToTableDblClick) return;
-  proto.__charsToTableDblClick = true;
+  if (proto.__fateOnTheTableDblClick) return;
+  proto.__fateOnTheTableDblClick = true;
   const original = proto._onClickLeft2;
   proto._onClickLeft2 = async function (event) {
     const doc = this.document ?? this;
@@ -176,7 +176,7 @@ function patchDoubleClick(proto) {
           actor.sheet.render(true);
         }
       } catch (err) {
-        console.warn("[chars-to-table] actor sheet open failed:", err);
+        console.warn("[fate-on-the-table] actor sheet open failed:", err);
       }
       return;
     }
@@ -190,8 +190,8 @@ function patchDoubleClick(proto) {
  * users the standard config behaviour is suppressed on widget parts.
  */
 function patchRightClick(proto) {
-  if (proto.__charsToTableRightClick) return;
-  proto.__charsToTableRightClick = true;
+  if (proto.__fateOnTheTableRightClick) return;
+  proto.__fateOnTheTableRightClick = true;
   const original = proto._onClickRight;
   const original2 = proto._onClickRight2;
   const handler = function (event) {
@@ -226,8 +226,8 @@ function patchRightClick(proto) {
  * dragging stays GM-only. GM fate point boxes keep the default permissions.
  */
 function patchControlPermissions(proto) {
-  if (proto.__charsToTableControl) return;
-  proto.__charsToTableControl = true;
+  if (proto.__fateOnTheTableControl) return;
+  proto.__fateOnTheTableControl = true;
   const isPlayerWidget = (obj) =>
     !!obj?.document?.getFlag?.(FLAG_SCOPE, "actorUuid") ||
     !!obj?.getFlag?.(FLAG_SCOPE, "actorUuid");
@@ -296,7 +296,7 @@ let widgetMenu = null;function openWidgetMenu(event, doc) {
     item.addEventListener("click", () => {
       closeWidgetMenu();
       Promise.resolve(fn()).catch((err) =>
-        console.error("[chars-to-table] widget menu action failed:", err),
+        console.error("[fate-on-the-table] widget menu action failed:", err),
       );
     });
     menu.append(item);
@@ -517,7 +517,7 @@ async function runAction(target, action) {
         return await startNewScene();
     }
   } catch (err) {
-    console.error("[chars-to-table] manager operation failed:", err);
+    console.error("[fate-on-the-table] manager operation failed:", err);
     ui.notifications.error(
       game.i18n.localize(`${MODULE_ID}.manager.error`),
     );
@@ -726,8 +726,8 @@ class NewScenePromptDialog extends foundry.applications.api.ApplicationV2 {
   }
 
   static DEFAULT_OPTIONS = {
-    id: "chars-to-table-new-scene",
-    classes: ["chars-to-table", "new-scene"],
+    id: "fate-on-the-table-new-scene",
+    classes: ["fate-on-the-table", "new-scene"],
     position: { width: 420 },
     // Foundry localizes window.title itself — pass the raw i18n key.
     window: {
@@ -1013,7 +1013,7 @@ function selectWidgetPart(part) {
         : canvas.tiles?.get(part.id);
     placeable?.control({ releaseOthers: false });
   } catch (err) {
-    console.warn("[chars-to-table] widget select failed:", err);
+    console.warn("[fate-on-the-table] widget select failed:", err);
   }
 }
 
@@ -1036,5 +1036,5 @@ function handleWidgetDoubleClick(part) {
         actor.sheet.render(true);
       }
     })
-    .catch((err) => console.warn("[chars-to-table] actor sheet open failed:", err));
+    .catch((err) => console.warn("[fate-on-the-table] actor sheet open failed:", err));
 }

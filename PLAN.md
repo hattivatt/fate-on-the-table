@@ -1,4 +1,4 @@
-# План разработки модуля `chars-to-table`
+# План разработки модуля `fate-on-the-table`
 
 Модуль Foundry VTT для Fate Core Official, который переносит данные персонажей
 и игровые служебные элементы на канвас сцены в виде управляемых групп
@@ -37,7 +37,7 @@
 - [x] Настройки изображения, размера, шага и направления ряда жетонов.
 - [x] «Синхронизировать всех», «Рефреш всех» и «Новая сцена».
 - [x] Очистка быстротечного стресса и расширяемое событие
-  `chars-to-table.newScene`.
+  `fate-on-the-table.newScene`.
 - [x] i18n, CSS диалога и README.
 
 ### Фича 3 — «Менеджер ситуативных аспектов»: РЕАЛИЗОВАНА ✅
@@ -54,7 +54,7 @@
 - [x] Выбор персонажа при добавлении аспекта и текстовая форма
   `Аспект (Персонаж)`.
 - [x] Синхронизация по `updateScene`, `updateSetting`, `canvasReady`,
-  сохранению и `chars-to-table.newScene`.
+  сохранению и `fate-on-the-table.newScene`.
 - [x] Ручная проверка в Foundry v14.
 
 ### Фича 4 — «Альтернативные лейауты»: РЕАЛИЗОВАНА (module-side) ✅
@@ -593,7 +593,7 @@ JSON раскладки не должен содержать HTML/JavaScript, е
 - [ ] Проверить, что экспорт модуля открывается в standalone-editor.
 - [ ] Проверить, что экспорт standalone-editor проходит module validator.
 - [ ] Не переносить editor dependencies, React, SVG renderer или File API в
-  `chars-to-table`.
+  `fate-on-the-table`.
 
 **Exit criteria:** обмен JSON в обе стороны детерминирован, а модуль остаётся
 работоспособным без наличия standalone-приложения.
@@ -674,7 +674,7 @@ JSON раскладки не должен содержать HTML/JavaScript, е
 Module flag имеет вид:
 
 ```js
-scene.flags["chars-to-table"].conflictBoard = {
+scene.flags["fate-on-the-table"].conflictBoard = {
   version: 1,
   combatId: "<combatId>",
   sizePreset: "medium",
@@ -827,7 +827,7 @@ Drawing/Tile под квадратом и областями карточек. �
 Карточки участника должны быть отдельными actor-widget-группами с флагами:
 
 ```js
-flags["chars-to-table"] = {
+flags["fate-on-the-table"] = {
   widgetId,
   ownerType: "conflictCard",
   combatId,
@@ -1040,7 +1040,7 @@ combat UI или переключения на другой конфликт.
   не из одной растеризованной картинки. Это даёт нативное редактирование и
   дешёвый автосинк.
 - **Actor-widget**: actor-owned документы используют `actorUuid` и реестр
-  `actor.flags["chars-to-table"].widgets`.
+  `actor.flags["fate-on-the-table"].widgets`.
 - **Scene-widget**: GM FP и ситуативные аспекты используют `ownerType`, scene
   registry и не требуют `actorUuid`.
 - **Источники данных**: FP игрока хранится в actor system data, FP мастера — в
@@ -1067,7 +1067,7 @@ combat UI или переключения на другой конфликт.
 ## Структура модуля
 
 ```
-chars-to-table/
+fate-on-the-table/
   module.json
   PLAN.md
   README.md
@@ -1109,11 +1109,11 @@ chars-to-table/
 ### Идентификация групп
 
 - Actor-widget:
-  `flags["chars-to-table"] = { widgetId, part, index, actorUuid }`.
+  `flags["fate-on-the-table"] = { widgetId, part, index, actorUuid }`.
 - GM scene-widget:
-  `flags["chars-to-table"] = { widgetId, part, index, ownerType: "gm" }`.
+  `flags["fate-on-the-table"] = { widgetId, part, index, ownerType: "gm" }`.
 - Situation aspect scene-widget:
-  `flags["chars-to-table"] = { widgetId, part, index, ownerType: "situationAspects" }`.
+  `flags["fate-on-the-table"] = { widgetId, part, index, ownerType: "situationAspects" }`.
 - Осиротевшие записи очищаются только по module flags и registry; поиск по
   содержимому текста Drawing не используется.
 
@@ -1156,7 +1156,7 @@ Legacy-записи без identity получают роль-раскладку
 - `updateActor` вызывает actor-widget sync с debounce 400 мс.
 - `canvasReady` выполняет реконсиляцию actor-widget и синхронизацию scene-owned
   групп.
-- Обновления, инициированные синком, помечаются `charsToTableSync`, чтобы не
+- Обновления, инициированные синком, помечаются `fateOnTheTableSync`, чтобы не
   запускать рекурсивный групповой drag.
 
 ### Advanced Drawing Tools

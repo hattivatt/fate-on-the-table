@@ -1,6 +1,6 @@
 /**
  * layoutSchema — validation and normalization of layout documents
- * (JSON format "chars-to-table.layout", version 1, see LAYOUT-FORMAT.md).
+ * (JSON format "fate-on-the-table.layout", version 1, see LAYOUT-FORMAT.md).
  *
  * This module is the Foundry-side mirror of the standalone layout-editor
  * contract (`layout-editor/src/contract/validateLayout.ts` and
@@ -19,7 +19,7 @@
  * Node test suite.
  */
 
-export const FORMAT = "chars-to-table.layout";
+export const FORMAT = "fate-on-the-table.layout";
 export const VERSION = 1;
 
 /** Anchor points usable for `position.anchorPoint` / `position.selfPoint`. */

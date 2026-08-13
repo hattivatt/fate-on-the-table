@@ -22,7 +22,7 @@ export function initWidgetDrag() {
 }
 
 function onPartPreUpdate(document, change, options, userId) {
-  if (options?.charsToTableSync) return;
+  if (options?.fateOnTheTableSync) return;
   if (change.x === undefined && change.y === undefined) return;
   const widgetId = document.getFlag(FLAG_SCOPE, "widgetId");
   if (!widgetId) return;
@@ -51,7 +51,7 @@ async function propagate(sourceDoc, widgetId, dx, dy) {
       (s.documentName === "Tile" ? tileUpdates : drawUpdates).push(update);
     }
 
-    const syncOptions = { charsToTableSync: true };
+    const syncOptions = { fateOnTheTableSync: true };
     if (drawUpdates.length) {
       await scene.updateEmbeddedDocuments("Drawing", drawUpdates, syncOptions);
     }
@@ -83,7 +83,7 @@ async function propagate(sourceDoc, widgetId, dx, dy) {
       const actor = await fromUuid(actorUuid);
       if (actor) await shiftAnchor(actor, scene.id, widgetId, dx, dy);
     } catch (err) {
-      console.warn("[chars-to-table] anchor update failed:", err);
+      console.warn("[fate-on-the-table] anchor update failed:", err);
     }
   }
 }

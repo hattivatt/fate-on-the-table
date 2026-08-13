@@ -59,7 +59,7 @@ export function scheduleActorSync(actor) {
     setTimeout(() => {
       pending.delete(actor.id);
       syncActor(actor).catch((err) =>
-        console.error("[chars-to-table] sync failed:", err),
+        console.error("[fate-on-the-table] sync failed:", err),
       );
     }, DEBOUNCE_MS),
   );
@@ -137,7 +137,7 @@ export async function reconcileScene(scene) {
       const actor = await fromUuid(actorUuid);
       if (actor) await syncActor(actor);
     } catch (err) {
-      console.warn("[chars-to-table] reconcile failed:", err);
+      console.warn("[fate-on-the-table] reconcile failed:", err);
     }
   }
 }
@@ -164,7 +164,7 @@ function resolveRecordLayoutId(actor, record) {
   if (record.layoutId && getLayoutRecord(record.layoutId)) return record.layoutId;
   if (record.layoutId) {
     console.warn(
-      `[chars-to-table] widget layout "${record.layoutId}" is not registered; falling back.`,
+      `[fate-on-the-table] widget layout "${record.layoutId}" is not registered; falling back.`,
     );
   }
   return selectLayoutIdForActor(actor);
@@ -210,7 +210,7 @@ async function syncActor(actor) {
         }
       } catch (err) {
         console.warn(
-          `[chars-to-table] widget sync failed (${record.widgetId}):`,
+          `[fate-on-the-table] widget sync failed (${record.widgetId}):`,
           err,
         );
       }
@@ -254,7 +254,7 @@ async function syncWidget(actor, record, docs) {
   const updates = { Drawing: [], Tile: [] };
   const creations = { Drawing: [], Tile: [] };
   const deletions = { Drawing: [], Tile: [] };
-  const syncOptions = { charsToTableSync: true };
+  const syncOptions = { fateOnTheTableSync: true };
 
   for (const [key, doc] of target) {
     const abs = { ...doc, x: doc.x + record.anchor.x, y: doc.y + record.anchor.y };

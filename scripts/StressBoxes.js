@@ -28,8 +28,8 @@ export function initStressBoxInteractions() {
   interactionsPatched = true;
   if (typeof Drawing === "undefined") return;
   const proto = Drawing.prototype;
-  if (proto.__charsToTableStressClick) return;
-  proto.__charsToTableStressClick = true;
+  if (proto.__fateOnTheTableStressClick) return;
+  proto.__fateOnTheTableStressClick = true;
 
   const original = proto._onClickLeft;
   proto._onClickLeft = async function (event) {
@@ -55,13 +55,13 @@ export function initStressBoxInteractions() {
         )
       ) {
         ui.notifications.warn(
-          game.i18n.localize("chars-to-table.stressBoxes.notOwner"),
+          game.i18n.localize("fate-on-the-table.stressBoxes.notOwner"),
         );
         return;
       }
       await toggleStressBox(actor, index);
     } catch (err) {
-      console.warn("[chars-to-table] stress box toggle failed:", err);
+      console.warn("[fate-on-the-table] stress box toggle failed:", err);
     }
   };
 }
