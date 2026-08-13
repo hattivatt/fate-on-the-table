@@ -291,8 +291,7 @@ test("runtime overrides (scale, font, color, token size/step) are applied", () =
     scale: 2,
     fontFamily: "BadScript",
     textColor: "#112233",
-    fatePointTileWidth: 50,
-    fatePointTileHeight: 60,
+    fatePointTileSize: 50,
     fatePointStep: 30,
   });
   const name = docs.find((d) => d.part === "name");
@@ -303,7 +302,7 @@ test("runtime overrides (scale, font, color, token size/step) are applied", () =
   assert.equal(name.w, 1318); // 659 * 2
   const token = docs.find((d) => d.part === "fatePointTokens" && d.index === 0);
   assert.equal(token.w, 100);
-  assert.equal(token.h, 120);
+  assert.equal(token.h, 100);
   assert.equal(token.x, -292); // frame x 4 * scale 2, origin -300
   const token1 = docs.find((d) => d.part === "fatePointTokens" && d.index === 1);
   assert.equal(token1.x, token.x + 60); // step 30 * scale 2

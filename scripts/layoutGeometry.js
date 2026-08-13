@@ -76,7 +76,7 @@ function defaultMeasureText(text, style) {
  *   fontFamily: string,       Runtime font override ("" = use layout style).
  *   textColor: string|null,   Runtime text color override.
  *   fatePointImage: string,   src of fate point tokens.
- *   fatePointTileWidth/Height/Step: number,  Runtime token overrides.
+ *   fatePointTileSize/Step: number,  Runtime token overrides.
  *   backgroundTexture: string, Resolved texture source for the background.
  *   resolveFont: (family: string) => string,  Font validation hook.
  *   measureText: (text: string, style: object) => number,  Text width hook
@@ -118,8 +118,7 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
       const count = Math.max(0, Number(value) || 0);
       const src = options.fatePointImage || "";
       if (src && count > 0) {
-        const w = (options.fatePointTileWidth ?? rect.width) * scale;
-        const h = (options.fatePointTileHeight ?? rect.height) * scale;
+        const tileSize = (options.fatePointTileSize ?? rect.width) * scale;
         // The layout normalizer always supplies `repeat.pitch` for tileRow
         // elements (same default as the layout-editor: the tile width); this
         // fallback only guards against non-normalized layouts.
@@ -134,8 +133,8 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
             index: i,
             x: rect.x * scale + (axis === "x" ? dir * i * pitch : 0),
             y: rect.y * scale + (axis === "y" ? dir * i * pitch : 0),
-            w,
-            h,
+            w: tileSize,
+            h: tileSize,
             src,
             // Row coordinates are visible top-left coordinates. Keep the
             // texture anchor at the top-left as well; Foundry otherwise

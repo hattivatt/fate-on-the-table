@@ -195,8 +195,7 @@ async function syncActor(actor) {
       fontFamily: opts.fontFamily,
       textColor: opts.textColor,
       fatePointImage: opts.fatePointImage,
-      fatePointTileWidth: opts.fatePointTileWidth,
-      fatePointTileHeight: opts.fatePointTileHeight,
+      fatePointTileSize: opts.fatePointTileSize,
       fatePointStep: opts.fatePointStep,
       backgroundTexture: opts.backgroundTexture,
     });

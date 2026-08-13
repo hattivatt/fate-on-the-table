@@ -410,7 +410,7 @@ export function buildTileRow({
  * @param {object} actor
  * @param {object} layout  Normalized layout document.
  * @param {object} [options]  Overrides: { scale, fontFamily, textColor,
- *   fatePointImage, fatePointTileWidth, fatePointTileHeight, fatePointStep,
+ *   fatePointImage, fatePointTileSize, fatePointStep,
  *   backgroundTexture }.
  * @returns {Promise<{docs: object[], bounds: {x, y, width, height}}>}
  */
@@ -433,8 +433,7 @@ export async function build(actor, layout, options = {}) {
     fontFamily: options.fontFamily,
     textColor: options.textColor,
     fatePointImage: options.fatePointImage ?? "",
-    fatePointTileWidth: options.fatePointTileWidth,
-    fatePointTileHeight: options.fatePointTileHeight,
+    fatePointTileSize: options.fatePointTileSize,
     fatePointStep: options.fatePointStep,
     backgroundTexture,
     resolveFont,

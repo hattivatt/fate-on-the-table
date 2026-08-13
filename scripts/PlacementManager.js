@@ -42,8 +42,7 @@ export class PlacementManager {
       fontFamily: opts.fontFamily,
       textColor: opts.textColor,
       fatePointImage: opts.fatePointImage,
-      fatePointTileWidth: opts.fatePointTileWidth,
-      fatePointTileHeight: opts.fatePointTileHeight,
+      fatePointTileSize: opts.fatePointTileSize,
       fatePointStep: opts.fatePointStep,
       backgroundTexture: opts.backgroundTexture,
     });
@@ -73,7 +72,7 @@ export class PlacementManager {
    *   docs: object[],          WidgetBuilder descriptors (relative coords).
    *   bounds: {x, y, width, height},
    *   label: string,           Preview label.
-   *   options: object,         Placement options (snapToGrid etc).
+   *   options: object,         Placement options.
    *   hintKey: string,         i18n hint notification key.
    *   successKey: string,      i18n key shown after a successful commit.
    *   commit: (anchor, widgetId) => Promise,  Creates docs + registers.
@@ -248,12 +247,7 @@ export class PlacementManager {
     }
     if (event.button !== 0) return;
     const p = this._worldPosition(event);
-    let point = { x: p.x, y: p.y };
-    if (this.opts.snapToGrid && canvas.grid) {
-      const snapped = canvas.grid.getSnappedPosition(p.x, p.y);
-      point = { x: snapped.x, y: snapped.y };
-    }
-    this._finish(point);
+    this._finish({ x: p.x, y: p.y });
   }
 
   _onKey = (event) => {

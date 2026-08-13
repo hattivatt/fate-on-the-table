@@ -38,8 +38,7 @@ console.log("[chars-to-table] module loaded");
 
 const FATE_POINT_SETTINGS = [
   "fatePointImage",
-  "fatePointTileWidth",
-  "fatePointTileHeight",
+  "fatePointTileSize",
   "fatePointStep",
   "gmFatePointDirection",
 ];

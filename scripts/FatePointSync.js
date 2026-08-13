@@ -85,19 +85,18 @@ export function gmRowFrame(scene, widgetId) {
  */
 export function gmRowBounds(count = gmFatePoints()) {
   const opts = getPlacementOptions();
-  const w = opts.fatePointTileWidth;
-  const h = opts.fatePointTileHeight;
+  const size = opts.fatePointTileSize;
   const step = opts.fatePointStep;
   const n = Math.max(1, Number(count) || 0);
   switch (opts.gmFatePointDirection) {
     case "rtl":
-      return { x: -(n - 1) * step, y: 0, width: w + (n - 1) * step, height: h };
+      return { x: -(n - 1) * step, y: 0, width: size + (n - 1) * step, height: size };
     case "ttb":
-      return { x: 0, y: 0, width: w, height: h + (n - 1) * step };
+      return { x: 0, y: 0, width: size, height: size + (n - 1) * step };
     case "btt":
-      return { x: 0, y: -(n - 1) * step, width: w, height: h + (n - 1) * step };
+      return { x: 0, y: -(n - 1) * step, width: size, height: size + (n - 1) * step };
     default:
-      return { x: 0, y: 0, width: w + (n - 1) * step, height: h };
+      return { x: 0, y: 0, width: size + (n - 1) * step, height: size };
   }
 }
 
@@ -158,8 +157,8 @@ export function buildGmRowDocs() {
     src: opts.fatePointImage || "",
     x: 0,
     y: 0,
-    w: opts.fatePointTileWidth,
-    h: opts.fatePointTileHeight,
+    w: opts.fatePointTileSize,
+    h: opts.fatePointTileSize,
     step: opts.fatePointStep,
     direction: opts.gmFatePointDirection,
   });

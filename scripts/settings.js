@@ -183,15 +183,6 @@ export function registerSettings() {
     range: { min: 0.25, max: 4, step: 0.05 },
   });
 
-  game.settings.register(MODULE_ID, "snapToGrid", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.snapToGrid`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.snapToGridHint`),
-    scope: "world",
-    config: true,
-    type: Boolean,
-    default: false,
-  });
-
   game.settings.register(MODULE_ID, "fontFamily", {
     name: game.i18n.localize(`${MODULE_ID}.settings.fontFamily`),
     hint: game.i18n.localize(`${MODULE_ID}.settings.fontFamilyHint`),
@@ -211,6 +202,15 @@ export function registerSettings() {
     default: "#000000",
   });
 
+  game.settings.register(MODULE_ID, "backgroundTexture", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.backgroundTexture`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.backgroundTextureHint`),
+    scope: "world",
+    config: true,
+    type: String,
+    default: "",
+  });
+
   game.settings.register(MODULE_ID, "fatePointImage", {
     name: game.i18n.localize(`${MODULE_ID}.settings.fatePointImage`),
     hint: game.i18n.localize(`${MODULE_ID}.settings.fatePointImageHint`),
@@ -220,19 +220,9 @@ export function registerSettings() {
     default: "",
   });
 
-  game.settings.register(MODULE_ID, "fatePointTileWidth", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.fatePointTileWidth`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.fatePointTileWidthHint`),
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 70,
-    range: { min: 16, max: 256, step: 1 },
-  });
-
-  game.settings.register(MODULE_ID, "fatePointTileHeight", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.fatePointTileHeight`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.fatePointTileHeightHint`),
+  game.settings.register(MODULE_ID, "fatePointTileSize", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.fatePointTileSize`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.fatePointTileSizeHint`),
     scope: "world",
     config: true,
     type: Number,
@@ -265,15 +255,6 @@ export function registerSettings() {
       ttb: game.i18n.localize(`${MODULE_ID}.settings.direction.ttb`),
       btt: game.i18n.localize(`${MODULE_ID}.settings.direction.btt`),
     },
-  });
-
-  game.settings.register(MODULE_ID, "backgroundTexture", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.backgroundTexture`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.backgroundTextureHint`),
-    scope: "world",
-    config: true,
-    type: String,
-    default: "",
   });
 
   game.settings.register(MODULE_ID, "situationAspectsWidth", {
@@ -392,14 +373,11 @@ export function getPlacementOptions() {
   return {
     templateId: game.settings.get(MODULE_ID, "defaultTemplate"),
     scale: Number(game.settings.get(MODULE_ID, "scale")) || 1,
-    snapToGrid: !!game.settings.get(MODULE_ID, "snapToGrid"),
     fontFamily: game.settings.get(MODULE_ID, "fontFamily") ?? "",
     textColor: game.settings.get(MODULE_ID, "textColor") ?? "",
     fatePointImage: game.settings.get(MODULE_ID, "fatePointImage") ?? "",
-    fatePointTileWidth:
-      Number(game.settings.get(MODULE_ID, "fatePointTileWidth")) || 70,
-    fatePointTileHeight:
-      Number(game.settings.get(MODULE_ID, "fatePointTileHeight")) || 70,
+    fatePointTileSize:
+      Number(game.settings.get(MODULE_ID, "fatePointTileSize")) || 70,
     fatePointStep:
       Number(game.settings.get(MODULE_ID, "fatePointStep")) || 20,
     gmFatePointDirection:
