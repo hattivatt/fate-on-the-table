@@ -155,6 +155,67 @@ async function deleteWidgetDocs(scene, widgetId) {
 }
 
 /**
+ * Module-owned stale cleanup for a single actor's widgets on a scene.
+ *
+ * Consequences have no interactive checkbox Drawing anymore — they are text
+ * COST rows edited by double-click. Older module versions could leave a
+ * `consequenceBoxRows` box part (or a legacy `consequences` combined
+ * `[ ]`/`[X]` text row) behind on an ordinary actor widget. This function
+ * removes only such module-owned stale docs, and never a foreign document:
+ *   - a doc must carry the `fate-on-the-table` flag with an `actorUuid`
+ *     matching `actor` (module identity account);
+ *   - its `ownerType` must NOT be a conflict/board/zone/card type (conflict
+ *     cards are a separate feature owner and are never touched);
+ *   - its `part` must be `consequenceBoxRows` (the interactive checkbox),
+ *     or the legacy `consequences` part whose text is the old checkbox/name
+ *     marker form (contains a `[` checkbox bracket).
+ * Deletion is by flag identity only — never by coordinates or raw text, so
+ * a user's own drawings and any unrelated actor/scene documents are safe.
+ * No recursion: the delete does not trigger a scene reconcile itself.
+ * @param {object} scene  Scene document.
+ * @param {object} actor  Actor document being synced.
+ * @returns {Promise<void>}
+ */
+export async function cleanupStaleConsequenceBoxes(scene, actor) {
+  const actorUuid = actor?.uuid;
+  if (!actorUuid) return;
+  const stale = [];
+  const isLegacyCheckboxText = (text) =>
+    typeof text === "string" && /\[[ X]\]/.test(text);
+  for (const doc of [...scene.drawings, ...scene.tiles]) {
+    if (doc.getFlag?.(FLAG_SCOPE, "actorUuid") !== actorUuid) continue;
+    const ownerType = doc.getFlag?.(FLAG_SCOPE, "ownerType");
+    // Only ordinary actor widgets (no ownerType, or a non-conflict scope).
+    if (
+      ownerType &&
+      (ownerType === "conflictCard" ||
+        ownerType === "conflictZone" ||
+        ownerType === "conflictBoard")
+    ) {
+      continue;
+    }
+    const part = doc.getFlag?.(FLAG_SCOPE, "part");
+    if (part === "consequenceBoxRows") {
+      stale.push(doc);
+    } else if (part === "consequences" && isLegacyCheckboxText(doc.text ?? doc.texture?.src)) {
+      // The old combined `[ ]`/`[X]` name+checkbox resolver output — no
+      // longer built; removing the stale pair as well.
+      stale.push(doc);
+    }
+  }
+  if (stale.length) {
+    const drawIds = stale
+      .filter((d) => d.documentName === "Drawing")
+      .map((d) => d.id);
+    const tileIds = stale
+      .filter((d) => d.documentName === "Tile")
+      .map((d) => d.id);
+    if (drawIds.length) await scene.deleteEmbeddedDocuments("Drawing", drawIds);
+    if (tileIds.length) await scene.deleteEmbeddedDocuments("Tile", tileIds);
+  }
+}
+
+/**
  * Resolves the layout id of a widget record. Explicit records keep their
  * layout identity; legacy records (placed before layouts existed) fall back
  * to the role-based selection and get the identity written back after a
@@ -172,6 +233,12 @@ function resolveRecordLayoutId(actor, record) {
 
 async function syncActor(actor) {
   if (!canvas?.scene) return;
+  // Module-owned stale cleanup: remove any legacy consequence CHECKBOX
+  // Drawing/Tile the actor may still have on this scene from an older
+  // module version. Consequences are text COST rows now; a leftover
+  // `consequenceBoxRows` part (or an old `consequences` checkbox text row)
+  // would otherwise keep an interactive-looking box that nothing toggles.
+  await cleanupStaleConsequenceBoxes(canvas.scene, actor);
   const opts = getPlacementOptions();
   const widgets = actor.getFlag(FLAG_SCOPE, WIDGETS_FLAG) ?? [];
   const records = widgets.filter(

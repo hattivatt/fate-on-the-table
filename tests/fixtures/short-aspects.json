@@ -1,0 +1,88 @@
+{
+  "format": "fate-on-the-table.layout",
+  "version": 1,
+  "id": "short-aspects",
+  "name": "Short Aspects",
+  "description": "Compact widget: name, portrait and the first two aspects (High concept / Trouble) in system.aspects order via @shortAspects.",
+  "anchor": {
+    "element": "portrait",
+    "point": "topLeft"
+  },
+  "scale": 1,
+  "canvas": {
+    "origin": {
+      "x": -60,
+      "y": -80
+    },
+    "size": {
+      "width": 420,
+      "height": 300
+    },
+    "sizePolicy": {
+      "mode": "content",
+      "minimum": {
+        "width": 420,
+        "height": 300
+      },
+      "overflow": "expand"
+    }
+  },
+  "elements": [
+    {
+      "id": "portrait",
+      "type": "tile",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 140,
+        "height": 140
+      },
+      "content": {
+        "resolver": "@portrait",
+        "mode": "image"
+      }
+    },
+    {
+      "id": "name",
+      "type": "drawing",
+      "rect": {
+        "x": 160,
+        "y": 0,
+        "width": 260,
+        "height": 28
+      },
+      "content": {
+        "resolver": "@name",
+        "mode": "value"
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 22,
+        "fontWeight": 800,
+        "textColor": "#000000",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "shortAspects",
+      "type": "drawing",
+      "rect": {
+        "x": 160,
+        "y": 40,
+        "width": 260,
+        "height": 220
+      },
+      "content": {
+        "resolver": "@shortAspects",
+        "mode": "value"
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 18,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "center"
+      }
+    }
+  ]
+}

@@ -73,7 +73,7 @@ function patchSheetMenu(cls) {
 }
 
 /** Explicitly re-layouts every placed widget of the actor. */
-async function changeWidgetLayout(actor) {
+export async function changeWidgetLayout(actor) {
   const layouts = getLayoutIds();
   if (layouts.length <= 1) {
     ui.notifications.info(
@@ -87,7 +87,7 @@ async function changeWidgetLayout(actor) {
         `<option value="${id}">${layoutDisplayName(id)}</option>`,
     )
     .join("");
-  const choice = await foundry.applications.api.DialogV2.prompt({
+  const result = await foundry.applications.api.DialogV2.input({
     window: {
       title: game.i18n.localize("fate-on-the-table.layouts.change.title"),
     },
@@ -100,7 +100,7 @@ async function changeWidgetLayout(actor) {
     },
     rejectClose: false,
   });
-  const layoutId = choice?.layout;
+  const layoutId = String(dialogField(result, "layout") ?? "").trim();
   const record = getLayoutRecord(layoutId);
   if (!layoutId || !record) return;
 
@@ -138,4 +138,22 @@ async function removeWithConfirmation(actor) {
   ui.notifications.info(
     game.i18n.format("fate-on-the-table.remove.done", { count }),
   );
+}
+
+/**
+ * Reads a named field from a DialogV2.input() result. In Foundry v14 the
+ * result is the submitted form data (a plain object keyed by the field `name`
+ * attributes, or a FormData instance in some builds), the id of a non-ok
+ * button (e.g. `"cancel"`), or `null` when the dialog was dismissed. Returns
+ * the raw field value, or `undefined` when absent/cancelled.
+ * @param {unknown} result  The DialogV2.input() resolution.
+ * @param {string} name  The field `name` attribute to read.
+ * @returns {string|number|File|null|undefined}
+ */
+function dialogField(result, name) {
+  if (!result || typeof result !== "object") return undefined;
+  if (typeof FormData !== "undefined" && result instanceof FormData) {
+    return result.get(name);
+  }
+  return result[name];
 }

@@ -306,7 +306,7 @@
         "x": 13,
         "y": 440,
         "width": 182,
-        "height": 44
+        "height": 24
       },
       "content": {
         "resolver": "@stressTrackNames",
@@ -314,8 +314,8 @@
       },
       "repeat": {
         "axis": "y",
-        "pitch": 44,
-        "itemHeight": 44
+        "pitch": 64,
+        "itemHeight": 24
       },
       "style": {
         "fontFamily": "Montserrat",
@@ -329,8 +329,8 @@
       "id": "stressBoxRows",
       "type": "drawing",
       "rect": {
-        "x": 195,
-        "y": 440,
+        "x": 13,
+        "y": 468,
         "width": 20,
         "height": 20
       },
@@ -340,17 +340,8 @@
       },
       "repeat": {
         "axis": "y",
-        "pitch": 44,
-        "itemHeight": 44
-      },
-      "position": {
-        "anchorTo": "stressTrackNames",
-        "anchorPoint": "topLeft",
-        "selfPoint": "topLeft",
-        "offset": {
-          "x": 6,
-          "y": 0
-        }
+        "pitch": 64,
+        "itemHeight": 32
       },
       "layer": {
         "elevation": 20,
@@ -368,7 +359,7 @@
           "alpha": 0
         },
         "stroke": {
-          "width": 2,
+          "width": 1,
           "color": "#000000",
           "alpha": 1
         }

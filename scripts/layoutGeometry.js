@@ -57,6 +57,26 @@ const FILL_NONE = 0;
 const FILL_SOLID = 1;
 const FILL_PATTERN = 2;
 
+/**
+ * Foundry v14 Drawing visibility rule: a Drawing document with no usable text,
+ * no visible fill and no visible stroke is rejected at creation, dropping the
+ * WHOLE `createEmbeddedDocuments` batch. Whitespace-only text counts as empty
+ * text — the runtime compares `text.trim()`.
+ *
+ * This is the single guard for every Drawing-emitting branch (value/empty,
+ * rows, boxRow and the service background/bounds). `text` may be any resolved
+ * value (coerced to string here); `stroke` is the already-scaled stroke
+ * width, `strokeAlpha`/`fillAlpha` default to fully visible.
+ */
+function isDrawingVisible({ text, stroke, strokeAlpha, fillType, fillAlpha }) {
+  const hasText = Boolean(String(text ?? "").trim());
+  const hasStroke = Number(stroke) > 0 && (strokeAlpha ?? 1) > 0;
+  const hasFill =
+    (fillType === FILL_SOLID || fillType === FILL_PATTERN) &&
+    (fillAlpha ?? 1) > 0;
+  return hasText || hasStroke || hasFill;
+}
+
 function pointOnRect(rect, point) {
   const [fx, fy] = POINT_FRACTIONS[point] ?? POINT_FRACTIONS.topLeft;
   return { x: rect.x + rect.width * fx, y: rect.y + rect.height * fy };
@@ -147,7 +167,10 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
       // drawing
       const style = el.style ?? {};
       const fill = style.fill ?? {};
-      const strokeWidth = style.stroke?.width ?? 0;
+      // Stroke width scales with the layout exactly like rect/font size, so
+      // thin 1px box borders stay proportional on scaled/conflict cards.
+      // Numeric coercion keeps stray strings/invalid values safe (0 stays 0).
+      const strokeWidth = Number(style.stroke?.width) || 0;
       const base = {
         kind: "drawing",
         part: el.id,
@@ -156,7 +179,7 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
         color: colorOverride || style.textColor || "#000000",
         align: style.textAlign || "left",
         weight: style.fontWeight ?? null,
-        stroke: strokeWidth,
+        stroke: strokeWidth * scale,
         strokeColor: colorOverride || style.stroke?.color || style.textColor || "#000000",
         strokeAlpha: strokeWidth ? (style.stroke?.alpha ?? 1) : 0,
         fillType:
@@ -171,6 +194,14 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
         const pitch = (el.repeat?.pitch ?? rect.height) * scale;
         const itemH = (el.repeat?.itemHeight ?? rect.height) * scale;
         rows.forEach((text, i) => {
+          // Skip a fully-invisible row: an empty or whitespace-only text row
+          // with no visible stroke and no visible fill would create an invalid
+          // Drawing (Foundry v14 rejects it and drops the whole batch). This
+          // is the same rule as the value/empty branch. The anchorTo boxRow
+          // logic already falls back to the label column start for rows that
+          // produced no Drawings, so the per-track checkbox cells are still
+          // laid out.
+          if (!isDrawingVisible({ ...base, text })) return;
           list.push({
             ...base,
             index: i,
@@ -191,6 +222,12 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
         rows.forEach((row, i) => {
           const boxes = Array.isArray(row) ? row : [];
           boxes.forEach((text, j) => {
+            // A checkbox cell is visible through its frame (stroke) or fill;
+            // only a fully-invisible empty/whitespace box would be an invalid
+            // Drawing and is skipped here. Framed checkbox boxes (the normal
+            // boxRow layout) always pass, keeping every stress
+            // cell — including empty ones — in the batch.
+            if (!isDrawingVisible({ ...base, text })) return;
             list.push({
               ...base,
               index: idx++,
@@ -206,10 +243,10 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
         });
       } else {
         const text = String(value ?? "");
-        // Skip invisible clutter: an empty text drawing without a stroke or
-        // fill would create a hidden empty document.
-        const invisible = !text && !strokeWidth && fill.type !== "solid";
-        if (!invisible) {
+        // Skip invisible clutter: an empty/whitespace text drawing without a
+        // visible stroke or fill would create a hidden empty document that
+        // Foundry v14 rejects (dropping the whole batch).
+        if (isDrawingVisible({ ...base, text })) {
           list.push({
             ...base,
             index: -1,
@@ -249,9 +286,24 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
       const measureText = options.measureText ?? defaultMeasureText;
       const gap = (pos.offset?.x ?? BOX_GAP) * scale;
       const offsetY = (pos.offset?.y ?? 0) * scale;
+      const rowPitch =
+        (el.repeat?.pitch ?? sourceEl.rect?.height ?? 40) * scale;
       for (const d of target) {
         const sourceRow = source.find((s) => s.index === d.rowIndex);
-        if (!sourceRow) continue;
+        if (!sourceRow) {
+          // The name row produced no Drawing (its text was empty and it has
+          // no stroke/fill, so it was skipped as invisible clutter). The
+          // checkbox of that track must still be drawn — every enabled
+          // aspect track keeps its cell. Align the box with the START of the
+          // label column on the track's row instead of dropping it.
+          d.x = sourceEl.rect.x * scale + gap;
+          d.y =
+            sourceEl.rect.y * scale +
+            d.rowIndex * rowPitch +
+            (sourceEl.rect.height * scale - d.h) / 2 +
+            offsetY;
+          continue;
+        }
         const textWidth = measureText(sourceRow.text, sourceRow);
         d.x =
           sourceRow.x +
@@ -360,7 +412,7 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
       const fill = bg?.fill ?? {};
       const texture =
         bg?.texture?.source != null ? options.backgroundTexture ?? "" : "";
-      instances.push({
+      const bgDoc = {
         kind: "drawing",
         part: "widgetBackground",
         index: -1,
@@ -383,12 +435,15 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
         elevation: bg?.layer?.elevation ?? -10,
         sort: bg?.layer?.sort ?? -1000,
         text: "",
-      });
+      };
+      // A background would still be invisible (e.g. alpha 0, no texture) —
+      // skip it rather than ship an invalid Drawing that rejects the batch.
+      if (isDrawingVisible(bgDoc)) instances.push(bgDoc);
     }
     const bounds = layout.bounds;
     if (bounds?.enabled !== false) {
       const stroke = bounds?.stroke ?? {};
-      instances.push({
+      const boundsDoc = {
         kind: "drawing",
         part: "widgetBounds",
         index: -1,
@@ -401,7 +456,7 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
         color: stroke.color ?? "#000000",
         align: "left",
         weight: null,
-        stroke: stroke.width ?? 1,
+        stroke: (Number(stroke.width ?? 1) || 0) * scale,
         strokeColor: stroke.color ?? "#000000",
         strokeAlpha: stroke.alpha ?? 0.2,
         fillType: FILL_NONE,
@@ -411,7 +466,11 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
         elevation: bounds?.layer?.elevation ?? 10,
         sort: bounds?.layer?.sort ?? 1000,
         text: "",
-      });
+      };
+      // The bounds grab-frame keeps its valid faint stroke (alpha > 0 is
+      // enough for visibility); a zero-width stroke with no fill would be an
+      // invalid Drawing and is skipped instead.
+      if (isDrawingVisible(boundsDoc)) instances.push(boundsDoc);
     }
   }
 

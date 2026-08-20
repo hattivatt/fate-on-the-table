@@ -13,8 +13,17 @@ import {
   GM_OWNER_TYPE,
   SITUATION_ASPECTS_WIDGET_FLAG,
   SA_OWNER_TYPE,
+  CONFLICT_ZONE_OWNER_TYPE,
+  CONFLICT_CARD_OWNER_TYPE,
 } from "./constants.js";
 import { allWidgetDocs } from "./widgetDocs.js";
+import {
+  readConflictBoard,
+  writeConflictBoard,
+  syncConflictBoard,
+  boardRegistry,
+  CONFLICT_BOARD_OWNER_TYPE,
+} from "./ConflictBoardSync.js";
 
 export function initWidgetDrag() {
   Hooks.on("preUpdateDrawing", onPartPreUpdate);
@@ -26,6 +35,29 @@ function onPartPreUpdate(document, change, options, userId) {
   if (change.x === undefined && change.y === undefined) return;
   const widgetId = document.getFlag(FLAG_SCOPE, "widgetId");
   if (!widgetId) return;
+  const ownerType = document.getFlag(FLAG_SCOPE, "ownerType");
+  // Conflict cards are positioned deterministically by the board layout
+  // (layoutConflictCards); a free card drag would desync the projection and
+  // must never move TokenDocument.x/y. Card-area assignment is a future
+  // extension, so the move is rejected outright.
+  if (ownerType === CONFLICT_CARD_OWNER_TYPE) return false;
+  // Board-level parts (background, area frames, labels, turn marker) are
+  // projected from `state.board.origin`, which is fixed at placement and
+  // never updated by a drag: moving only the drawings would desync the whole
+  // board (zones/cards stay behind and the next sync snaps everything back).
+  // The board has no reposition flow in this version, so the move is
+  // rejected outright for everyone.
+  if (ownerType === CONFLICT_BOARD_OWNER_TYPE) return false;
+  // Players never move conflict projections: zones shift the board state, so
+  // the move is rejected for non-GM users.
+  if (
+    ownerType === CONFLICT_ZONE_OWNER_TYPE &&
+    typeof game !== "undefined" &&
+    game?.user &&
+    !game.user.isGM
+  ) {
+    return false;
+  }
   const dx = (change.x ?? document.x) - document.x;
   const dy = (change.y ?? document.y) - document.y;
   if (!dx && !dy) return;
@@ -63,6 +95,18 @@ async function propagate(sourceDoc, widgetId, dx, dy) {
   // The anchor must be shifted even for a single-document widget (e.g. a GM
   // fate point row with one token).
   const ownerType = sourceDoc.getFlag(FLAG_SCOPE, "ownerType");
+  if (ownerType === CONFLICT_BOARD_OWNER_TYPE) {
+    // Unreachable (rejected in onPartPreUpdate); kept as a defensive guard.
+    return;
+  }
+  if (ownerType === CONFLICT_ZONE_OWNER_TYPE) {
+    await shiftConflictZone(scene, widgetId, dx, dy);
+    return;
+  }
+  if (ownerType === CONFLICT_CARD_OWNER_TYPE) {
+    // Unreachable (rejected in onPartPreUpdate); kept as a defensive guard.
+    return;
+  }
   if (ownerType === GM_OWNER_TYPE) {
     await shiftSceneAnchor(scene, widgetId, dx, dy, GM_FP_WIDGET_FLAG);
     return;
@@ -86,6 +130,35 @@ async function propagate(sourceDoc, widgetId, dx, dy) {
       console.warn("[fate-on-the-table] anchor update failed:", err);
     }
   }
+}
+
+/**
+ * Moves a conflict zone: shifts only the dragged zone's `zones[].rect` by the
+ * drag delta and re-projects through `writeConflictBoard` + a safe sync. The
+ * board origin, other zones, cards and tokenZones are never touched. The
+ * registry maps a zone widget id to its stable zone id, so no foreign
+ * document is ever located by coordinates or text.
+ */
+async function shiftConflictZone(scene, widgetId, dx, dy) {
+  const registry = boardRegistry(scene);
+  const zoneId = Object.entries(registry?.zoneWidgetIds ?? {}).find(
+    ([, widget]) => widget === widgetId,
+  )?.[0];
+  if (!zoneId) return;
+  const state = readConflictBoard(scene);
+  const zone = state?.zones?.find((z) => z?.id === zoneId);
+  if (!state || !zone?.rect) return;
+  const rect = {
+    x: Math.round(zone.rect.x + dx),
+    y: Math.round(zone.rect.y + dy),
+    width: zone.rect.width,
+    height: zone.rect.height,
+  };
+  await writeConflictBoard(scene, {
+    ...state,
+    zones: state.zones.map((z) => (z?.id === zoneId ? { ...z, rect } : z)),
+  });
+  await syncConflictBoard(scene);
 }
 
 /** Updates a scene-owned widget anchor stored in a scene flag registry. */

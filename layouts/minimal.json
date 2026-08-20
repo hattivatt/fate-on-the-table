@@ -74,10 +74,24 @@
         "fontSize": 26,
         "fontWeight": 800,
         "textColor": "#000000",
-        "textAlign": "center"
+        "textAlign": "center",
+        "fill": {
+          "type": "none",
+          "color": "#ffffff",
+          "alpha": 0
+        },
+        "stroke": {
+          "width": 0,
+          "color": "#000000",
+          "alpha": 0
+        }
       },
       "sizing": {
         "width": "canvas"
+      },
+      "layer": {
+        "elevation": 0,
+        "sort": 0
       }
     },
     {
@@ -92,6 +106,22 @@
       "content": {
         "resolver": "@portrait",
         "mode": "image"
+      },
+      "style": {
+        "fill": {
+          "type": "none",
+          "color": "#ffffff",
+          "alpha": 0
+        },
+        "stroke": {
+          "width": 0,
+          "color": "#000000",
+          "alpha": 0
+        }
+      },
+      "layer": {
+        "elevation": 0,
+        "sort": 0
       }
     },
     {
@@ -112,80 +142,214 @@
         "fontSize": 20,
         "fontWeight": 400,
         "textColor": "#000000",
-        "textAlign": "center"
+        "textAlign": "center",
+        "fill": {
+          "type": "none",
+          "color": "#ffffff",
+          "alpha": 0
+        },
+        "stroke": {
+          "width": 0,
+          "color": "#000000",
+          "alpha": 0
+        }
+      },
+      "layer": {
+        "elevation": 0,
+        "sort": 0
       }
     },
     {
-      "id": "aspects",
-      "type": "drawing",
-      "rect": {
-        "x": 320,
-        "y": 80,
-        "width": 320,
-        "height": 220
-      },
-      "content": {
-        "resolver": "@aspects",
-        "mode": "value"
-      },
-      "style": {
-        "fontFamily": "Montserrat",
-        "fontSize": 20,
-        "fontWeight": 400,
-        "textColor": "#000000",
-        "textAlign": "center"
-      }
-    },
-    {
-      "id": "stressTracks",
+      "id": "stressTrackNames",
       "type": "drawing",
       "rect": {
         "x": 20,
         "y": 320,
-        "width": 320,
-        "height": 40
+        "width": 280,
+        "height": 24
       },
       "content": {
-        "resolver": "@stressTracks",
+        "resolver": "@stressTrackNames",
         "mode": "rows"
       },
       "repeat": {
         "axis": "y",
-        "pitch": 32,
-        "itemHeight": 40
+        "pitch": 64,
+        "itemHeight": 24,
+        "direction": "forward"
       },
       "style": {
         "fontFamily": "Montserrat",
         "fontSize": 16,
         "fontWeight": 400,
         "textColor": "#000000",
-        "textAlign": "left"
+        "textAlign": "left",
+        "fill": {
+          "type": "none",
+          "color": "#ffffff",
+          "alpha": 0
+        },
+        "stroke": {
+          "width": 0,
+          "color": "#000000",
+          "alpha": 0
+        }
+      },
+      "layer": {
+        "elevation": 0,
+        "sort": 0
       }
     },
     {
-      "id": "consequences",
+      "id": "stressBoxRows",
       "type": "drawing",
       "rect": {
         "x": 20,
-        "y": 360,
-        "width": 320,
-        "height": 40
+        "y": 348,
+        "width": 16,
+        "height": 16
       },
       "content": {
-        "resolver": "@consequences",
-        "mode": "rows"
+        "resolver": "@stressBoxRows",
+        "mode": "boxRow"
       },
       "repeat": {
         "axis": "y",
-        "pitch": 32,
-        "itemHeight": 40
+        "pitch": 64,
+        "itemHeight": 32,
+        "direction": "forward"
+      },
+      "layer": {
+        "elevation": 20,
+        "sort": 2000
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 12,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "center",
+        "fill": {
+          "type": "none",
+          "color": "#ffffff",
+          "alpha": 0
+        },
+        "stroke": {
+          "width": 1,
+          "color": "#000000",
+          "alpha": 1
+        }
+      }
+    },
+    {
+      "id": "consequencesHeader",
+      "type": "drawing",
+      "rect": {
+        "x": 418,
+        "y": 290,
+        "width": 210,
+        "height": 20
+      },
+      "content": {
+        "resolver": "@consequencesHeader",
+        "mode": "value"
       },
       "style": {
         "fontFamily": "Montserrat",
         "fontSize": 16,
         "fontWeight": 400,
         "textColor": "#000000",
-        "textAlign": "left"
+        "textAlign": "left",
+        "fill": {
+          "type": "none",
+          "color": "#ffffff",
+          "alpha": 0
+        },
+        "stroke": {
+          "width": 0,
+          "color": "#000000",
+          "alpha": 0
+        }
+      },
+      "layer": {
+        "elevation": 0,
+        "sort": 0
+      }
+    },
+    {
+      "id": "consequenceCostRows",
+      "type": "drawing",
+      "rect": {
+        "x": 377,
+        "y": 330,
+        "width": 260,
+        "height": 20
+      },
+      "content": {
+        "resolver": "@consequenceCostRows",
+        "mode": "rows"
+      },
+      "repeat": {
+        "axis": "y",
+        "pitch": 40,
+        "itemHeight": 20,
+        "direction": "forward"
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 12,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "left",
+        "fill": {
+          "type": "none",
+          "color": "#ffffff",
+          "alpha": 0
+        },
+        "stroke": {
+          "width": 0,
+          "color": "#000000",
+          "alpha": 0
+        }
+      },
+      "layer": {
+        "elevation": 20,
+        "sort": 2000
+      }
+    },
+    {
+      "id": "el_3i03bm",
+      "type": "drawing",
+      "rect": {
+        "x": 320,
+        "y": 100,
+        "width": 320,
+        "height": 120
+      },
+      "content": {
+        "resolver": "@shortAspects",
+        "mode": "value"
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 18,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "center",
+        "fill": {
+          "type": "none",
+          "color": "#ffffff",
+          "alpha": 0
+        },
+        "stroke": {
+          "width": 0,
+          "color": "#000000",
+          "alpha": 0
+        }
+      },
+      "layer": {
+        "elevation": 0,
+        "sort": 0
       }
     }
   ]

@@ -290,22 +290,22 @@
       }
     },
     {
-      "id": "stressTracks",
+      "id": "stressTrackNames",
       "type": "drawing",
       "rect": {
         "x": 20,
         "y": 480,
-        "width": 320,
-        "height": 40
+        "width": 300,
+        "height": 24
       },
       "content": {
-        "resolver": "@stressTracks",
+        "resolver": "@stressTrackNames",
         "mode": "rows"
       },
       "repeat": {
         "axis": "y",
-        "pitch": 36,
-        "itemHeight": 40
+        "pitch": 64,
+        "itemHeight": 24
       },
       "style": {
         "fontFamily": "Montserrat",
@@ -313,6 +313,46 @@
         "fontWeight": 400,
         "textColor": "#000000",
         "textAlign": "left"
+      }
+    },
+    {
+      "id": "stressBoxRows",
+      "type": "drawing",
+      "rect": {
+        "x": 20,
+        "y": 508,
+        "width": 20,
+        "height": 20
+      },
+      "content": {
+        "resolver": "@stressBoxRows",
+        "mode": "boxRow"
+      },
+      "repeat": {
+        "axis": "y",
+        "pitch": 64,
+        "itemHeight": 32
+      },
+      "layer": {
+        "elevation": 20,
+        "sort": 2000
+      },
+      "style": {
+        "fontFamily": "Montserrat",
+        "fontSize": 14,
+        "fontWeight": 400,
+        "textColor": "#000000",
+        "textAlign": "center",
+        "fill": {
+          "type": "none",
+          "color": "#ffffff",
+          "alpha": 0
+        },
+        "stroke": {
+          "width": 1,
+          "color": "#000000",
+          "alpha": 1
+        }
       }
     },
     {
@@ -325,7 +365,7 @@
         "height": 40
       },
       "content": {
-        "resolver": "@headerConsequences",
+        "resolver": "@consequencesHeader",
         "mode": "value"
       },
       "style": {
@@ -337,29 +377,34 @@
       }
     },
     {
-      "id": "consequences",
+      "id": "consequenceCostRows",
       "type": "drawing",
       "rect": {
         "x": 360,
         "y": 520,
-        "width": 360,
+        "width": 400,
         "height": 40
       },
       "content": {
-        "resolver": "@consequences",
+        "resolver": "@consequenceCostRows",
         "mode": "rows"
       },
       "repeat": {
         "axis": "y",
         "pitch": 36,
-        "itemHeight": 40
+        "itemHeight": 40,
+        "direction": "forward"
       },
       "style": {
         "fontFamily": "Montserrat",
-        "fontSize": 18,
+        "fontSize": 15,
         "fontWeight": 400,
         "textColor": "#000000",
         "textAlign": "left"
+      },
+      "layer": {
+        "elevation": 20,
+        "sort": 2000
       }
     },
     {

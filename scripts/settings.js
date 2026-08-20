@@ -6,11 +6,62 @@
 import { getLayoutRecord, getLayoutIds } from "./layoutRegistry.js";
 import { resolveFont } from "./WidgetBuilder.js";
 import { LayoutImportExport } from "./LayoutImportExport.js";
+import { BOARD_SIZE_PRESETS } from "./conflictBoardGeometry.js";
 
 export const MODULE_ID = "fate-on-the-table";
 
 /** Layout settings whose choices must list every registered layout. */
 const LAYOUT_SETTING_KEYS = ["defaultTemplate", "playerLayout", "npcLayout"];
+
+/**
+ * Conflict board (feature 5) setting keys. Exported so the manager/sync
+ * modules (ConflictManager/ConflictBoardSync) can read the settings by these
+ * exact names without duplicating strings. Sizes are the preset sides in
+ * scene units, aligned with the pure geometry config `BOARD_SIZE_PRESETS`
+ * (small/medium/large = 500/800/1200); a placed board that already stores its
+ * own `board.boardSize` keeps that size (`normalizeBoardSize` in
+ * conflictBoardGeometry.js) and is NOT resized by these presets.
+ */
+export const CONFLICT_BOARD_SETTING_KEYS = Object.freeze([
+  "conflictBoardSizeSmall",
+  "conflictBoardSizeMedium",
+  "conflictBoardSizeLarge",
+  "conflictBoardBackgroundColor",
+  "conflictBoardBackgroundTexture",
+  "conflictBoardBackgroundAlpha",
+  "conflictBoardOverflowPolicy",
+]);
+
+/**
+ * Safe defaults for the conflict board settings. Size defaults mirror
+ * `BOARD_SIZE_PRESETS`; the background defaults mirror the schema defaults
+ * `DEFAULT_BACKGROUND` in conflictBoardSchema.js (read by ConflictBoardSync
+ * into `state.board.background`).
+ */
+export const CONFLICT_BOARD_SETTING_DEFAULTS = Object.freeze({
+  conflictBoardSizeSmall: BOARD_SIZE_PRESETS.small,
+  conflictBoardSizeMedium: BOARD_SIZE_PRESETS.medium,
+  conflictBoardSizeLarge: BOARD_SIZE_PRESETS.large,
+  conflictBoardBackgroundColor: "#ffffff",
+  conflictBoardBackgroundTexture: "",
+  conflictBoardBackgroundAlpha: 1,
+  conflictBoardOverflowPolicy: "warn",
+});
+
+/**
+ * Card overflow policies selectable in the settings UI. `warn` reports the
+ * overflow (cards are never silently clipped — layoutConflictCards returns
+ * a per-card overflow list), `expand` grows the side areas to fit all cards.
+ */
+export const CONFLICT_BOARD_OVERFLOW_POLICIES = Object.freeze([
+  "warn",
+  "expand",
+]);
+
+const CONFLICT_BOARD_OVERFLOW_CHOICES = Object.freeze({
+  warn: `${MODULE_ID}.settings.conflictOverflow.warn`,
+  expand: `${MODULE_ID}.settings.conflictOverflow.expand`,
+});
 
 /**
  * Human-readable layout name: the i18n key `fate-on-the-table.layouts.<id>.name`
@@ -362,6 +413,85 @@ export function registerSettings() {
     range: { min: 0, max: 1, step: 0.05 },
   });
 
+  // Conflict board (feature 5): independent world settings. They configure
+  // only the board itself and never the actor-widget or situation aspect
+  // backgrounds. Preset sizes are editable so GMs can tune the placement
+  // dialog; a stored `board.boardSize` still wins over these values.
+  for (const key of [
+    "conflictBoardSizeSmall",
+    "conflictBoardSizeMedium",
+    "conflictBoardSizeLarge",
+  ]) {
+    game.settings.register(MODULE_ID, key, {
+      name: game.i18n.localize(`${MODULE_ID}.settings.${key}`),
+      hint: game.i18n.localize(`${MODULE_ID}.settings.${key}Hint`),
+      scope: "world",
+      config: true,
+      type: Number,
+      default: CONFLICT_BOARD_SETTING_DEFAULTS[key],
+      range: { min: 100, max: 4000, step: 10 },
+    });
+  }
+
+  game.settings.register(MODULE_ID, "conflictBoardBackgroundColor", {
+    name: game.i18n.localize(
+      `${MODULE_ID}.settings.conflictBoardBackgroundColor`,
+    ),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.conflictBoardBackgroundColorHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: String,
+    default: CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardBackgroundColor,
+  });
+
+  game.settings.register(MODULE_ID, "conflictBoardBackgroundTexture", {
+    name: game.i18n.localize(
+      `${MODULE_ID}.settings.conflictBoardBackgroundTexture`,
+    ),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.conflictBoardBackgroundTextureHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: String,
+    default: CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardBackgroundTexture,
+  });
+
+  game.settings.register(MODULE_ID, "conflictBoardBackgroundAlpha", {
+    name: game.i18n.localize(
+      `${MODULE_ID}.settings.conflictBoardBackgroundAlpha`,
+    ),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.conflictBoardBackgroundAlphaHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: Number,
+    default: CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardBackgroundAlpha,
+    range: { min: 0, max: 1, step: 0.05 },
+  });
+
+  game.settings.register(MODULE_ID, "conflictBoardOverflowPolicy", {
+    name: game.i18n.localize(
+      `${MODULE_ID}.settings.conflictBoardOverflowPolicy`,
+    ),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.conflictBoardOverflowPolicyHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: String,
+    default: CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardOverflowPolicy,
+    choices: Object.fromEntries(
+      CONFLICT_BOARD_OVERFLOW_POLICIES.map((policy) => [
+        policy,
+        game.i18n.localize(CONFLICT_BOARD_OVERFLOW_CHOICES[policy]),
+      ]),
+    ),
+  });
+
   Hooks.on("renderSettingsConfig", onRenderSettingsConfig);
   Hooks.on("closeSettingsConfig", () => {
     openSettingsConfig = null;
@@ -420,6 +550,69 @@ export function getSituationAspectOptions() {
   };
 }
 
+/**
+ * Reads the current conflict board options from the settings (feature 5).
+ * Safe outside Foundry: defaults come from the pure geometry/schema config
+ * and every runtime read is guarded, so this helper never throws. Stored
+ * `board.boardSize` still wins over the preset sizes here (see
+ * `normalizeBoardSize` in conflictBoardGeometry.js). The returned background
+ * maps directly onto `state.board.background` consumed by ConflictBoardSync.
+ * @returns {{
+ *   keys: string[],
+ *   defaults: Record<string, number|string>,
+ *   current: Record<string, number|string>,
+ *   sizePresets: {small: number, medium: number, large: number},
+ *   background: {color: string, texture: string, alpha: number},
+ *   overflowPolicy: string
+ * }}
+ */
+export function getConflictBoardOptions() {
+  const defaults = { ...CONFLICT_BOARD_SETTING_DEFAULTS };
+  const read = (key, fallback) => {
+    // `typeof game` first: optional chaining on an undeclared identifier
+    // would itself throw, so guard the identifier before touching settings.
+    if (typeof game === "undefined" || typeof game?.settings?.get !== "function") {
+      return fallback;
+    }
+    try {
+      const value = game.settings.get(MODULE_ID, key);
+      return value === undefined ? fallback : value;
+    } catch (err) {
+      console.warn("[fate-on-the-table] conflict board setting read failed:", err);
+      return fallback;
+    }
+  };
+  const size = (key) =>
+    Math.max(
+      Math.min(Number(read(key, defaults[key])) || defaults[key], 4000),
+      100,
+    );
+  const alpha = (key) =>
+    Math.min(Math.max(Number(read(key, defaults[key])) || 0, 0), 1);
+  const str = (key) => String(read(key, defaults[key]) ?? "");
+
+  return {
+    keys: [...CONFLICT_BOARD_SETTING_KEYS],
+    defaults,
+    current: Object.fromEntries(
+      CONFLICT_BOARD_SETTING_KEYS.map((key) => [key, read(key, defaults[key])]),
+    ),
+    sizePresets: {
+      small: size("conflictBoardSizeSmall"),
+      medium: size("conflictBoardSizeMedium"),
+      large: size("conflictBoardSizeLarge"),
+    },
+    background: {
+      color: str("conflictBoardBackgroundColor"),
+      texture: str("conflictBoardBackgroundTexture"),
+      alpha: alpha("conflictBoardBackgroundAlpha"),
+    },
+    overflowPolicy: String(
+      read("conflictBoardOverflowPolicy", defaults.conflictBoardOverflowPolicy),
+    ),
+  };
+}
+
 function getFontList() {
   try {
     return foundry.applications.settings.menus.FontConfig.getAvailableFonts();
@@ -460,6 +653,7 @@ function onRenderSettingsConfig(app, html) {
     "textColor",
     "situationAspectsTextColor",
     "situationAspectsBackgroundColor",
+    "conflictBoardBackgroundColor",
   ]) {
     const colorInput = html.querySelector?.(
       `[name="${MODULE_ID}.${key}"]`,
@@ -471,6 +665,7 @@ function onRenderSettingsConfig(app, html) {
     "fatePointImage",
     "backgroundTexture",
     "situationAspectsBackgroundTexture",
+    "conflictBoardBackgroundTexture",
   ]) {
     const input = html.querySelector?.(`[name="${MODULE_ID}.${key}"]`);
     const fields = input?.closest(".form-fields");

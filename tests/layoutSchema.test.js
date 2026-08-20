@@ -62,6 +62,46 @@ test("built-in layouts (default, minimal, full) are valid", () => {
   }
 });
 
+test("minimal and full layouts carry the interactive stress box pair", () => {
+  for (const id of ["minimal", "full"]) {
+    const result = analyzeLayout(loadLayout(id));
+    assert.equal(result.ok, true, `layout "${id}" should be valid`);
+    const elements = result.normalized.elements;
+    const names = elements.find((e) => e.id === "stressTrackNames");
+    const boxes = elements.find((e) => e.id === "stressBoxRows");
+
+    assert.ok(names, `layout "${id}" must keep a stressTrackNames element`);
+    assert.equal(names.content.resolver, "@stressTrackNames");
+    assert.equal(names.content.mode, "rows");
+
+    assert.ok(boxes, `layout "${id}" must contain a stressBoxRows element`);
+    assert.equal(boxes.content.resolver, "@stressBoxRows");
+    assert.equal(boxes.content.mode, "boxRow");
+    assert.equal(boxes.type, "drawing");
+    // The boxes rest in their own boxRow below the label: no anchorTo, the
+    // box row is a separate absolute row under the stress track names so the
+    // box x does not depend on the measured name width.
+    assert.equal(boxes.position, undefined);
+    assert.equal(boxes.layer.elevation, 20);
+    assert.equal(boxes.layer.sort, 2000);
+    assert.equal(boxes.repeat.axis, "y");
+    assert.equal(boxes.style.stroke.width, 1);
+    // Underscore the label-above-box geometry contract: the box row starts
+    // strictly below the label rect and shares its x column.
+    assert.ok(
+      boxes.rect.y > names.rect.y,
+      `layout "${id}" stress boxes must sit below the track names`,
+    );
+    assert.equal(boxes.rect.x, names.rect.x);
+
+    // The combined text stress element must not shadow the interactive boxes.
+    assert.ok(
+      !elements.some((e) => e.content?.resolver === "@stressTracks"),
+      `layout "${id}" should not keep a text-only @stressTracks element`,
+    );
+  }
+});
+
 test("normalizes a valid document with safe defaults", () => {
   const result = analyzeLayout(validDocument());
   assert.equal(result.ok, true);
@@ -301,6 +341,171 @@ test("unregistered resolvers and type/mode mismatches are errors", () => {
   assert.equal(result.ok, false);
 });
 
+test("@shortAspects validates only in mode value (mirror of @aspects)", () => {
+  // value is the only allowed mode.
+  const doc = validDocument();
+  doc.elements[1].content = { resolver: "@shortAspects", mode: "value" };
+  const result = analyzeLayout(doc);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.normalized.elements[1].content.resolver, "@shortAspects");
+
+  // Every other content mode must be rejected.
+  for (const mode of ["rows", "boxRow", "count", "image", "empty"]) {
+    const d = validDocument();
+    d.elements[1].content = { resolver: "@shortAspects", mode };
+    const bad = analyzeLayout(d);
+    assert.equal(
+      bad.ok,
+      false,
+      `@shortAspects with mode "${mode}" should be rejected`,
+    );
+    assert.ok(
+      bad.errors.some(
+        (e) =>
+          e.path === "$.elements[1].content" ||
+          e.path === "$.elements[1].content.mode",
+      ),
+      `expected a content error for mode "${mode}": ${JSON.stringify(bad.errors)}`,
+    );
+  }
+});
+
+test("short-aspects fixture layout is valid and uses @shortAspects", () => {
+  const doc = JSON.parse(
+    readFileSync(
+      new URL("../tests/fixtures/short-aspects.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const result = analyzeLayout(doc);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  const short = result.normalized.elements.find((e) => e.id === "shortAspects");
+  assert.ok(short, "fixture must contain the shortAspects element");
+  assert.equal(short.content.resolver, "@shortAspects");
+  assert.equal(short.content.mode, "value");
+});
+
+test("@consequenceNames validates only in mode rows (plain names next to boxes)", () => {
+  const doc = validDocument();
+  doc.elements[1].content = { resolver: "@consequenceNames", mode: "rows" };
+  const result = analyzeLayout(doc);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.normalized.elements[1].content.resolver, "@consequenceNames");
+  assert.equal(result.normalized.elements[1].content.mode, "rows");
+
+  for (const mode of ["value", "boxRow", "count", "image", "empty"]) {
+    const d = validDocument();
+    d.elements[1].content = { resolver: "@consequenceNames", mode };
+    const bad = analyzeLayout(d);
+    assert.equal(
+      bad.ok,
+      false,
+      `@consequenceNames with mode "${mode}" should be rejected`,
+    );
+    assert.ok(
+      bad.errors.some(
+        (e) =>
+          e.path === "$.elements[1].content" ||
+          e.path === "$.elements[1].content.mode",
+      ),
+      `expected a content error for mode "${mode}": ${JSON.stringify(bad.errors)}`,
+    );
+  }
+});
+
+test("built-in layouts carry the consequence header + cost rows (no checkbox pair)", () => {
+  for (const id of ["minimal", "full"]) {
+    const result = analyzeLayout(loadLayout(id));
+    assert.equal(result.ok, true, `layout "${id}" should be valid`);
+    const elements = result.normalized.elements;
+    const header = elements.find((e) => e.id === "consequencesHeader");
+    const rows = elements.find((e) => e.id === "consequenceCostRows");
+
+    assert.ok(header, `layout "${id}" must contain a consequencesHeader element`);
+    assert.equal(header.content.resolver, "@consequencesHeader");
+    assert.equal(header.content.mode, "value");
+    assert.equal(header.type, "drawing");
+    // The header is a plain text value element on the base canvas layer.
+    assert.equal(header.position, undefined);
+    assert.equal(header.layer.elevation, 0);
+    assert.equal(header.layer.sort, 0);
+
+    assert.ok(rows, `layout "${id}" must contain a consequenceCostRows element`);
+    assert.equal(rows.content.resolver, "@consequenceCostRows");
+    assert.equal(rows.content.mode, "rows");
+    assert.equal(rows.type, "drawing");
+    // The cost rows are anchored above the header: repeated vertically and
+    // sitting BELOW the header (header is on top).
+    assert.equal(rows.position, undefined);
+    assert.equal(rows.repeat.axis, "y");
+    assert.ok(rows.rect.y >= header.rect.y + header.rect.height, "cost rows sit below the header");
+    // Regression: the consequence cost rows are the double-click input target,
+    // so they render ABOVE the transparent widgetBounds grab frame
+    // (bounds layer elevation 10 / sort 1000) — same elevation/sort as the
+    // already-interactive stress box rows.
+    assert.equal(rows.layer.elevation, 20);
+    assert.equal(rows.layer.sort, 2000);
+    assert.ok(
+      rows.layer.elevation > result.normalized.bounds.layer.elevation &&
+        rows.layer.sort > result.normalized.bounds.layer.sort,
+      `layout "${id}" consequence cost rows must sit above widgetBounds`,
+    );
+
+    // No checkbox part or plain-name element remains in the built-ins.
+    assert.ok(
+      !elements.some((e) => e.id === "consequenceBoxRows" || e.content?.resolver === "@consequenceBoxRows"),
+      `layout "${id}" must not keep a consequenceBoxRows element`,
+    );
+    assert.ok(
+      !elements.some((e) => e.id === "consequences" || e.content?.resolver === "@consequenceNames"),
+      `layout "${id}" must not keep a consequence name element`,
+    );
+  }
+});
+
+test("@consequenceBoxRows remains unregistered and unbuildable (consequences are text only)", () => {
+  // The consequence checkbox resolver has been removed from the catalog: a
+  // layout element that still references it must be rejected as an unknown
+  // resolver, so no new layout can create a consequence checkbox Drawing.
+  for (const mode of ["boxRow", "rows", "value"]) {
+    const doc = validDocument();
+    doc.elements[1].content = { resolver: "@consequenceBoxRows", mode };
+    doc.elements[1].type = "drawing";
+    const result = analyzeLayout(doc);
+    assert.equal(
+      result.ok,
+      false,
+      `@consequenceBoxRows mode "${mode}" should be rejected as an unknown resolver`,
+    );
+    assert.ok(
+      result.errors.some((e) => e.path === "$.elements[1].content.resolver"),
+      `expected unknown-resolver error for mode "${mode}": ${JSON.stringify(result.errors)}`,
+    );
+  }
+});
+
+test("default layout has no consequence elements of any kind", () => {
+  const result = analyzeLayout(loadLayout("default"));
+  assert.equal(result.ok, true, "default layout should be valid");
+  const elements = result.normalized.elements;
+  for (const resolver of [
+    "@consequenceNames",
+    "@consequenceBoxRows",
+    "@consequencesHeader",
+    "@consequenceCostRows",
+    "@consequences",
+  ]) {
+    assert.ok(
+      !elements.some((e) => e.content?.resolver === resolver),
+      `default layout must not keep a ${resolver} element`,
+    );
+  }
+  assert.ok(
+    !elements.some((e) => e.id === "consequenceBoxRows" || e.id === "consequencesHeader" || e.id === "consequenceCostRows"),
+    "default layout must not keep consequence parts",
+  );
+});
+
 test("tile with mode value / drawing with mode image or count are errors", () => {
   const doc = validDocument();
   doc.elements[0].content = { resolver: "@portrait", mode: "value" };
@@ -526,4 +731,58 @@ test("kitchen-sink layout (rows, tileRow, anchorTo, growTo, width canvas, layers
   assert.equal(result.ok, true, JSON.stringify(result.errors));
   assert.equal(result.normalized.scale, 2);
   assert.equal(result.normalized.elements.length, 6);
+});
+
+test("@consequencesHeader validates only in mode value", () => {
+  const doc = validDocument();
+  doc.elements[1].content = { resolver: "@consequencesHeader", mode: "value" };
+  const result = analyzeLayout(doc);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.normalized.elements[1].content.resolver, "@consequencesHeader");
+
+  for (const mode of ["rows", "boxRow", "count", "image", "empty"]) {
+    const d = validDocument();
+    d.elements[1].content = { resolver: "@consequencesHeader", mode };
+    const bad = analyzeLayout(d);
+    assert.equal(
+      bad.ok,
+      false,
+      `@consequencesHeader with mode "${mode}" should be rejected`,
+    );
+    assert.ok(
+      bad.errors.some(
+        (e) =>
+          e.path === "$.elements[1].content" ||
+          e.path === "$.elements[1].content.mode",
+      ),
+      `expected a content error for mode "${mode}": ${JSON.stringify(bad.errors)}`,
+    );
+  }
+});
+
+test("@consequenceCostRows validates only in mode rows", () => {
+  const doc = validDocument();
+  doc.elements[1].content = { resolver: "@consequenceCostRows", mode: "rows" };
+  const result = analyzeLayout(doc);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.normalized.elements[1].content.resolver, "@consequenceCostRows");
+
+  for (const mode of ["value", "boxRow", "count", "image", "empty"]) {
+    const d = validDocument();
+    d.elements[1].content = { resolver: "@consequenceCostRows", mode };
+    const bad = analyzeLayout(d);
+    assert.equal(
+      bad.ok,
+      false,
+      `@consequenceCostRows with mode "${mode}" should be rejected`,
+    );
+    assert.ok(
+      bad.errors.some(
+        (e) =>
+          e.path === "$.elements[1].content" ||
+          e.path === "$.elements[1].content.mode",
+      ),
+      `expected a content error for mode "${mode}": ${JSON.stringify(bad.errors)}`,
+    );
+  }
 });

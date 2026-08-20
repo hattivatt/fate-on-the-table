@@ -27,3 +27,17 @@ export const SA_OWNER_TYPE = "situationAspects";
 export const SA_TEXT_PART = "situationAspectsText";
 export const SA_FRAME_PART = "situationAspectsFrame";
 export const SA_BACKGROUND_PART = "situationAspectsBackground";
+
+// Feature 5 — conflict board (scene-owned conflict widget).
+// Scene flag key holding the conflict board state (schema v1).
+export const CONFLICT_BOARD_FLAG = "conflictBoard";
+// ownerType markers: zone projections and participant cards of the board.
+export const CONFLICT_ZONE_OWNER_TYPE = "conflictZone";
+export const CONFLICT_CARD_OWNER_TYPE = "conflictCard";
+// Part names of the conflict board drawings.
+export const CONFLICT_BOARD_BACKGROUND_PART = "conflictBoardBackground";
+export const CONFLICT_AREA_PART = "conflictArea";
+export const CONFLICT_ZONE_BODY_PART = "conflictZoneBody";
+export const CONFLICT_ZONE_LABEL_PART = "conflictZoneLabel";
+export const CONFLICT_CARD_PART = "conflictCard";
+export const CONFLICT_TURN_MARKER_PART = "conflictTurnMarker";

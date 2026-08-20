@@ -1,0 +1,481 @@
+/**
+ * Node tests for conflictBoardGeometry.js — the pure geometry of the five
+ * board areas, card layout, pile/overflow, hit-tests and rect transform.
+ * Run with `npm test`; no Foundry dependency.
+ */
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  getConflictBoardGeometry,
+  layoutConflictCards,
+  transformCardRect,
+  hitTestConflictZone,
+  hitTestZone,
+  pointInRect,
+  clampZoneRectToField,
+  zoneRectAtAnchor,
+  zonePlacementSize,
+  normalizeBoardSize,
+  resolveBoardSize,
+  normalizePreset,
+  BOARD_SIZE_PRESETS,
+  DEFAULT_CARD_SIZE,
+  ZONE_PLACEMENT_SIZE,
+  ZONE_PLACEMENT_SIZES,
+  DEFAULT_ZONE_PLACEMENT_SIZE,
+  BOARD_GAP,
+  BOARD_PADDING,
+  SIDE_PADDING,
+  CARD_GAP,
+  PILE_OVERLAP,
+  AREA_NAMES,
+} from "../scripts/conflictBoardGeometry.js";
+
+test("three presets produce square fields of the configured size", () => {
+  assert.deepEqual(resolveBoardSize("small"), { width: 500, height: 500 });
+  assert.deepEqual(resolveBoardSize("medium"), { width: 800, height: 800 });
+  assert.deepEqual(resolveBoardSize("large"), { width: 1200, height: 1200 });
+  assert.deepEqual(BOARD_SIZE_PRESETS, { small: 500, medium: 800, large: 1200 });
+});
+
+test("normalizeBoardSize prefers the stored size, falls back to the preset", () => {
+  assert.deepEqual(normalizeBoardSize("medium", { width: 900, height: 900 }), {
+    width: 900,
+    height: 900,
+  });
+  assert.deepEqual(normalizeBoardSize("large", undefined), { width: 1200, height: 1200 });
+  assert.deepEqual(normalizeBoardSize("small", { width: -1, height: 5 }), {
+    width: 500,
+    height: 500,
+  });
+  assert.deepEqual(normalizeBoardSize("bogus", undefined), { width: 800, height: 800 });
+  assert.equal(normalizePreset("bogus"), "medium");
+  assert.equal(normalizePreset("large"), "large");
+});
+
+test("geometry contains the five areas; friendly/hostile flank a square field", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "medium" });
+  for (const name of [...AREA_NAMES, "field"]) assert.ok(g[name], `missing ${name}`);
+  assert.equal(g.fieldSize, 800);
+  assert.equal(g.field.width, g.field.height);
+  assert.ok(g.friendly.x + g.friendly.width < g.field.x);
+  assert.equal(g.field.x + g.field.width, g.hostile.x - BOARD_GAP);
+  assert.ok(g.field.y + g.field.height < g.acted.y);
+  assert.equal(g.acted.y, g.eliminated.y);
+  assert.equal(g.acted.width + g.eliminated.width, g.bounds.width - 2 * BOARD_PADDING);
+  assert.deepEqual(g.card, DEFAULT_CARD_SIZE);
+});
+
+test("side areas are tall as the field and at least card width + padding", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "small" });
+  assert.equal(g.friendly.height, g.field.height);
+  assert.equal(g.hostile.height, g.field.height);
+  assert.equal(g.friendly.width, g.hostile.width);
+  assert.ok(g.friendly.width >= g.card.width + 2 * SIDE_PADDING);
+  assert.equal(g.friendly.content.width, g.friendly.width - 2 * SIDE_PADDING);
+  assert.equal(g.friendly.content.height, g.friendly.height - 2 * SIDE_PADDING);
+});
+
+test("bounds wrap all five areas with outer padding", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "large" });
+  const b = g.bounds;
+  assert.equal(b.x, -BOARD_PADDING);
+  assert.equal(b.y, -BOARD_PADDING);
+  assert.ok(b.x <= g.friendly.x);
+  assert.ok(b.y <= g.friendly.y);
+  assert.ok(b.x + b.width >= g.hostile.x + g.hostile.width);
+  assert.ok(b.y + b.height >= g.eliminated.y + g.eliminated.height);
+  assert.ok(b.x + b.width >= g.field.x + g.field.width);
+  // the full board (not just the field) is inside the bounds
+  assert.ok(g.hostile.x + g.hostile.width + BOARD_PADDING === b.x + b.width);
+});
+
+test("side-area cards stack vertically with a fixed gap", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "medium" });
+  const state = {
+    cards: {
+      a: { side: "friendly", area: "side", order: 0 },
+      b: { side: "friendly", area: "side", order: 1 },
+      c: { side: "hostile", area: "side", order: 0 },
+      d: { side: "friendly", area: "side", order: 2 },
+    },
+  };
+  const { positions } = layoutConflictCards(g, state);
+  const a = positions.a;
+  const b = positions.b;
+  const d = positions.d;
+  assert.equal(a.x, g.friendly.content.x);
+  assert.equal(a.y, g.friendly.content.y);
+  assert.equal(b.x, a.x);
+  assert.equal(b.y - a.y, g.card.height + CARD_GAP);
+  assert.equal(d.y - b.y, g.card.height + CARD_GAP);
+  assert.deepEqual({ w: a.width, h: a.height }, { w: g.card.width, h: g.card.height });
+  assert.equal(a.area, "friendly");
+  assert.equal(a.side, "friendly");
+  const c = positions.c;
+  assert.equal(c.area, "hostile");
+  assert.equal(c.x, g.hostile.content.x);
+  assert.equal(c.side, "hostile");
+  assert.equal(Object.keys(positions).length, 4);
+});
+
+test("side cards are ordered by the record order, not insertion", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "medium" });
+  const state = {
+    cards: {
+      z: { side: "friendly", area: "side", order: 3 },
+      a: { side: "friendly", area: "side", order: 1 },
+      m: { side: "friendly", area: "side", order: 2 },
+    },
+  };
+  const { positions } = layoutConflictCards(g, state);
+  assert.equal(positions.a.y, g.friendly.content.y);
+  assert.ok(positions.a.y < positions.m.y);
+  assert.ok(positions.m.y < positions.z.y);
+});
+
+test("acted/eliminated piles overlap vertically", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "medium" });
+  const state = {
+    cards: {
+      a: { side: "friendly", area: "acted", order: 0 },
+      b: { side: "friendly", area: "acted", order: 1 },
+      c: { side: "hostile", area: "eliminated", order: 0 },
+      d: { side: "hostile", area: "eliminated", order: 1 },
+    },
+  };
+  const { positions } = layoutConflictCards(g, state);
+  const expectedStep = g.card.height - PILE_OVERLAP;
+  assert.equal(positions.b.y - positions.a.y, expectedStep);
+  assert.equal(positions.d.y - positions.c.y, expectedStep);
+  assert.equal(positions.a.x, g.acted.content.x);
+  assert.equal(positions.c.x, g.eliminated.content.x);
+  // pile cards keep their home side while living in a bottom area
+  assert.equal(positions.a.side, "friendly");
+  assert.equal(positions.c.side, "hostile");
+  assert.equal(positions.b.area, "acted");
+  assert.equal(positions.d.area, "eliminated");
+});
+
+test("pile overflow is reported explicitly; cards are never silently clipped", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "small" });
+  const cards = {};
+  for (let i = 0; i < 40; i++) cards[`c${i}`] = { side: "friendly", area: "acted", order: i };
+  const { positions, overflow, hasOverflow } = layoutConflictCards(g, { cards });
+  assert.equal(Object.keys(positions).length, 40);
+  assert.equal(hasOverflow, true);
+  assert.ok(overflow.length > 0);
+  assert.ok(overflow.every((o) => o.reason === "height"));
+  // the position of the overflowing card is still computed (no clipping)
+  const last = positions.c39;
+  assert.ok(last.y + last.height > g.acted.content.y + g.acted.content.height);
+  assert.ok(overflow.some((o) => o.combatantId === "c39"));
+});
+
+test("side overflow is reported when the area height is exhausted", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "small" });
+  const cards = {};
+  for (let i = 0; i < 10; i++) cards[`s${i}`] = { side: "friendly", area: "side", order: i };
+  const { positions, overflow, hasOverflow } = layoutConflictCards(g, { cards });
+  assert.equal(hasOverflow, true);
+  assert.equal(Object.keys(positions).length, 10);
+  assert.ok(overflow.every((o) => o.reason === "height"));
+});
+
+test("hitTestZone returns the first matching zone or null", () => {
+  const zones = [
+    { id: "z1", rect: { x: 0, y: 0, width: 10, height: 10 } },
+    { id: "z2", rect: { x: 5, y: 5, width: 20, height: 20 } },
+  ];
+  assert.equal(hitTestZone(zones, { x: 3, y: 3 }).id, "z1");
+  assert.equal(hitTestZone(zones, { x: 12, y: 12 }).id, "z2");
+  assert.equal(hitTestZone(zones, { x: 100, y: 100 }), null);
+  assert.equal(hitTestZone([], { x: 0, y: 0 }), null);
+});
+
+test("hitTestConflictZone distinguishes zones, field, areas and misses", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "medium" });
+  const zones = [
+    { id: "z1", rect: { x: g.field.x + 10, y: g.field.y + 10, width: 50, height: 50 } },
+  ];
+
+  const zoneHit = hitTestConflictZone(g, zones, { x: g.field.x + 20, y: g.field.y + 20 });
+  assert.equal(zoneHit.type, "zone");
+  assert.equal(zoneHit.zoneId, "z1");
+  assert.equal(zoneHit.area, "central");
+  assert.deepEqual(zoneHit.zone, zones[0]);
+
+  const fieldHit = hitTestConflictZone(g, zones, { x: g.field.x + 200, y: g.field.y + 200 });
+  assert.equal(fieldHit.type, "field");
+  assert.equal(fieldHit.area, "central");
+
+  const friendlyHit = hitTestConflictZone(g, zones, { x: g.friendly.x + 5, y: g.friendly.y + 5 });
+  assert.equal(friendlyHit.type, "area");
+  assert.equal(friendlyHit.area, "friendly");
+
+  const actedHit = hitTestConflictZone(g, zones, { x: g.acted.x + 5, y: g.acted.y + 5 });
+  assert.equal(actedHit.type, "area");
+  assert.equal(actedHit.area, "acted");
+
+  const miss = hitTestConflictZone(g, zones, {
+    x: g.bounds.x + g.bounds.width + 50,
+    y: 0,
+  });
+  assert.equal(miss.type, null);
+  assert.equal(miss.zoneId, null);
+
+  const noPoint = hitTestConflictZone(g, zones, null);
+  assert.equal(noPoint.type, null);
+});
+
+test("transformCardRect fits a minimal layout rect into a slot preserving aspect", () => {
+  const layoutRect = { x: 0, y: 0, width: 659, height: 445 };
+  const slot = { x: 100, y: 200, width: 220, height: 150 };
+  const t = transformCardRect(layoutRect, slot);
+  assert.equal(t.scale, 220 / 659); // width-limited fit (min of the two ratios)
+  assert.equal(t.height, 445 * (220 / 659));
+  assert.ok(Math.abs(t.x + t.width / 2 - (slot.x + slot.width / 2)) < 1e-9);
+  assert.ok(Math.abs(t.y + t.height / 2 - (slot.y + slot.height / 2)) < 1e-9);
+  assert.ok(t.dx !== undefined && t.dy !== undefined);
+});
+
+test("transformCardRect mapping is usable for arbitrary layout sub-rects", () => {
+  const layoutRect = { x: 0, y: 0, width: 659, height: 445 };
+  const slot = { x: 0, y: 0, width: 220, height: 150 };
+  const t = transformCardRect(layoutRect, slot);
+  const sub = { x: 10, y: 20, width: 100, height: 50 };
+  const mapped = {
+    x: sub.x * t.scale + t.dx,
+    y: sub.y * t.scale + t.dy,
+    width: sub.width * t.scale,
+    height: sub.height * t.scale,
+  };
+  // the layout-origin maps onto the slot origin after the transform
+  assert.deepEqual({ x: t.x, y: t.y }, { x: 0 * t.scale + t.dx, y: 0 * t.scale + t.dy });
+  assert.ok(mapped.width > 0 && mapped.height > 0);
+});
+
+test("transformCardRect honours an explicit scale override", () => {
+  const t = transformCardRect({ x: 0, y: 0, width: 100, height: 100 }, { x: 0, y: 0, width: 200, height: 300 }, { scale: 2 });
+  assert.equal(t.scale, 2);
+  assert.deepEqual({ w: t.width, h: t.height }, { w: 200, h: 200 });
+});
+
+test("pointInRect uses inclusive bounds", () => {
+  const rect = { x: 0, y: 0, width: 10, height: 10 };
+  assert.equal(pointInRect(rect, { x: 0, y: 0 }), true);
+  assert.equal(pointInRect(rect, { x: 10, y: 10 }), true);
+  assert.equal(pointInRect(rect, { x: 11, y: 0 }), false);
+  assert.equal(pointInRect(rect, { x: 5, y: 5 }), true);
+  assert.equal(pointInRect(rect, null), false);
+  assert.equal(pointInRect(null, { x: 0, y: 0 }), false);
+});
+
+test("zone placement sizes are rectangular, preset-dependent and immutable", () => {
+  // medium is exactly the requested 150×120 (larger area, not a square)
+  assert.deepEqual(ZONE_PLACEMENT_SIZES.medium, { width: 150, height: 120 });
+  assert.ok(ZONE_PLACEMENT_SIZES.medium.width > ZONE_PLACEMENT_SIZES.medium.height);
+  // small is smaller, large is noticeably bigger, both keep the aspect ratio
+  assert.deepEqual(ZONE_PLACEMENT_SIZES.small, { width: 120, height: 96 });
+  assert.deepEqual(ZONE_PLACEMENT_SIZES.large, { width: 225, height: 180 });
+  assert.ok(ZONE_PLACEMENT_SIZES.large.width > ZONE_PLACEMENT_SIZES.medium.width * 1.4);
+  assert.ok(ZONE_PLACEMENT_SIZES.small.width < ZONE_PLACEMENT_SIZES.medium.width);
+  assert.equal(ZONE_PLACEMENT_SIZES.small.width / ZONE_PLACEMENT_SIZES.small.height, 1.25);
+  // the frozen config cannot be mutated
+  assert.throws(() => {
+    ZONE_PLACEMENT_SIZES.medium.width = 999;
+  }, TypeError);
+  assert.deepEqual(DEFAULT_ZONE_PLACEMENT_SIZE, { width: 150, height: 120 });
+  // legacy constant is kept for backward compatibility only
+  assert.equal(ZONE_PLACEMENT_SIZE, 120);
+});
+
+test("zonePlacementSize returns the preset rect; unknown presets fall back to medium", () => {
+  const field = { x: 0, y: 0, width: 800, height: 800 };
+  assert.deepEqual(zonePlacementSize("small", field), { width: 120, height: 96 });
+  assert.deepEqual(zonePlacementSize("medium", field), { width: 150, height: 120 });
+  assert.deepEqual(zonePlacementSize("large", field), { width: 225, height: 180 });
+  assert.deepEqual(zonePlacementSize("bogus", field), { width: 150, height: 120 });
+  assert.deepEqual(zonePlacementSize(undefined, field), { width: 150, height: 120 });
+  // without a field the preset sizes are returned unchanged
+  assert.deepEqual(zonePlacementSize("medium"), { width: 150, height: 120 });
+});
+
+test("zonePlacementSize clamps each dimension independently to the field", () => {
+  // wider than tall: the width is clamped, the height is not
+  const wide = { x: 0, y: 0, width: 100, height: 500 };
+  assert.deepEqual(zonePlacementSize("medium", wide), { width: 100, height: 120 });
+  // tall field: the height is clamped, the width is not
+  const tall = { x: 0, y: 0, width: 500, height: 100 };
+  assert.deepEqual(zonePlacementSize("medium", tall), { width: 150, height: 100 });
+  // field smaller than the preset in both dimensions: fill it
+  const tiny = { x: 0, y: 0, width: 40, height: 30 };
+  assert.deepEqual(zonePlacementSize("large", tiny), { width: 40, height: 30 });
+});
+
+test("clampZoneRectToField keeps a fully-inside rect unchanged", () => {
+  const field = { x: 100, y: 50, width: 200, height: 150 };
+  const inside = { x: 120, y: 60, width: 80, height: 40 };
+  assert.deepEqual(clampZoneRectToField(inside, field), inside);
+  // input is never mutated
+  assert.deepEqual(inside, { x: 120, y: 60, width: 80, height: 40 });
+});
+
+test("clampZoneRectToField clamps the position at every edge", () => {
+  const field = { x: 100, y: 50, width: 200, height: 150 };
+  const size = { width: 80, height: 40 };
+  // left edge
+  assert.deepEqual(clampZoneRectToField({ x: 0, y: 60, ...size }, field), {
+    x: 100,
+    y: 60,
+    width: 80,
+    height: 40,
+  });
+  // top edge
+  assert.deepEqual(clampZoneRectToField({ x: 120, y: -5, ...size }, field), {
+    x: 120,
+    y: 50,
+    width: 80,
+    height: 40,
+  });
+  // right edge: field.x + field.width - width = 220
+  assert.deepEqual(clampZoneRectToField({ x: 300, y: 60, ...size }, field), {
+    x: 220,
+    y: 60,
+    width: 80,
+    height: 40,
+  });
+  // bottom edge: field.y + field.height - height = 160
+  assert.deepEqual(clampZoneRectToField({ x: 120, y: 200, ...size }, field), {
+    x: 120,
+    y: 160,
+    width: 80,
+    height: 40,
+  });
+});
+
+test("clampZoneRectToField shrinks a rect larger than the field to fill it", () => {
+  const field = { x: 0, y: 0, width: 100, height: 60 };
+  assert.deepEqual(
+    clampZoneRectToField({ x: -10, y: -10, width: 300, height: 200 }, field),
+    { x: 0, y: 0, width: 100, height: 60 },
+  );
+  // wider only
+  assert.deepEqual(
+    clampZoneRectToField({ x: 40, y: 5, width: 300, height: 20 }, field),
+    { x: 0, y: 5, width: 100, height: 20 },
+  );
+});
+
+test("zoneRectAtAnchor centers the rectangular rect on the anchor inside the field", () => {
+  const field = { x: 100, y: 50, width: 200, height: 150 };
+  const size = { width: 150, height: 120 };
+  // centered rect {x:105,y:40} hits the top edge and is clamped to y:50
+  const r = zoneRectAtAnchor(field, { x: 180, y: 100 }, size);
+  assert.deepEqual(r, { x: 105, y: 50, width: 150, height: 120 });
+  // centered rect near the right/bottom edges clamps accordingly
+  const rb = zoneRectAtAnchor(field, { x: 260, y: 180 }, size);
+  assert.deepEqual(rb, { x: 150, y: 80, width: 150, height: 120 });
+  // the rect is rectangular (width !== height)
+  assert.ok(r.width > r.height);
+  // input field is never mutated
+  assert.deepEqual(field, { x: 100, y: 50, width: 200, height: 150 });
+});
+
+test("zoneRectAtAnchor uses the medium 150×120 rect by default and keeps numeric compat", () => {
+  const field = { x: 0, y: 0, width: 800, height: 800 };
+  // default = DEFAULT_ZONE_PLACEMENT_SIZE (medium 150×120)
+  assert.deepEqual(zoneRectAtAnchor(field, { x: 500, y: 400 }), {
+    x: 425,
+    y: 340,
+    width: 150,
+    height: 120,
+  });
+  // legacy numeric argument is still accepted as a square side
+  assert.deepEqual(zoneRectAtAnchor(field, { x: 500, y: 400 }, 120), {
+    x: 440,
+    y: 340,
+    width: 120,
+    height: 120,
+  });
+});
+
+test("zoneRectAtAnchor shrinks each dimension when the field is smaller than the zone", () => {
+  const field = { x: 0, y: 0, width: 80, height: 60 };
+  assert.deepEqual(zoneRectAtAnchor(field, { x: 40, y: 30 }, { width: 150, height: 120 }), {
+    x: 0,
+    y: 0,
+    width: 80,
+    height: 60,
+  });
+  // a field that is smaller only vertically keeps the full width
+  const narrow = { x: 0, y: 0, width: 400, height: 60 };
+  assert.deepEqual(zoneRectAtAnchor(narrow, { x: 200, y: 30 }, { width: 150, height: 120 }), {
+    x: 125,
+    y: 0,
+    width: 150,
+    height: 60,
+  });
+});
+
+test("clampZoneRectToField preserves rectangular proportions (independent clamp)", () => {
+  const field = { x: 0, y: 0, width: 200, height: 100 };
+  // only the width is shrunk, the height keeps its smaller size
+  assert.deepEqual(
+    clampZoneRectToField({ x: 10, y: 5, width: 300, height: 60 }, field),
+    { x: 0, y: 5, width: 200, height: 60 },
+  );
+  // only the height is shrunk
+  assert.deepEqual(
+    clampZoneRectToField({ x: 10, y: 5, width: 100, height: 200 }, field),
+    { x: 10, y: 0, width: 100, height: 100 },
+  );
+});
+
+test("zoneRectAtAnchor + zonePlacementSize stay consistent (preview = committed rect)", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "medium" });
+  const field = g.field;
+  const anchor = {
+    x: field.x + field.width / 2,
+    y: field.y + field.height / 2,
+  };
+  for (const preset of ["small", "medium", "large"]) {
+    const size = zonePlacementSize(preset, field);
+    const rect = zoneRectAtAnchor(field, anchor, size);
+    // the committed rect always matches the placement preview size
+    assert.deepEqual(
+      { width: rect.width, height: rect.height },
+      size,
+      `preset ${preset}: preview and committed rect must agree`,
+    );
+    // and is centered on the anchor
+    assert.equal(rect.x + rect.width / 2, anchor.x);
+    assert.equal(rect.y + rect.height / 2, anchor.y);
+  }
+});
+
+test("layoutConflictCards handles an empty board", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "small" });
+  const { positions, overflow, hasOverflow } = layoutConflictCards(g, {});
+  assert.deepEqual(positions, {});
+  assert.deepEqual(overflow, []);
+  assert.equal(hasOverflow, false);
+});
+
+test("custom card size and area minimums are honoured", () => {
+  const g = getConflictBoardGeometry({
+    sizePreset: "small",
+    cardWidth: 300,
+    cardHeight: 200,
+    minSideWidth: 400,
+    minBottomHeight: 260,
+  });
+  assert.deepEqual(g.card, { width: 300, height: 200 });
+  assert.ok(g.friendly.width >= 400);
+  assert.ok(g.acted.height >= 260);
+  const { positions } = layoutConflictCards(g, {
+    cards: { a: { side: "friendly", area: "side", order: 0 } },
+  });
+  assert.deepEqual({ w: positions.a.width, h: positions.a.height }, { w: 300, h: 200 });
+});

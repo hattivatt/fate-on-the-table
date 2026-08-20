@@ -303,7 +303,7 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
    * @returns {Promise<string|null>}  The new id, or null when cancelled.
    */
   static async resolveCollisionId(currentId) {
-    const choice = await foundry.applications.api.DialogV2.prompt({
+    const result = await foundry.applications.api.DialogV2.input({
       window: {
         title: game.i18n.localize(
           "fate-on-the-table.layouts.importCollisionTitle",
@@ -320,7 +320,7 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
       },
       rejectClose: false,
     });
-    const newId = String(choice?.id ?? "").trim();
+    const newId = String(dialogField(result, "id") ?? "").trim();
     if (!newId) return null;
     if (getLayoutRecord(newId)) {
       ui.notifications.error(
@@ -344,7 +344,7 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
     );
     if (!record) return false;
     const currentName = getLayoutJson(id).name ?? "";
-    const choice = await foundry.applications.api.DialogV2.prompt({
+    const result = await foundry.applications.api.DialogV2.input({
       window: {
         title: game.i18n.localize("fate-on-the-table.layouts.renameTitle"),
       },
@@ -357,7 +357,7 @@ export class LayoutImportExport extends foundry.applications.api.ApplicationV2 {
       },
       rejectClose: false,
     });
-    const newName = String(choice?.name ?? "").trim();
+    const newName = String(dialogField(result, "name") ?? "").trim();
     if (!newName) {
       ui.notifications.error(
         game.i18n.localize("fate-on-the-table.layouts.renameEmpty"),
@@ -475,4 +475,22 @@ function escapeHtml(value) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * Reads a named field from a DialogV2.input() result. In Foundry v14 the
+ * result is the submitted form data (a plain object keyed by the field `name`
+ * attributes, or a FormData instance in some builds), the id of a non-ok
+ * button (e.g. `"cancel"`), or `null` when the dialog was dismissed. Returns
+ * the raw field value, or `undefined` when absent/cancelled.
+ * @param {unknown} result  The DialogV2.input() resolution.
+ * @param {string} name  The field `name` attribute to read.
+ * @returns {string|number|File|null|undefined}
+ */
+function dialogField(result, name) {
+  if (!result || typeof result !== "object") return undefined;
+  if (typeof FormData !== "undefined" && result instanceof FormData) {
+    return result.get(name);
+  }
+  return result[name];
 }

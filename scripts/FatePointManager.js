@@ -37,6 +37,17 @@ import {
   SITUATION_ASPECTS_SCOPE,
   SITUATION_ASPECTS_KEY,
 } from "./constants.js";
+import {
+  isConflictDocument,
+  handleConflictDocumentDoubleClick,
+  handleConflictContextMenu,
+  CONFLICT_OWNER_PRIORITY,
+} from "./ConflictInteractions.js";
+import { isStressBoxDrawing, handleStressBoxClick } from "./StressBoxes.js";
+import {
+  isConsequenceCostPart,
+  handleConsequenceCostDoubleClick,
+} from "./ConsequenceInteractions.js";
 
 const OWNER = CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
 const LIMITED = CONST.DOCUMENT_OWNERSHIP_LEVELS.LIMITED;
@@ -164,6 +175,20 @@ function patchDoubleClick(proto) {
       SituationAspectManager.open();
       return;
     }
+    // Consequence cost rows edit the consequence on double-click; this MUST
+    // run before the general conflict-card / actor-widget sheet open.
+    if (isConsequenceCostPart(doc)) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      handleConsequenceCostDoubleClick(doc, event);
+      return;
+    }
+    if (isConflictDocument(doc)) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      handleConflictDocumentDoubleClick(doc, event);
+      return;
+    }
     const actorUuid = doc?.getFlag?.(FLAG_SCOPE, "actorUuid");
     if (actorUuid) {
       event?.preventDefault?.();
@@ -196,6 +221,12 @@ function patchRightClick(proto) {
   const original2 = proto._onClickRight2;
   const handler = function (event) {
     const doc = this.document ?? this;
+    if (isConflictDocument(doc)) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      handleConflictContextMenu(doc, event);
+      return;
+    }
     if (doc?.getFlag?.(FLAG_SCOPE, "actorUuid")) {
       event?.preventDefault?.();
       event?.stopPropagation?.();
@@ -207,6 +238,11 @@ function patchRightClick(proto) {
   proto._onClickRight = handler;
   proto._onClickRight2 = function (event) {
     const doc = this.document ?? this;
+    if (isConflictDocument(doc)) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      return;
+    }
     if (doc?.getFlag?.(FLAG_SCOPE, "actorUuid")) {
       event?.preventDefault?.();
       event?.stopPropagation?.();
@@ -936,6 +972,10 @@ export function initCanvasClickFallback() {
 function onCanvasPointerDown(event) {
   if (PlacementManager.active) return;
   if (event.button !== 0) return;
+  // Widget parts (actor widgets, conflict zones/cards, ...) must never block
+  // the standard token interactions: when a rendered token sits under the
+  // pointer the PIXI/token flow takes over.
+  if (tokenUnderPointer(event)) return;
   const part = hitTestWidgetPart(event);
   if (!part) return;
   // When the part's own layer is active the standard PIXI/MIM flow (plus
@@ -955,7 +995,46 @@ function onCanvasPointerDown(event) {
     handleWidgetDoubleClick(part);
     return;
   }
+  // Interactive stress boxes toggle on a single owner click through the same
+  // path as the native Drawing layer — the DOM fallback must reach players,
+  // whose canvas layer is the token layer, not the drawing layer.
+  if (isStressBoxDrawing(part)) {
+    handleStressBoxClick(part, event);
+    return;
+  }
   selectWidgetPart(part);
+}
+
+/**
+ * True when a rendered token sits under the pointer. Used so the DOM canvas
+ * fallback never intercepts normal token clicks/drags over widget parts.
+ */
+function tokenUnderPointer(event) {
+  try {
+    const p = canvasWorldPosition(event);
+    if (!p) return false;
+    return [...canvas.tokens.placeables].some((placeable) => {
+      if (typeof placeable.containsPoint === "function") {
+        try {
+          return placeable.containsPoint(p.x, p.y);
+        } catch (err) {
+          return false;
+        }
+      }
+      const bounds = placeable.getBounds?.();
+      if (bounds) {
+        return (
+          p.x >= bounds.x &&
+          p.x <= bounds.x + bounds.width &&
+          p.y >= bounds.y &&
+          p.y <= bounds.y + bounds.height
+        );
+      }
+      return false;
+    });
+  } catch (err) {
+    return false;
+  }
 }
 
 /** The topmost widget part (drawing/tile) under the cursor, or null. */
@@ -969,7 +1048,13 @@ function hitTestWidgetPart(event) {
     const w = doc.shape?.width ?? 0;
     const h = doc.shape?.height ?? 0;
     if (p.x >= doc.x && p.x <= doc.x + w && p.y >= doc.y && p.y <= doc.y + h) {
-      candidates.push({ doc, isDrawing: true, z: (doc.elevation ?? 0) * 1000 + (doc.sort ?? 0) });
+      const ownerType = doc.getFlag?.(FLAG_SCOPE, "ownerType");
+      candidates.push({
+        doc,
+        isDrawing: true,
+        priority: CONFLICT_OWNER_PRIORITY[ownerType] ?? 0,
+        z: (doc.elevation ?? 0) * 1000 + (doc.sort ?? 0),
+      });
     }
   }
   for (const doc of canvas.scene.tiles) {
@@ -980,12 +1065,25 @@ function hitTestWidgetPart(event) {
       p.y >= doc.y &&
       p.y <= doc.y + doc.height
     ) {
-      candidates.push({ doc, isDrawing: false, z: doc.sort ?? 0 });
+      const ownerType = doc.getFlag?.(FLAG_SCOPE, "ownerType");
+      candidates.push({
+        doc,
+        isDrawing: false,
+        priority: CONFLICT_OWNER_PRIORITY[ownerType] ?? 0,
+        z: doc.sort ?? 0,
+      });
     }
   }
   if (!candidates.length) return null;
-  // Drawings render above tiles; within a layer the highest z wins.
-  candidates.sort((a, b) => (b.isDrawing - a.isDrawing) || (b.z - a.z));
+  // Conflict-document owner priority is the PRIMARY key (conflictCard >
+  // conflictZone > conflictBoard), so a zone is never shadowed by the board
+  // field frame even when the stored z-order is imperfect. Non-conflict
+  // widgets keep the legacy order (drawings above tiles, then z).
+  candidates.sort((a, b) => {
+    if (a.priority !== b.priority) return b.priority - a.priority;
+    if (a.isDrawing !== b.isDrawing) return (b.isDrawing ? 1 : 0) - (a.isDrawing ? 1 : 0);
+    return b.z - a.z;
+  });
   return candidates[0].doc;
 }
 
@@ -1026,6 +1124,14 @@ function handleWidgetDoubleClick(part) {
   }
   if (ownerType === SA_OWNER_TYPE) {
     SituationAspectManager.open();
+    return;
+  }
+  if (isConsequenceCostPart(part)) {
+    handleConsequenceCostDoubleClick(part, null);
+    return;
+  }
+  if (isConflictDocument(part)) {
+    handleConflictDocumentDoubleClick(part, null);
     return;
   }
   const actorUuid = part.getFlag?.(FLAG_SCOPE, "actorUuid");

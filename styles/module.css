@@ -434,3 +434,294 @@
   flex: 1;
   margin: 0;
 }
+
+/* --- Conflict board: size dialog (feature 5) --- */
+
+.ctt-conflict-size .window-content {
+  padding: 10px;
+}
+
+.ctt-conflict-size .ctt-conflict-size-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ctt-conflict-size .ctt-conflict-size-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ctt-conflict-size .ctt-conflict-size-option input[type="radio"] {
+  flex: 0 0 auto;
+}
+
+.ctt-conflict-size .ctt-conflict-size-label {
+  font-weight: 600;
+}
+
+.ctt-conflict-size .ctt-conflict-size-dim {
+  opacity: 0.7;
+  font-size: 0.9em;
+}
+
+.ctt-conflict-size .ctt-conflict-size-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  justify-content: center;
+}
+
+.ctt-conflict-size .ctt-conflict-size-actions button {
+  flex: 1;
+  margin: 0;
+}
+
+/* --- Conflict Manager (ApplicationV2, feature 5) --- */
+
+.ctt-conflict-manager .window-content {
+  padding: 5px;
+}
+
+.ctt-conflict-manager .ctt-conflict {
+  padding: 5px;
+}
+
+.ctt-conflict-manager .ctt-conflict-section {
+  margin-top: 12px;
+  border-top: 2px solid rgba(0, 0, 0, 0.6);
+  padding-top: 8px;
+}
+
+.ctt-conflict-manager h3 {
+  margin: 0 0 6px 0;
+  text-align: center;
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ctt-conflict-manager .ctt-conflict-round {
+  text-align: center;
+  font-size: 1.1em;
+  font-weight: 700;
+}
+
+.ctt-conflict-manager .ctt-conflict-empty {
+  text-align: center;
+  opacity: 0.7;
+  margin: 4px 0;
+}
+
+.ctt-conflict-manager .ctt-conflict-readonly-note {
+  text-align: center;
+  opacity: 0.7;
+  font-size: 0.85em;
+  margin: 4px 0;
+}
+
+.ctt-conflict-manager .ctt-conflict-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ctt-conflict-manager .ctt-conflict-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.ctt-conflict-manager .ctt-conflict-row .ctt-conflict-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ctt-conflict-manager .ctt-conflict-state {
+  font-size: 0.75em;
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.ctt-conflict-manager .ctt-conflict-state.ctt-conflict-state-current {
+  background: rgba(30, 120, 180, 0.3);
+  color: #0a5c8a;
+}
+
+.ctt-conflict-manager .ctt-conflict-state.ctt-conflict-state-acted {
+  background: rgba(30, 130, 60, 0.35);
+  color: #0a7a33;
+}
+
+.ctt-conflict-manager .ctt-conflict-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.ctt-conflict-manager .ctt-conflict-btn {
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  margin: 0;
+}
+
+.ctt-conflict-manager .ctt-conflict-turn-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.ctt-conflict-manager .ctt-conflict-btn-wide {
+  flex: 1;
+  margin: 0;
+}
+
+.ctt-conflict-manager.ctt-conflict-readonly .ctt-conflict-actions,
+.ctt-conflict-manager.ctt-conflict-readonly .ctt-conflict-turn-actions {
+  display: none;
+}
+
+.ctt-conflict-manager.ctt-conflict-busy button {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+/* --- Conflict board / zone editor overlays (feature 5) --- */
+
+.ctt-conflict-board-overlay {
+  position: fixed;
+  z-index: 1500;
+  pointer-events: none;
+}
+
+.ctt-conflict-board-overlay.ctt-conflict-editing {
+  pointer-events: auto;
+}
+
+.ctt-conflict-zone-preview {
+  position: absolute;
+  border: 2px dashed rgba(0, 120, 200, 0.9);
+  background: rgba(30, 120, 180, 0.15);
+}
+
+.ctt-conflict-zone-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  border-radius: 2px;
+}
+
+.ctt-conflict-overlay-msg {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #ffffff;
+  border-radius: 4px;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+/* --- Conflict card, turn marker and context menu (feature 5) --- */
+
+.ctt-conflict-menu {
+  position: fixed;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--fco-sheet-background-colour, #ffffff);
+  color: var(--fco-sheet-text-colour, #000000);
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.ctt-conflict-menu button {
+  text-align: left;
+  padding: 4px 10px;
+  margin: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.ctt-conflict-menu button:hover {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.ctt-conflict-menu button.ctt-conflict-menu-sep {
+  border-top: 1px solid rgba(0, 0, 0, 0.25);
+  margin-top: 4px;
+  padding-top: 5px;
+  border-radius: 0;
+}
+
+.ctt-conflict-card {
+  position: absolute;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  background: var(--fco-sheet-background-colour, #ffffff);
+  color: var(--fco-sheet-text-colour, #000000);
+  overflow: hidden;
+}
+
+.ctt-conflict-card.ctt-conflict-card-current {
+  outline: 3px solid rgba(220, 120, 20, 0.85);
+}
+
+.ctt-conflict-card.ctt-conflict-card-acted {
+  opacity: 0.75;
+}
+
+.ctt-conflict-card.ctt-conflict-card-eliminated {
+  opacity: 0.55;
+}
+
+.ctt-conflict-card.ctt-conflict-card-overflow {
+  border-color: rgba(180, 40, 40, 0.8);
+}
+
+.ctt-conflict-turn-marker {
+  position: absolute;
+  pointer-events: none;
+  border: 3px solid rgba(220, 120, 20, 0.9);
+  border-radius: 4px;
+}
+
+/* --- Combat Tracker: "Place on the table" (feature 5) ---
+   The board control is inserted as its OWN row directly ABOVE the standard
+   `.combat-controls` row (previous/next/end combat). It must not join that
+   flex row, so the core `.combat-control` layout must be overridden with a
+   full-width standalone block. */
+
+.ctt-combat-place {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 0;
+  box-sizing: border-box;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Fate Utilities: the icon-only board button lives between the Timed event
+   and the Cycle-to-next-conflict controls and matches the neighbouring
+   35px icon buttons of the conflict pane (styles are inline, like the
+   system's own buttons). */

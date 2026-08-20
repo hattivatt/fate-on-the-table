@@ -23,7 +23,7 @@ const warnedFonts = new Set();
  * format and must stay in sync with `RESOLVER_MODES` in layoutSchema.js.
  */
 export const resolverCatalog = {
-  "@name": { mode: "value", fn: (actor) => actor.name },
+  "@name": { mode: "value", fn: (actor) => normalizeText(actor.name) },
   "@portrait": { mode: "image", fn: (actor) => actor.img },
   "@empty": { mode: "empty", fn: () => "" },
   "@headerAspects": { mode: "value", fn: () => i18n("fate-on-the-table.header.aspects") },
@@ -31,9 +31,21 @@ export const resolverCatalog = {
   "@headerSkills": { mode: "value", fn: () => i18n("fate-on-the-table.header.skills") },
   "@headerTracks": { mode: "value", fn: () => i18n("fate-on-the-table.header.tracks") },
   "@headerConsequences": { mode: "value", fn: () => i18n("fate-on-the-table.header.consequences") },
+  "@consequencesHeader": {
+    mode: "value",
+    fn: (actor) =>
+      consequenceTrackList(actor).length
+        ? i18n("fate-on-the-table.header.consequences")
+        : "",
+  },
+  "@consequenceCostRows": {
+    mode: "rows",
+    fn: (actor) => consequenceCostRows(actor),
+  },
   "@headerStunts": { mode: "value", fn: () => i18n("fate-on-the-table.header.stunts") },
   "@headerExtras": { mode: "value", fn: () => i18n("fate-on-the-table.header.extras") },
   "@aspects": { mode: "value", fn: (actor) => aspectsText(actor) },
+  "@shortAspects": { mode: "value", fn: (actor) => shortAspectsText(actor) },
   "@skillNames": { mode: "rows", fn: (actor) => skillRows(actor).map((r) => r.names.join(", ")) },
   "@skillValues": { mode: "rows", fn: (actor) => skillRows(actor).map((r) => "+" + r.rank) },
   "@fatePointTokens": {
@@ -45,6 +57,7 @@ export const resolverCatalog = {
   "@stressTrackBoxes": { mode: "rows", fn: (actor) => stressTrackBoxes(actor) },
   "@stressBoxRows": { mode: "boxRow", fn: (actor) => stressTrackBoxRows(actor) },
   "@stressTracks": { mode: "rows", fn: (actor) => stressTrackRows(actor) },
+  "@consequenceNames": { mode: "rows", fn: (actor) => consequenceNames(actor) },
   "@consequences": { mode: "rows", fn: (actor) => consequenceRows(actor) },
   "@stunts": { mode: "rows", fn: (actor) => stuntRows(actor) },
   "@extras": { mode: "rows", fn: (actor) => extraRows(actor) },
@@ -70,6 +83,20 @@ function i18n(key) {
   return game.i18n.localize(key);
 }
 
+/**
+ * Normalizes a possibly-raw display value into safe Drawing text. Foundry v14
+ * treats a Drawing with no visible text/fill/stroke as invalid and rejects the
+ * whole creation batch, so whitespace-only actor/track/consequence names must
+ * become empty strings — the geometry engine then filters them as invisible
+ * clutter. Internal spaces ("Alice Smith") are preserved; only surrounding
+ * whitespace is trimmed.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function normalizeText(value) {
+  return String(value ?? "").trim();
+}
+
 /* ------------------------------------------------------------------ *
  * Data normalizers (Fate Core Official data model)
  * ------------------------------------------------------------------ */
@@ -90,6 +117,26 @@ function aspectsText(actor) {
   const values = Object.values(actor.system?.aspects ?? {})
     .map((a) => a.value)
     .filter((v) => v && String(v).trim());
+  return values.join("\n\n");
+}
+
+/**
+ * First two NON-EMPTY aspect values of `actor.system.aspects`, in the
+ * canonical collection order (the Fate Core sheet order — usually High
+ * concept and Trouble), joined with blank lines. Used by the `@shortAspects`
+ * resolver for compact aspect blocks.
+ *
+ * Deliberately no slot-name hardcoding (no "High concept"/"Trouble" lookups
+ * in any language) and no sorting: the stored key order is authoritative.
+ * A missing/empty actor or aspects object yields an empty string.
+ * @param {object} actor
+ * @returns {string}
+ */
+export function shortAspectsText(actor) {
+  const values = Object.values(actor?.system?.aspects ?? {})
+    .map((a) => a?.value)
+    .filter((v) => v && String(v).trim())
+    .slice(0, 2);
   return values.join("\n\n");
 }
 
@@ -123,7 +170,7 @@ function stressTrackList(actor) {
  * @returns {string[]}
  */
 export function stressTrackNames(actor) {
-  return stressTrackList(actor).map((t) => t.name);
+  return stressTrackList(actor).map((t) => normalizeText(t.name));
 }
 
 /**
@@ -207,6 +254,150 @@ export function stressTrackRows(actor) {
     const suffix = boxes[i] ? " " + boxes[i] : "";
     return `${name}:${suffix}`;
   });
+}
+
+/**
+ * Enabled aspect tracks (consequences/conditions) in sheet order — occupied
+ * AND free. Like stress tracks, every enabled aspect track gets its own
+ * checkbox cell (empty or marked), so free consequence slots never disappear
+ * from the widget and never shift the flat indices of later tracks. Keeps
+ * the `actor.system.tracks` insertion (sheet) order — no slot-name or
+ * severity hardcoding. An actor without aspect tracks returns [] and creates
+ * no box Drawing at all.
+ * @param {object} actor
+ * @returns {object[]}  Track objects.
+ */
+function consequenceTrackList(actor) {
+  return trackList(actor).filter((t) => isAspectTrack(t));
+}
+
+/**
+ * A consequence slot is occupied when the sheet has an aspect name and/or a
+ * checked `box_values[0]`. The two signals use the same priority in every
+ * consumer (legacy `@consequences` rows, the consequence cost rows and the
+ * docs). Note that `consequenceNames` and `consequenceCostRows` operate on
+ * EVERY enabled aspect track (free ones included), so occupancy only decides
+ * the row text, never whether the row exists.
+ * @param {object} track
+ * @returns {boolean}
+ */
+function isConsequenceOccupied(track) {
+  const name = track?.aspect?.name ? String(track.aspect.name).trim() : "";
+  if (name) return true;
+  return Array.isArray(track?.box_values) && Boolean(track.box_values[0]);
+}
+
+/**
+ * Plain consequence NAMES, one row per enabled aspect track, in sheet order.
+ * An occupied slot shows its `aspect.name`; a free (or marked-but-unnamed)
+ * slot shows the track's slot name ("Mild Consequence", ...) so the empty
+ * slot has a label and the row list stays stable. This resolver is the text
+ * companion of the consequence COST rows used on the conflict card (there
+ * are no interactive consequence checkboxes). No "[ ]"/"[X]" markers.
+ * @param {object} actor
+ * @returns {string[]}
+ */
+export function consequenceNames(actor) {
+  return consequenceTrackList(actor).map((t) => {
+    const name = normalizeText(t?.aspect?.name);
+    return name || normalizeText(t?.name);
+  });
+}
+
+/**
+ * Fixed width that every FREE consequence cost row pads to with underscores.
+ * The underscore-run visually signals a writable slot and must reach the end
+ * of the layout text column. A constant (not a per-slot calcuation) keeps the
+ * pure resolver deterministic and editor-preview compatible. Occupied slots
+ * do NOT pad: they show the actual consequence name.
+ */
+export const CONSEQUENCE_COST_ROW_WIDTH = 12;
+
+/**
+ * Cost rows for the conflict-card consequence section, one row per enabled
+ * aspect track in stable sheet order. This REPLACES the plain consequence
+ * name rows on the conflict card:
+ *   - an occupied slot WITH a cost (`harm_can_absorb`) shows BOTH, so the
+ *     price stays visible next to the entered consequence text, e.g.
+ *     "2 Broken leg";
+ *   - an occupied slot WITHOUT a cost shows the actual `aspect.name` only;
+ *   - a slot that is occupied by a checked box but has no name shows just its
+ *     cost (e.g. "2");
+ *   - a free slot shows its cost (`harm_can_absorb`) padded with underscores
+ *     to `CONSEQUENCE_COST_ROW_WIDTH`, e.g. "2__________".
+ *
+ * The cost is read from `track.harm_can_absorb` (Fate Core Official), never
+ * hardcoded (no 2/4/6 defaults). If the cost field is missing the free slot
+ * still shows the empty cost + underscore line, so the layout row keeps its
+ * shape without inventing a price. Stress tracks and disabled tracks are
+ * excluded. An actor without aspect tracks returns [].
+ * @param {object} actor
+ * @returns {string[]}
+ */
+export function consequenceCostRows(actor) {
+  return consequenceTrackList(actor).map((track) => {
+    const name = normalizeText(track?.aspect?.name);
+    const occupied = isConsequenceOccupied(track);
+    const cost = track?.harm_can_absorb;
+    const costText = cost == null || cost === "" ? "" : String(cost);
+    if (!occupied) {
+      const underscores = "_".repeat(
+        Math.max(0, CONSEQUENCE_COST_ROW_WIDTH - costText.length),
+      );
+      return costText + underscores;
+    }
+    // Occupied slot: the cost must never disappear once the slot is filled.
+    if (costText) return name ? `${costText} ${name}` : costText;
+    return name;
+  });
+}
+
+/**
+ * Per-row descriptor metadata for `consequenceCostRows` in the SAME stable
+ * order (one entry per enabled aspect track). Gives the future double-click
+ * handler the exact track it must write the entered consequence into, without
+ * re-deriving the ordering:
+ *   { trackKey, cost, occupied }
+ *   - `trackKey`  : the `actor.system.tracks` key to update;
+ *   - `cost`      : the raw `harm_can_absorb` value (may be null/undefined);
+ *   - `occupied`  : whether the slot already has a consequence.
+ * @param {object} actor
+ * @returns {Array<{trackKey: string, cost: (number|string|null|undefined), occupied: boolean}>}
+ */
+export function consequenceCostDescriptors(actor) {
+  const out = [];
+  for (const [key, track] of Object.entries(actor?.system?.tracks ?? {})) {
+    if (!track?.enabled || !isAspectTrack(track)) continue;
+    out.push({
+      trackKey: key,
+      cost: track?.harm_can_absorb,
+      occupied: isConsequenceOccupied(track),
+    });
+  }
+  return out;
+}
+
+/**
+ * Maps a flat row index (the `index` flag of the `consequenceCostRows` rows
+ * element) back to its track key using the SAME ordering as
+ * `consequenceCostRows` / `consequenceCostDescriptors`: every enabled aspect
+ * track occupies exactly one sequential cell. This mirrors the stable
+ * ordering so a double-click handler can locate the track to persist a newly
+ * entered consequence name.
+ * @param {object} actor
+ * @param {number} flatIndex  Flat row index (0-based across all tracks).
+ * @returns {{trackKey: string, boxIndex: number}|null}
+ */
+export function consequenceCostTarget(actor, flatIndex) {
+  const index = Number(flatIndex);
+  if (!Number.isInteger(index) || index < 0) return null;
+  let remaining = index;
+  for (const [key, track] of Object.entries(actor?.system?.tracks ?? {})) {
+    if (!track?.enabled || !isAspectTrack(track)) continue;
+    if (remaining === 0) return { trackKey: key, boxIndex: 0 };
+    remaining -= 1;
+  }
+  return null;
 }
 
 /** Tracks that become an aspect when marked (consequences, conditions). */

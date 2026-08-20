@@ -1,0 +1,1304 @@
+/**
+ * Node tests for ConflictInteractions.js — the pure routing/guards and the
+ * pure zone-CRUD / token-drop state helpers that do not need a Foundry
+ * runtime. The module import chain pulls in `settings` -> `LayoutImportExport`
+ * which extends `foundry.applications.api.ApplicationV2` at module scope, so a
+ * minimal Foundry stub is installed BEFORE the dynamic import.
+ */
+
+import { test, afterEach } from "node:test";
+import assert from "node:assert/strict";
+import {
+  FLAG_SCOPE,
+  CONFLICT_BOARD_FLAG,
+  CONFLICT_ZONE_OWNER_TYPE,
+  CONFLICT_CARD_OWNER_TYPE,
+  CONFLICT_ZONE_BODY_PART,
+  CONFLICT_ZONE_LABEL_PART,
+} from "../scripts/constants.js";
+import { createConflictBoard } from "../scripts/conflictBoardSchema.js";
+
+globalThis.foundry = {
+  applications: { api: { ApplicationV2: class ApplicationV2 {} } },
+  utils: {
+    getProperty: (obj, path) => {
+      let t = obj;
+      for (const key of String(path).split(".")) {
+        if (t == null) return undefined;
+        t = t[key];
+      }
+      return t;
+    },
+    randomID: () => "id",
+    htmlToText: (value) => String(value ?? ""),
+  },
+};
+
+const mod = await import("../scripts/ConflictInteractions.js");
+const zoneEditor = await import("../scripts/ConflictZoneEditor.js");
+const placement = await import("../scripts/PlacementManager.js");
+const sync = await import("../scripts/ConflictBoardSync.js");
+const geometry = await import("../scripts/conflictBoardGeometry.js");
+const { PlacementManager } = placement;
+const originalPlaceGroup = PlacementManager.placeGroup;
+
+/* ------------------------------------------------------------------ *
+ * Small mocks (plain objects only)
+ * ------------------------------------------------------------------ */
+
+function mockConflictDoc(id, documentName, ownerType, rect, extra = {}) {
+  return {
+    id,
+    documentName,
+    x: rect.x,
+    y: rect.y,
+    elevation: extra.elevation ?? 0,
+    sort: extra.sort ?? 0,
+    ...(documentName === "Drawing"
+      ? { shape: { width: rect.width, height: rect.height } }
+      : { width: rect.width, height: rect.height }),
+    getFlag(scope, key) {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "ownerType") return ownerType;
+      if (key === "widgetId") return extra.widgetId ?? "w-unknown";
+      return undefined;
+    },
+  };
+}
+
+function mockScene(drawings = [], tiles = []) {
+  return { id: "scene1", drawings, tiles };
+}
+
+function boardState(overrides = {}) {
+  return {
+    version: 1,
+    combatId: "combat-abc",
+    sizePreset: "medium",
+    board: { origin: { x: 1000, y: 800 }, background: { color: "#ffffff", texture: "", alpha: 1 } },
+    zones: [
+      { id: "zone-1", name: "Room", rect: { x: 10, y: 10, width: 100, height: 100 }, style: {}, sort: 0 },
+      { id: "zone-2", name: "Corridor", rect: { x: 200, y: 200, width: 80, height: 60 }, style: {}, sort: 1 },
+    ],
+    cards: { c1: { side: "friendly", area: "side", order: 0 } },
+    tokenZones: {
+      "Scene.scene1.Token.t1": "zone-1",
+      "Scene.scene1.Token.t2": "zone-2",
+    },
+    ...overrides,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * isConflictDocument
+ * ------------------------------------------------------------------ */
+
+test("isConflictDocument recognizes only module-owned conflict docs", () => {
+  const zone = mockConflictDoc("z1", "Drawing", CONFLICT_ZONE_OWNER_TYPE, { x: 0, y: 0, width: 10, height: 10 });
+  const card = mockConflictDoc("c1", "Drawing", CONFLICT_CARD_OWNER_TYPE, { x: 0, y: 0, width: 10, height: 10 });
+  assert.equal(mod.isConflictDocument(zone), true);
+  assert.equal(mod.isConflictDocument(card), true);
+  assert.equal(mod.isConflictDocument({ getFlag: () => "gm" }), false);
+  assert.equal(mod.isConflictDocument({ getFlag: () => undefined }), false);
+  assert.equal(mod.isConflictDocument(null), false);
+  assert.equal(mod.isConflictDocument({}), false);
+});
+
+/* ------------------------------------------------------------------ *
+ * hitTestConflictPart (priority card > zone > board; ignores foreign)
+ * ------------------------------------------------------------------ */
+
+test("hitTestConflictPart ranks cards above zones above board parts", () => {
+  const boardDoc = mockConflictDoc("b1", "Drawing", "conflictBoard", { x: 0, y: 0, width: 400, height: 400 });
+  const zoneDoc = mockConflictDoc("z1", "Drawing", CONFLICT_ZONE_OWNER_TYPE, { x: 50, y: 50, width: 120, height: 120 });
+  const cardDoc = mockConflictDoc("c1", "Drawing", CONFLICT_CARD_OWNER_TYPE, { x: 80, y: 80, width: 60, height: 60 });
+  const scene = mockScene([boardDoc, zoneDoc, cardDoc]);
+
+  // Inside the card rect (also inside the zone + board): card wins.
+  assert.equal(mod.hitTestConflictPart({ x: 100, y: 100 }, scene).id, "c1");
+  // Inside the zone but outside the card: zone wins over board.
+  assert.equal(mod.hitTestConflictPart({ x: 60, y: 60 }, scene).id, "z1");
+  // Inside the board but outside every zone/card: board part wins.
+  assert.equal(mod.hitTestConflictPart({ x: 300, y: 300 }, scene).id, "b1");
+  // Outside every conflict doc: null.
+  assert.equal(mod.hitTestConflictPart({ x: 600, y: 600 }, scene), null);
+});
+
+test("hitTestConflictPart ignores foreign docs and handles tiles", () => {
+  const foreign = {
+    id: "f1",
+    documentName: "Drawing",
+    x: 0,
+    y: 0,
+    shape: { width: 500, height: 500 },
+    getFlag: () => undefined,
+  };
+  const zoneTile = mockConflictDoc("z1", "Tile", CONFLICT_ZONE_OWNER_TYPE, { x: 10, y: 10, width: 100, height: 100 });
+  const scene = mockScene([foreign], [zoneTile]);
+  assert.equal(mod.hitTestConflictPart({ x: 50, y: 50 }, scene).id, "z1");
+  assert.equal(mod.hitTestConflictPart({ x: 250, y: 250 }, scene), null);
+  assert.equal(mod.hitTestConflictPart(null, scene), null);
+  assert.equal(mod.hitTestConflictPart({ x: 50, y: 50 }, null), null);
+});
+
+test("hitTestConflictPart lets a zone win over a field frame with a HIGHER stored z", () => {
+  // Regression: the board field frame may be stored with a higher
+  // elevation/sort than the zone (imperfect z-order). Owner priority
+  // (conflictCard > conflictZone > conflictBoard) is the PRIMARY sort key, so
+  // the zone must still win the hit-test.
+  const boardDoc = mockConflictDoc(
+    "b1",
+    "Drawing",
+    "conflictBoard",
+    { x: 0, y: 0, width: 400, height: 400 },
+    { elevation: 5, sort: 100 }, // z = 5100 > zone z = 0
+  );
+  const zoneDoc = mockConflictDoc(
+    "z1",
+    "Drawing",
+    CONFLICT_ZONE_OWNER_TYPE,
+    { x: 50, y: 50, width: 120, height: 120 },
+    { elevation: 0, sort: 0 },
+  );
+  const scene = mockScene([boardDoc, zoneDoc]);
+  assert.equal(mod.hitTestConflictPart({ x: 60, y: 60 }, scene).id, "z1");
+  // outside the zone but inside the board: the board part still wins
+  assert.equal(mod.hitTestConflictPart({ x: 300, y: 300 }, scene).id, "b1");
+});
+
+test("hitTestConflictPart lets a card win over a zone with a HIGHER stored z", () => {
+  const zoneDoc = mockConflictDoc(
+    "z1",
+    "Drawing",
+    CONFLICT_ZONE_OWNER_TYPE,
+    { x: 0, y: 0, width: 300, height: 300 },
+    { elevation: 10, sort: 1000 }, // z = 11000 > card z = 0
+  );
+  const cardDoc = mockConflictDoc(
+    "c1",
+    "Drawing",
+    CONFLICT_CARD_OWNER_TYPE,
+    { x: 100, y: 100, width: 60, height: 60 },
+    { elevation: 0, sort: 0 },
+  );
+  const scene = mockScene([zoneDoc, cardDoc]);
+  assert.equal(mod.hitTestConflictPart({ x: 120, y: 120 }, scene).id, "c1");
+  // inside the zone but outside the card: the zone wins
+  assert.equal(mod.hitTestConflictPart({ x: 20, y: 20 }, scene).id, "z1");
+});
+
+test("hitTestConflictPart within one ownerType picks the highest z", () => {
+  const low = mockConflictDoc(
+    "z1",
+    "Drawing",
+    CONFLICT_ZONE_OWNER_TYPE,
+    { x: 0, y: 0, width: 200, height: 200 },
+    { elevation: -1, sort: -100 },
+  );
+  const high = mockConflictDoc(
+    "z2",
+    "Drawing",
+    CONFLICT_ZONE_OWNER_TYPE,
+    { x: 0, y: 0, width: 200, height: 200 },
+    { elevation: -1, sort: -50 },
+  );
+  const scene = mockScene([low, high]);
+  assert.equal(mod.hitTestConflictPart({ x: 50, y: 50 }, scene).id, "z2");
+});
+
+test("hitTestConflictPart picks the consequence cost row over the widgetBounds grab frame at the same point", () => {
+  // Regression for the consequence double-click blocker: `consequenceCostRows`
+  // in the canonical minimal layout sits on elevation 20 / sort 2000, ABOVE
+  // the transparent widgetBounds group (elevation 10 / sort 1000). Both are
+  // `conflictCard` parts, so the cost row must win the point hit-test
+  // (z = 20*1000+2000 = 22000 > 10*1000+1000 = 11000), routing the
+  // double-click to the consequence input instead of the sheet.
+  const bounds = mockConflictDoc(
+    "wb-card1",
+    "Drawing",
+    CONFLICT_CARD_OWNER_TYPE,
+    { x: 0, y: 0, width: 659, height: 445 },
+    { elevation: 10, sort: 1000 },
+  );
+  const costRow = mockConflictDoc(
+    "cc-row0",
+    "Drawing",
+    CONFLICT_CARD_OWNER_TYPE,
+    { x: 440, y: 252, width: 210, height: 20 },
+    { elevation: 20, sort: 2000 },
+  );
+  const scene = mockScene([bounds, costRow]);
+  // Inside the cost row (also inside the full-card bounds): the row wins.
+  assert.equal(mod.hitTestConflictPart({ x: 500, y: 260 }, scene).id, "cc-row0");
+  // On the card but outside the cost row: the bounds frame still wins.
+  assert.equal(mod.hitTestConflictPart({ x: 10, y: 10 }, scene).id, "wb-card1");
+});
+
+/* ------------------------------------------------------------------ *
+ * Zone delete (pure next-state helper)
+ * ------------------------------------------------------------------ */
+
+test("nextStateWithoutZone removes the zone and its tokenZones entries only", () => {
+  const state = boardState();
+  const next = mod.nextStateWithoutZone(state, "zone-1");
+  assert.deepEqual(next.zones.map((z) => z.id), ["zone-2"]);
+  assert.deepEqual(next.tokenZones, { "Scene.scene1.Token.t2": "zone-2" });
+  // everything else untouched
+  assert.equal(next.combatId, "combat-abc");
+  assert.deepEqual(next.cards, state.cards);
+  assert.deepEqual(next.board, state.board);
+  assert.equal(next.board.origin.x, 1000);
+  // input is not mutated
+  assert.equal(state.zones.length, 2);
+  assert.equal(state.tokenZones["Scene.scene1.Token.t1"], "zone-1");
+});
+
+test("nextStateWithoutZone is a no-op for unknown ids and malformed state", () => {
+  const state = boardState();
+  assert.deepEqual(mod.nextStateWithoutZone(state, "missing"), state);
+  assert.deepEqual(mod.nextStateWithoutZone(state, "missing"), { ...state });
+  assert.equal(mod.nextStateWithoutZone(null, "zone-1"), null);
+  assert.equal(mod.nextStateWithoutZone(state, ""), state);
+  const noMemberships = mod.nextStateWithoutZone(
+    boardState({ tokenZones: {} }),
+    "zone-1",
+  );
+  assert.deepEqual(noMemberships.tokenZones, {});
+});
+
+test("nextStateWithoutZone keeps memberships of the surviving zones", () => {
+  const state = boardState({
+    tokenZones: {
+      "Scene.scene1.Token.t1": "zone-1",
+      "Scene.scene1.Token.t2": "zone-2",
+      "Scene.scene1.Token.t3": "zone-2",
+    },
+  });
+  const next = mod.nextStateWithoutZone(state, "zone-2");
+  assert.deepEqual(next.zones.map((z) => z.id), ["zone-1"]);
+  assert.deepEqual(next.tokenZones, { "Scene.scene1.Token.t1": "zone-1" });
+});
+
+/* ------------------------------------------------------------------ *
+ * Zone rename (pure next-state helper)
+ * ------------------------------------------------------------------ */
+
+test("renameZoneInState keeps the stable id and never touches other fields", () => {
+  const state = boardState();
+  const next = mod.renameZoneInState(state, "zone-1", "Throne Room");
+  const renamed = next.zones.find((z) => z.id === "zone-1");
+  assert.equal(renamed.id, "zone-1");
+  assert.equal(renamed.name, "Throne Room");
+  assert.deepEqual(renamed.rect, { x: 10, y: 10, width: 100, height: 100 });
+  assert.equal(renamed.sort, 0);
+  // other zones + membership preserved
+  assert.equal(next.zones.find((z) => z.id === "zone-2").name, "Corridor");
+  assert.deepEqual(next.tokenZones, state.tokenZones);
+  assert.deepEqual(next.cards, state.cards);
+  // input not mutated
+  assert.equal(state.zones.find((z) => z.id === "zone-1").name, "Room");
+  // unknown id -> structurally unchanged
+  assert.deepEqual(mod.renameZoneInState(state, "missing", "X"), state);
+});
+
+/* ------------------------------------------------------------------ *
+ * Token drop membership (pure)
+ * ------------------------------------------------------------------ */
+
+test("applyTokenDropToZones assigns on zone hit and clears outside", () => {
+  const state = boardState();
+  const hit = { type: "zone", zoneId: "zone-2" };
+  const r = mod.applyTokenDropToZones(state, "Scene.scene1.Token.t3", hit);
+  assert.equal(r.changed, true);
+  assert.equal(r.zoneId, "zone-2");
+  assert.equal(r.nextZones["Scene.scene1.Token.t3"], "zone-2");
+  // existing memberships untouched
+  assert.equal(r.nextZones["Scene.scene1.Token.t1"], "zone-1");
+
+  // dropping the same token into the same zone again is a no-op
+  const same = mod.applyTokenDropToZones(
+    { ...state, tokenZones: r.nextZones },
+    "Scene.scene1.Token.t3",
+    hit,
+  );
+  assert.equal(same.changed, false);
+
+  // dropping outside every zone clears the membership
+  const out = mod.applyTokenDropToZones(state, "Scene.scene1.Token.t1", {
+    type: null,
+    zoneId: null,
+  });
+  assert.equal(out.changed, true);
+  assert.equal(out.zoneId, null);
+  assert.equal(out.nextZones["Scene.scene1.Token.t1"], undefined);
+  assert.equal(out.nextZones["Scene.scene1.Token.t2"], "zone-2");
+
+  // input is not mutated
+  assert.equal(state.tokenZones["Scene.scene1.Token.t1"], "zone-1");
+});
+
+test("snapTokenDrop clamps the drop into the zone and maps it to world", () => {
+  const state = boardState();
+  const zone = state.zones[0]; // rect { x:10, y:10, w:100, h:100 }, origin {1000,800}
+  // inside the zone: world = rect + origin
+  assert.deepEqual(mod.snapTokenDrop(state, zone, { x: 50, y: 50 }).world, { x: 1050, y: 850 });
+  // outside (left/top of the rect): clamped to the rect edge
+  const clamped = mod.snapTokenDrop(state, zone, { x: -5, y: -5 });
+  assert.deepEqual(clamped.snap, { x: 10, y: 10 });
+  assert.deepEqual(clamped.world, { x: 1010, y: 810 });
+  // outside (right/bottom): clamped to the far edge
+  const clamped2 = mod.snapTokenDrop(state, zone, { x: 999, y: 999 });
+  assert.deepEqual(clamped2.snap, { x: 110, y: 110 });
+  assert.deepEqual(clamped2.world, { x: 1110, y: 910 });
+});
+
+/* ------------------------------------------------------------------ *
+ * Lifecycle guard
+ * ------------------------------------------------------------------ */
+
+test("conflict zone editor is inactive by default (lifecycle guard)", () => {
+  assert.equal(zoneEditor.isConflictEditModeActive(), false);
+});
+
+/* ------------------------------------------------------------------ *
+ * Add-zone click-placement (PlacementManager flow, not startZoneDraw)
+ * ------------------------------------------------------------------ */
+
+function setPath(obj, path, value) {
+  const parts = path.split(".");
+  let t = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const p = parts[i];
+    if (typeof t[p] !== "object" || t[p] === null) t[p] = {};
+    t = t[p];
+  }
+  t[parts[parts.length - 1]] = value;
+}
+
+/** Full document-shaped scene mock supporting writeConflictBoard + sync. */
+function fullMockScene({ flags = {}, drawings = [], tiles = [] } = {}) {
+  const scene = {
+    id: "scene1",
+    drawings: [...drawings],
+    tiles: [...tiles],
+    flags,
+    updates: [],
+    deleted: { Drawing: [], Tile: [] },
+    embeddedUpdates: { Drawing: [], Tile: [] },
+    getFlag(scope, key) {
+      return this.flags[scope]?.[key];
+    },
+    async update(data, options) {
+      for (const [k, v] of Object.entries(data)) setPath(this, k, v);
+      this.updates.push({ data, options });
+      return this;
+    },
+    async unsetFlag(scope, key) {
+      if (this.flags[scope]) delete this.flags[scope][key];
+      return this;
+    },
+    async deleteEmbeddedDocuments(kind, ids) {
+      this.deleted[kind].push(...ids);
+      const arr = kind === "Drawing" ? this.drawings : this.tiles;
+      for (const id of ids ?? []) {
+        const i = arr.findIndex((x) => x.id === id);
+        if (i >= 0) arr.splice(i, 1);
+      }
+      return this;
+    },
+    async updateEmbeddedDocuments(kind, docs) {
+      this.embeddedUpdates[kind].push(...docs);
+      return this;
+    },
+    async createEmbeddedDocuments(kind, docs) {
+      const arr = kind === "Drawing" ? this.drawings : this.tiles;
+      for (const d of docs ?? []) {
+        arr.push({
+          id: d._id ?? `new-${arr.length}`,
+          documentName: kind,
+          ...d,
+          getFlag(scope, key) {
+            return d.flags?.[scope]?.[key];
+          },
+        });
+      }
+      return this;
+    },
+  };
+  return scene;
+}
+
+function boardPartDoc(id, widgetId, part) {
+  return {
+    id,
+    documentName: "Drawing",
+    x: 0,
+    y: 0,
+    shape: { width: 100, height: 100 },
+    getFlag(scope, key) {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "widgetId") return widgetId;
+      if (key === "ownerType") return "conflictBoard";
+      if (key === "part") return part;
+      return undefined;
+    },
+  };
+}
+
+function addZoneGameStub() {
+  return {
+    user: { isGM: true, id: "gm1" },
+    i18n: { localize: (key) => key, format: (key, data) => key },
+    combats: { get: () => null },
+  };
+}
+
+/** A placed board: state + registry + one board-level projection drawing. */
+function placedBoardScene(overrides = {}) {
+  const flags = {
+    [FLAG_SCOPE]: {
+      [CONFLICT_BOARD_FLAG]: boardState(),
+      [sync.CONFLICT_BOARD_WIDGET_FLAG]: {
+        widgetId: "wBoard",
+        zoneWidgetIds: { "zone-1": "wZone1", "zone-2": "wZone2" },
+        cardWidgetIds: {},
+      },
+    },
+  };
+  const scene = fullMockScene({ flags, ...overrides });
+  scene.drawings.push(boardPartDoc("d-bg", "wBoard", "conflictBoardBackground"));
+  return scene;
+}
+
+test("makeZoneRecord builds a stable zone with the default style and next sort", () => {
+  const state = boardState(); // zones: sort 0, sort 1
+  const rect = { x: 10, y: 20, width: 120, height: 120 };
+  const zone = mod.makeZoneRecord("Throne Room", rect, state, () => "zone-new");
+  assert.equal(zone.id, "zone-new");
+  assert.equal(zone.name, "Throne Room");
+  assert.deepEqual(zone.rect, { x: 10, y: 20, width: 120, height: 120 });
+  assert.deepEqual(zone.style, {
+    fill: "#ffffff",
+    alpha: 0.12,
+    stroke: "#000000",
+  });
+  assert.equal(zone.sort, 2);
+  // input state is never mutated
+  assert.equal(state.zones.length, 2);
+  assert.equal(state.zones[0].sort, 0);
+});
+
+test("makeZoneRecord keeps the rect deep-copied and computes sort after the max", () => {
+  const rect = { x: 1, y: 2, width: 3, height: 4 };
+  const zone = mod.makeZoneRecord("A", rect, { zones: [{ sort: 5 }] }, () => "id-1");
+  assert.deepEqual(zone.rect, rect);
+  rect.x = 999; // mutating the caller rect must not leak into the record
+  assert.equal(zone.rect.x, 1);
+  assert.equal(zone.sort, 6);
+  assert.equal(zone.id, "id-1");
+});
+
+test("appendZoneToState appends a zone without mutating the input state", () => {
+  const state = boardState();
+  const zone = { id: "zone-new", name: "New" };
+  const next = mod.appendZoneToState(state, zone);
+  assert.equal(next.zones.length, 3);
+  assert.equal(next.zones[2], zone);
+  assert.equal(state.zones.length, 2);
+  assert.equal(next.combatId, state.combatId);
+  assert.deepEqual(next.tokenZones, state.tokenZones);
+  assert.deepEqual(next.board, state.board);
+  assert.equal(mod.appendZoneToState(null, zone), null);
+});
+
+test("addZoneAtPoint runs a PlacementManager click-placement (not startZoneDraw) and commits the zone", async () => {
+  const scene = placedBoardScene();
+  globalThis.CONST = {
+    DRAWING_TYPES: { RECTANGLE: "r" },
+    DRAWING_FILL_TYPES: { NONE: 0 },
+  };
+  globalThis.game = addZoneGameStub();
+  globalThis.foundry.applications.api.DialogV2 = {
+    input: async () => ({ name: "Throne Room" }),
+  };
+
+  let placeGroupCalls = 0;
+  let capturedCfg = null;
+  PlacementManager.placeGroup = async (cfg) => {
+    placeGroupCalls++;
+    capturedCfg = cfg;
+    await cfg.commit({ x: 1600, y: 1300 }, "unused-widget-id");
+  };
+  try {
+    const result = await mod.addZoneAtPoint(scene, { x: 1500, y: 1200 });
+    assert.equal(result, true);
+    assert.equal(placeGroupCalls, 1);
+    // the zone editor draw/drag mode is NEVER entered
+    assert.equal(zoneEditor.isConflictEditModeActive(), false);
+    // placement session uses the preset-derived rect + the new i18n keys
+    assert.equal(capturedCfg.hintKey, "fate-on-the-table.conflict.zone.placeHint");
+    assert.equal(capturedCfg.successKey, "fate-on-the-table.conflict.zone.placeSuccess");
+    assert.equal(capturedCfg.bounds.width, geometry.ZONE_PLACEMENT_SIZES.medium.width);
+    assert.equal(capturedCfg.bounds.height, geometry.ZONE_PLACEMENT_SIZES.medium.height);
+    assert.equal(capturedCfg.bounds.x, -geometry.ZONE_PLACEMENT_SIZES.medium.width / 2);
+    assert.equal(capturedCfg.bounds.y, -geometry.ZONE_PLACEMENT_SIZES.medium.height / 2);
+  } finally {
+    PlacementManager.placeGroup = originalPlaceGroup;
+    delete globalThis.CONST;
+  }
+
+  // the zone was committed through writeConflictBoard + syncConflictBoard
+  const nextState = sync.readConflictBoard(scene);
+  const zone = nextState.zones.find((z) => z.name === "Throne Room");
+  assert.ok(zone, "zone record must be persisted in the board state");
+  assert.equal(zone.sort, 2);
+  assert.deepEqual(zone.style, {
+    fill: "#ffffff",
+    alpha: 0.12,
+    stroke: "#000000",
+  });
+  // anchor (1600,1300) -> local (600,500), centered 150x120 rect clamped into
+  // the medium-preset field (x:256..1056, y:0..800)
+  assert.deepEqual(zone.rect, { x: 525, y: 440, width: 150, height: 120 });
+  assert.equal(nextState.zones.length, 3);
+  // other zones/cards/tokenZones are untouched
+  assert.deepEqual(nextState.tokenZones, boardState().tokenZones);
+  assert.equal(nextState.combatId, "combat-abc");
+  assert.deepEqual(nextState.board.origin, { x: 1000, y: 800 });
+
+  // projection created the zone body + label through the serialized sync
+  const registry = sync.boardRegistry(scene);
+  assert.ok(registry, "registry must survive the sync");
+  const zoneWidgetId = registry.zoneWidgetIds[zone.id];
+  assert.ok(zoneWidgetId);
+  const zoneDocs = scene.drawings.filter(
+    (d) => d.getFlag(FLAG_SCOPE, "widgetId") === zoneWidgetId,
+  );
+  assert.equal(zoneDocs.length, 2, "body + label for the new zone");
+  assert.ok(
+    zoneDocs.some((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_ZONE_BODY_PART),
+  );
+  assert.ok(
+    zoneDocs.some((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_ZONE_LABEL_PART),
+  );
+});
+
+test("addZoneAtPoint resolves false gracefully when PlacementManager is busy or errors", async () => {
+  const scene = placedBoardScene();
+  globalThis.game = addZoneGameStub();
+  globalThis.foundry.applications.api.DialogV2 = {
+    input: async () => ({ name: "Room" }),
+  };
+  try {
+    // error inside the placement session -> graceful false, no rejection
+    PlacementManager.placeGroup = async () => {
+      throw new Error("boom");
+    };
+    const errored = await mod.addZoneAtPoint(scene, { x: 1500, y: 1200 });
+    assert.equal(errored, false);
+
+    // busy / cancelled (session never commits) -> graceful false
+    PlacementManager.placeGroup = async () => {};
+    const busy = await mod.addZoneAtPoint(scene, { x: 1500, y: 1200 });
+    assert.equal(busy, false);
+
+    // the zone editor is never entered on any path
+    assert.equal(zoneEditor.isConflictEditModeActive(), false);
+  } finally {
+    PlacementManager.placeGroup = originalPlaceGroup;
+  }
+});
+
+test("addZoneAtPoint rejects a point outside the central field without a placement session", async () => {
+  const scene = placedBoardScene();
+  globalThis.game = addZoneGameStub();
+  let inputCalls = 0;
+  globalThis.foundry.applications.api.DialogV2 = {
+    input: async () => {
+      inputCalls++;
+      return { name: "Room" };
+    },
+  };
+  const original = PlacementManager.placeGroup;
+  let placeGroupCalls = 0;
+  PlacementManager.placeGroup = async () => {
+    placeGroupCalls++;
+  };
+  try {
+    // local (1500, 1200) is outside the field (x:256..1056, y:0..800)
+    const result = await mod.addZoneAtPoint(scene, { x: 2500, y: 2000 });
+    assert.equal(result, false);
+    assert.equal(inputCalls, 0, "no name prompt outside the field");
+    assert.equal(placeGroupCalls, 0, "no placement session outside the field");
+  } finally {
+    PlacementManager.placeGroup = original;
+  }
+});
+
+test("addZoneAtPoint preview bounds match the committed rect for every preset", async () => {
+  globalThis.CONST = {
+    DRAWING_TYPES: { RECTANGLE: "r" },
+    DRAWING_FILL_TYPES: { NONE: 0 },
+  };
+  try {
+    for (const sizePreset of ["small", "medium", "large"]) {
+      const zoneName = `Room-${sizePreset}`;
+      globalThis.foundry.applications.api.DialogV2 = {
+        input: async () => ({ name: zoneName }),
+      };
+      const flags = {
+        [FLAG_SCOPE]: {
+          [CONFLICT_BOARD_FLAG]: boardState({ sizePreset }),
+          [sync.CONFLICT_BOARD_WIDGET_FLAG]: {
+            widgetId: "wBoard",
+            zoneWidgetIds: { "zone-1": "wZone1", "zone-2": "wZone2" },
+            cardWidgetIds: {},
+          },
+        },
+      };
+      const scene = fullMockScene({ flags });
+      scene.drawings.push(boardPartDoc("d-bg", "wBoard", "conflictBoardBackground"));
+      globalThis.game = addZoneGameStub();
+      let captured = null;
+      PlacementManager.placeGroup = async (cfg) => {
+        captured = cfg;
+        // commit at the world center of the field so clamping cannot distort
+        const geom = geometry.getConflictBoardGeometry({ sizePreset });
+        await cfg.commit(
+          { x: 1000 + geom.field.x + geom.field.width / 2, y: 800 + geom.field.y + geom.field.height / 2 },
+          "unused",
+        );
+      };
+      const result = await mod.addZoneAtPoint(scene, { x: 1500, y: 1200 });
+      assert.equal(result, true, `preset ${sizePreset} must place`);
+      const expected = geometry.zonePlacementSize(
+        sizePreset,
+        geometry.getConflictBoardGeometry({ sizePreset }).field,
+      );
+      assert.equal(captured.bounds.width, expected.width, `preset ${sizePreset} preview width`);
+      assert.equal(captured.bounds.height, expected.height, `preset ${sizePreset} preview height`);
+      assert.equal(captured.bounds.x, -expected.width / 2, `preset ${sizePreset} preview x`);
+      assert.equal(captured.bounds.y, -expected.height / 2, `preset ${sizePreset} preview y`);
+      const zone = sync.readConflictBoard(scene).zones.find((z) => z.name === zoneName);
+      assert.ok(zone, `preset ${sizePreset} zone committed`);
+      assert.equal(zone.rect.width, expected.width, `preset ${sizePreset} rect width`);
+      assert.equal(zone.rect.height, expected.height, `preset ${sizePreset} rect height`);
+    }
+  } finally {
+    PlacementManager.placeGroup = originalPlaceGroup;
+    delete globalThis.CONST;
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * Zone context menu routing (Rename + Remove; GM/player guards)
+ * ------------------------------------------------------------------ */
+
+function zoneMenuDoc(widgetId) {
+  return {
+    id: "zone-doc",
+    documentName: "Drawing",
+    x: 0,
+    y: 0,
+    shape: { width: 10, height: 10 },
+    getFlag(scope, key) {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "ownerType") return CONFLICT_ZONE_OWNER_TYPE;
+      if (key === "widgetId") return widgetId;
+      return undefined;
+    },
+  };
+}
+
+test("zone context menu routes to Rename + Remove for the GM", () => {
+  const dom = installMenuDomStub();
+  const scene = placedBoardScene();
+  globalThis.canvas = { scene };
+  globalThis.game = {
+    user: { isGM: true },
+    i18n: { localize: (key) => key },
+  };
+  try {
+    const handled = mod.handleConflictContextMenu(zoneMenuDoc("wZone1"), fakeMenuEvent());
+    assert.equal(handled, true);
+    assert.equal(dom.createdButtons.length, 2);
+    assert.ok(dom.createdButtons[0].innerHTML.includes("fa-pen"));
+    assert.ok(
+      dom.createdButtons[0].innerHTML.includes("fate-on-the-table.conflict.zone.rename"),
+    );
+    assert.ok(dom.createdButtons[1].innerHTML.includes("fa-trash"));
+    assert.ok(
+      dom.createdButtons[1].innerHTML.includes("fate-on-the-table.conflict.zone.remove"),
+    );
+    assert.equal(dom.body.children.length, 1); // the menu was rendered
+  } finally {
+    delete globalThis.canvas;
+  }
+});
+
+test("zone context menu is consumed without a menu for players", () => {
+  const dom = installMenuDomStub();
+  const scene = placedBoardScene();
+  globalThis.canvas = { scene };
+  globalThis.game = {
+    user: { isGM: false },
+    i18n: { localize: (key) => key },
+  };
+  try {
+    const handled = mod.handleConflictContextMenu(zoneMenuDoc("wZone1"), fakeMenuEvent());
+    assert.equal(handled, true);
+    assert.equal(dom.createdButtons.length, 0);
+    assert.equal(dom.body.children.length, 0);
+  } finally {
+    delete globalThis.canvas;
+  }
+});
+
+test("zone remove action confirms through DialogV2 and clears the zone + its tokenZones entries", async () => {
+  const dom = installMenuDomStub();
+  const scene = placedBoardScene();
+  globalThis.canvas = { scene };
+  globalThis.game = {
+    user: { isGM: true, id: "gm1" },
+    i18n: { localize: (key) => key, format: (key) => key },
+    combats: { get: () => null },
+  };
+  globalThis.CONST = {
+    DRAWING_TYPES: { RECTANGLE: "r" },
+    DRAWING_FILL_TYPES: { NONE: 0 },
+  };
+  const confirmCalls = [];
+  globalThis.foundry.applications.api.DialogV2 = {
+    confirm: async (opts) => {
+      confirmCalls.push(opts);
+      return true;
+    },
+  };
+  try {
+    const handled = mod.handleConflictContextMenu(zoneMenuDoc("wZone1"), fakeMenuEvent());
+    assert.equal(handled, true);
+    assert.equal(dom.createdButtons.length, 2);
+    dom.createdButtons[1].click(); // "Remove zone"
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(confirmCalls.length, 1);
+    assert.equal(
+      confirmCalls[0].window.title,
+      "fate-on-the-table.conflict.zone.removeTitle",
+    );
+    const state = sync.readConflictBoard(scene);
+    assert.deepEqual(state.zones.map((z) => z.id), ["zone-2"]);
+    assert.deepEqual(state.tokenZones, { "Scene.scene1.Token.t2": "zone-2" });
+  } finally {
+    PlacementManager.placeGroup = originalPlaceGroup;
+    delete globalThis.canvas;
+    delete globalThis.CONST;
+    delete globalThis.foundry?.applications?.api?.DialogV2;
+  }
+});
+
+test("zone remove action leaves the state untouched when the confirmation is cancelled", async () => {
+  const dom = installMenuDomStub();
+  const scene = placedBoardScene();
+  globalThis.canvas = { scene };
+  globalThis.game = {
+    user: { isGM: true, id: "gm1" },
+    i18n: { localize: (key) => key, format: (key) => key },
+  };
+  globalThis.foundry.applications.api.DialogV2 = {
+    confirm: async () => false,
+  };
+  try {
+    mod.handleConflictContextMenu(zoneMenuDoc("wZone1"), fakeMenuEvent());
+    dom.createdButtons[1].click();
+    await new Promise((r) => setTimeout(r, 0));
+    const state = sync.readConflictBoard(scene);
+    assert.deepEqual(state.zones.map((z) => z.id), ["zone-1", "zone-2"]);
+    assert.equal(state.tokenZones["Scene.scene1.Token.t1"], "zone-1");
+  } finally {
+    delete globalThis.canvas;
+    delete globalThis.foundry?.applications?.api?.DialogV2;
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * Card context menu (menu DOM stubbed; ConflictManager injected)
+ * ------------------------------------------------------------------ */
+
+function installMenuDomStub() {
+  const state = { body: null, createdButtons: [], windowListeners: {} };
+  function fakeEl(tag) {
+    const listeners = {};
+    const el = {
+      tagName: String(tag).toUpperCase(),
+      children: [],
+      style: {},
+      disabled: false,
+      dataset: {},
+      className: "",
+      classList: {
+        add(...names) {
+          for (const n of names) el.className += ` ${n}`;
+        },
+        remove() {},
+        toggle() {},
+        contains() {
+          return false;
+        },
+      },
+      innerHTML: "",
+      parentNode: null,
+      append(child) {
+        this.children.push(child);
+        child.parentNode = this;
+      },
+      remove() {
+        if (!this.parentNode) return;
+        const i = this.parentNode.children.indexOf(this);
+        if (i >= 0) this.parentNode.children.splice(i, 1);
+        this.parentNode = null;
+      },
+      addEventListener(type, fn) {
+        listeners[type] = fn;
+      },
+      removeEventListener(type, fn) {
+        if (listeners[type] === fn) delete listeners[type];
+      },
+      getBoundingClientRect() {
+        return { width: 100, height: 24, left: 0, top: 0 };
+      },
+      click() {
+        if (typeof listeners.click === "function") {
+          listeners.click({ preventDefault() {}, stopPropagation() {} });
+        }
+      },
+      closest() {
+        return null;
+      },
+      querySelector() {
+        return null;
+      },
+      contains() {
+        return false;
+      },
+      get childElementCount() {
+        return this.children.length;
+      },
+    };
+    return el;
+  }
+  const body = fakeEl("body");
+  state.body = body;
+  globalThis.document = {
+    body,
+    createElement: (tag) => {
+      const el = fakeEl(tag);
+      if (String(tag).toLowerCase() === "button") state.createdButtons.push(el);
+      return el;
+    },
+  };
+  globalThis.window = {
+    innerWidth: 1024,
+    innerHeight: 768,
+    addEventListener: (type, fn) => {
+      state.windowListeners[type] = fn;
+    },
+    removeEventListener: (type, fn) => {
+      if (state.windowListeners[type] === fn) delete state.windowListeners[type];
+    },
+  };
+  return state;
+}
+
+function uninstallMenuDomStub() {
+  delete globalThis.document;
+  delete globalThis.window;
+}
+
+function menuCombatant(id, { hasActed = false, defeated = false } = {}) {
+  return {
+    id,
+    name: id,
+    defeated,
+    token: { name: id },
+    getFlag(scope, key) {
+      if (scope === "fate-core-official" && key === "hasActed") return hasActed;
+      return undefined;
+    },
+  };
+}
+
+function menuScene(combatId, combatantIds) {
+  const state = createConflictBoard({
+    combatId,
+    sizePreset: "medium",
+    origin: { x: 0, y: 0 },
+  });
+  state.cards = Object.fromEntries(
+    combatantIds.map((id, i) => [
+      id,
+      { side: i % 2 ? "hostile" : "friendly", area: "side", order: i },
+    ]),
+  );
+  return {
+    id: "scene1",
+    flags: { [FLAG_SCOPE]: { [CONFLICT_BOARD_FLAG]: state } },
+    getFlag(scope, key) {
+      return this.flags[scope]?.[key];
+    },
+  };
+}
+
+function cardContextDoc(combatantId) {
+  return {
+    id: `card-${combatantId}`,
+    documentName: "Drawing",
+    x: 0,
+    y: 0,
+    shape: { width: 10, height: 10 },
+    getFlag(scope, key) {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "ownerType") return CONFLICT_CARD_OWNER_TYPE;
+      if (key === "combatantId") return combatantId;
+      return undefined;
+    },
+  };
+}
+
+function fakeMenuEvent() {
+  return {
+    clientX: 10,
+    clientY: 10,
+    preventDefault() {},
+    stopPropagation() {},
+  };
+}
+
+function installMenuCombat(game, combat, scene) {
+  globalThis.canvas = { scene };
+  globalThis.game = {
+    user: { isGM: true },
+    i18n: { localize: (key) => key },
+    combat,
+    combats: { get: () => combat },
+    ...game,
+  };
+}
+
+afterEach(() => {
+  delete globalThis.game;
+  delete globalThis.canvas;
+  uninstallMenuDomStub();
+  mod.unregisterConflictManager();
+  PlacementManager.placeGroup = originalPlaceGroup;
+  delete globalThis.CONST;
+  delete globalThis.foundry?.applications?.api?.DialogV2;
+});
+
+test("card context menu is never shown to players", () => {
+  const dom = installMenuDomStub();
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [menuCombatant("c1"), menuCombatant("c2")],
+  };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  installMenuCombat({ user: { isGM: false } }, combat, scene);
+  const handled = mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  assert.equal(handled, true);
+  assert.equal(dom.body.children.length, 0);
+  assert.equal(dom.createdButtons.length, 0);
+});
+
+test("card context menu pass path calls the manager passTurn directly without DialogV2.confirm", async () => {
+  const dom = installMenuDomStub();
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [menuCombatant("c1"), menuCombatant("c2")],
+  };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  installMenuCombat({}, combat, scene);
+  const passCalls = [];
+  const confirmCalls = [];
+  globalThis.foundry.applications.api.DialogV2 = {
+    confirm: async (opts) => {
+      confirmCalls.push(opts);
+      return true;
+    },
+  };
+  mod.registerConflictManager({
+    passTurn: async (c, id, opts) => {
+      passCalls.push({ c, id, opts });
+      return { ok: true, turn: 1 };
+    },
+    returnTurn: async () => ({ ok: true }),
+    newRound: async () => ({ ok: true }),
+  });
+
+  const handled = mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  assert.equal(handled, true);
+  // exactly one action: "Pass turn" (fa-forward), no return action
+  assert.equal(dom.createdButtons.length, 1);
+  assert.ok(dom.createdButtons[0].innerHTML.includes("fa-forward"));
+  assert.ok(!dom.createdButtons[0].innerHTML.includes("fa-undo"));
+
+  dom.createdButtons[0].click();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(confirmCalls.length, 0); // no confirmation dialog on the card path
+  assert.equal(passCalls.length, 1);
+  assert.equal(passCalls[0].id, "c2");
+  assert.equal(passCalls[0].c, combat);
+  assert.deepEqual(passCalls[0].opts, { scene });
+});
+
+test("card context menu shows Return turn for an acted card and calls the manager returnTurn", async () => {
+  const dom = installMenuDomStub();
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [menuCombatant("c1"), menuCombatant("c2", { hasActed: true })],
+  };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  installMenuCombat({}, combat, scene);
+  const returnCalls = [];
+  mod.registerConflictManager({
+    passTurn: async () => ({ ok: true }),
+    returnTurn: async (c, id, opts) => {
+      returnCalls.push({ c, id, opts });
+      return { ok: true };
+    },
+    newRound: async () => ({ ok: true }),
+  });
+
+  const handled = mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  assert.equal(handled, true);
+  assert.equal(dom.createdButtons.length, 1);
+  assert.ok(dom.createdButtons[0].innerHTML.includes("fa-undo"));
+  assert.ok(!dom.createdButtons[0].innerHTML.includes("fa-forward"));
+
+  dom.createdButtons[0].click();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(returnCalls.length, 1);
+  assert.equal(returnCalls[0].id, "c2");
+  assert.deepEqual(returnCalls[0].opts, { scene });
+});
+
+test("card context menu allows Return turn for a current acted card (flag only, marker untouched)", async () => {
+  const dom = installMenuDomStub();
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [menuCombatant("c1", { hasActed: true }), menuCombatant("c2")],
+  };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  installMenuCombat({}, combat, scene);
+  const returnCalls = [];
+  mod.registerConflictManager({
+    passTurn: async () => ({ ok: true }),
+    returnTurn: async (c, id, opts) => {
+      returnCalls.push({ c, id, opts });
+      return { ok: true };
+    },
+    newRound: async () => ({ ok: true }),
+  });
+
+  const handled = mod.handleConflictContextMenu(cardContextDoc("c1"), fakeMenuEvent());
+  assert.equal(handled, true);
+  // current unacted -> no pass; current acted -> return only
+  assert.equal(dom.createdButtons.length, 1);
+  assert.ok(dom.createdButtons[0].innerHTML.includes("fa-undo"));
+
+  dom.createdButtons[0].click();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(returnCalls.length, 1);
+  assert.equal(returnCalls[0].id, "c1");
+});
+
+test("card context menu shows no actions for a defeated acted card", () => {
+  const dom = installMenuDomStub();
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [
+      menuCombatant("c1"),
+      menuCombatant("c2", { hasActed: true, defeated: true }),
+    ],
+  };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  installMenuCombat({}, combat, scene);
+  const handled = mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  assert.equal(handled, true);
+  assert.equal(dom.body.children.length, 0); // no empty menu
+  assert.equal(dom.createdButtons.length, 0);
+});
+
+test("card context menu shows no actions for a defeated unacted card (no Pass turn either)", () => {
+  const dom = installMenuDomStub();
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [
+      menuCombatant("c1"),
+      menuCombatant("c2", { defeated: true }), // defeated, never acted
+    ],
+  };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  installMenuCombat({}, combat, scene);
+  const handled = mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  assert.equal(handled, true);
+  assert.equal(dom.body.children.length, 0); // defeated cards get no menu at all
+  assert.equal(dom.createdButtons.length, 0);
+});
+
+test("card context menu never offers Pass turn for a card in the eliminated pile", () => {
+  const dom = installMenuDomStub();
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [
+      menuCombatant("c1"),
+      menuCombatant("c2"), // not defeated but its card sits in the pile
+    ],
+  };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  scene.flags[FLAG_SCOPE][CONFLICT_BOARD_FLAG].cards.c2.area = "eliminated";
+  installMenuCombat({}, combat, scene);
+  const handled = mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  assert.equal(handled, true);
+  assert.equal(dom.body.children.length, 0);
+  assert.equal(dom.createdButtons.length, 0);
+});
+
+test("card context menu consumes the event without a menu for a current unacted card", () => {
+  const dom = installMenuDomStub();
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [menuCombatant("c1")],
+  };
+  const scene = menuScene("combat-abc", ["c1"]);
+  installMenuCombat({}, combat, scene);
+  const handled = mod.handleConflictContextMenu(cardContextDoc("c1"), fakeMenuEvent());
+  assert.equal(handled, true);
+  assert.equal(dom.createdButtons.length, 0);
+});
+
+test("card context menu consumes the event without a menu for an orphan card", () => {
+  const dom = installMenuDomStub();
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [menuCombatant("c1")],
+  };
+  const scene = menuScene("combat-abc", ["c1"]);
+  installMenuCombat({}, combat, scene);
+  const handled = mod.handleConflictContextMenu(cardContextDoc("missing"), fakeMenuEvent());
+  assert.equal(handled, true);
+  assert.equal(dom.createdButtons.length, 0);
+});
+
+/* ------------------------------------------------------------------ *
+ * Card double-click: sheet opens for a card actor (regression)
+ * ------------------------------------------------------------------ */
+
+/** A full conflict-card document with all identity flags. */
+function fullCardDoc(combatantId, overrides = {}) {
+  return {
+    id: `card-${combatantId}`,
+    documentName: "Drawing",
+    x: 0,
+    y: 0,
+    shape: { width: 10, height: 10 },
+    getFlag(scope, key) {
+      if (scope !== FLAG_SCOPE) return undefined;
+      return {
+        ownerType: CONFLICT_CARD_OWNER_TYPE,
+        combatantId,
+        tokenUuid: `Scene.scene1.Token.t-${combatantId}`,
+        ...overrides,
+      }[key];
+    },
+  };
+}
+
+test("conflict card double-click (non-cost part) still opens the character sheet", async () => {
+  let rendered = 0;
+  const actor = {
+    name: "Grom",
+    testUserPermission: (user, level) => true,
+    sheet: { render: () => { rendered += 1; } },
+  };
+  globalThis.CONST = {
+    DOCUMENT_OWNERSHIP_LEVELS: { LIMITED: 1, OWNER: 2 },
+    DRAWING_TYPES: { RECTANGLE: "r" },
+  };
+  const combat = {
+    id: "combat-abc",
+    combatants: [{ id: "c1", token: { actor }, actor }],
+  };
+  const scene = menuScene("combat-abc", ["c1"]);
+  scene.flags[FLAG_SCOPE][sync.CONFLICT_BOARD_WIDGET_FLAG] = {
+    widgetId: "wBoard",
+    zoneWidgetIds: {},
+    cardWidgetIds: { c1: "wCard1" },
+  };
+  installMenuCombat({}, combat, scene);
+  const handled = await mod.handleConflictDocumentDoubleClick(
+    fullCardDoc("c1"),
+    fakeMenuEvent(),
+  );
+  assert.equal(handled, true);
+  assert.equal(rendered, 1, "the ordinary card must open its character sheet");
+});
+
+test("conflict card double-click on a consequence cost row is consumed without opening the sheet", async () => {
+  // Regression for the topmost-cost-row fix: the consequence cost row (on the
+  // card) must route to the consequence input handler as the topmost part — it
+  // consumes the double-click and never opens the character sheet, unlike any
+  // other card part (covered by the test above).
+  let rendered = 0;
+  let actorUpdated = false;
+  const actor = {
+    name: "Grom",
+    testUserPermission: (user, level) => true,
+    sheet: { render: () => { rendered += 1; } },
+    system: {
+      tracks: {
+        mild: {
+          name: "Mild Consequence",
+          enabled: true,
+          boxes: 0,
+          box_values: [false],
+          aspect: { when_marked: true, name: "" },
+        },
+      },
+    },
+    update: () => {
+      actorUpdated = true;
+      return Promise.resolve(actor);
+    },
+  };
+  globalThis.CONST = {
+    DOCUMENT_OWNERSHIP_LEVELS: { LIMITED: 1, OWNER: 2 },
+    DRAWING_TYPES: { RECTANGLE: "r" },
+  };
+  const combat = {
+    id: "combat-abc",
+    combatants: [{ id: "c1", token: { actor }, actor }],
+  };
+  const scene = menuScene("combat-abc", ["c1"]);
+  globalThis.canvas = { scene };
+  scene.flags[FLAG_SCOPE][sync.CONFLICT_BOARD_WIDGET_FLAG] = {
+    widgetId: "wBoard",
+    zoneWidgetIds: {},
+    cardWidgetIds: { c1: "wCard1" },
+  };
+  installMenuCombat({}, combat, scene);
+  const handled = await mod.handleConflictDocumentDoubleClick(
+    fullCardDoc("c1", { part: "consequenceCostRows", index: 0 }),
+    fakeMenuEvent(),
+  );
+  assert.equal(handled, true);
+  assert.equal(rendered, 0, "the consequence cost row must NOT open the sheet");
+  assert.equal(actorUpdated, false, "a cancelled prompt must not write the actor");
+});

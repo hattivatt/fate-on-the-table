@@ -2,7 +2,11 @@
  * fate-on-the-table — module entry point.
  */
 
-import { registerSettings } from "./settings.js";
+import {
+  registerSettings,
+  getConflictBoardOptions,
+  CONFLICT_BOARD_SETTING_KEYS,
+} from "./settings.js";
 import { initialize as initializeLayouts } from "./layoutLoader.js";
 import {
   scheduleActorSync,
@@ -23,11 +27,48 @@ import { LayoutImportExport } from "./LayoutImportExport.js";
 import { initStressBoxInteractions } from "./StressBoxes.js";
 import {
   MODULE_ID,
+  FLAG_SCOPE,
   GM_FP_SCOPE,
   GM_FP_KEY,
   SITUATION_ASPECTS_SCOPE,
   SITUATION_ASPECTS_KEY,
+  CONFLICT_BOARD_FLAG,
 } from "./constants.js";
+import {
+  syncConflictBoard,
+  reconcileConflictBoardProjection,
+  readConflictBoard,
+  writeConflictBoard,
+  boardRegistry,
+  removeConflictBoard,
+  CONFLICT_BOARD_WIDGET_FLAG,
+} from "./ConflictBoardSync.js";
+import {
+  ConflictManager,
+  placeBoard,
+  openConflictManager,
+  returnTurn,
+  canPlaceConflictBoard,
+  getActiveConflictForScene,
+} from "./ConflictManager.js";
+import {
+  registerConflictInteractions,
+  registerConflictManager as injectConflictManager,
+  reconcileTokenZoneMembership,
+  handleTokenDropOnConflictZone,
+} from "./ConflictInteractions.js";
+import {
+  enterConflictZoneEditMode,
+  exitConflictZoneEditMode,
+  isConflictEditModeActive,
+} from "./ConflictZoneEditor.js";
+import {
+  createCombatTrackerPlaceButton,
+  createFateUtilsPlaceButton,
+  insertCombatTrackerBoardPlacement,
+  insertFateUtilsBoardPlacement,
+  attachPlaceBoardClick,
+} from "./conflictUi.js";
 
 // Canvas interaction patches must be applied on every module load (page
 // reloads included), so this runs at top level — not inside a one-shot hook.
@@ -60,10 +101,34 @@ const SITUATION_ASPECT_SETTINGS = [
   "situationAspectsBackgroundAlpha",
 ];
 
+// Scene-level keys that, when changed in the Scene Config, only refresh the
+// projection of an existing conflict board (origin is never touched).
+const SCENE_GEOMETRY_KEYS = [
+  "width",
+  "height",
+  "padding",
+  "grid",
+  "gridType",
+  "backgroundColor",
+  "background",
+  "backgroundElevation",
+  "backgroundAlpha",
+];
+
 let gmSyncTimer = null;
 let actorReconcileTimer = null;
 let saSyncTimer = null;
+let conflictSettingsTimer = null;
+let conflictTokenTimer = null;
+let conflictActorTimer = null;
+// Token ids moved while the debounce is pending (a multi-token drag must
+// reconcile every moved board token, not only the last update).
+const pendingConflictTokens = new Set();
 let sceneControlsRegistered = false;
+// True while a Combat document (and its combatants) is being deleted, so the
+// board is never auto-cleaned when a conflict/combat ends.
+let combatDeleteInProgress = false;
+let combatDeleteResetTimer = null;
 
 Hooks.once("init", async () => {
   console.log("[fate-on-the-table] init hook");
@@ -87,6 +152,12 @@ Hooks.once("ready", () => {
   }
   initWidgetDrag();
   Hooks.on("updateActor", scheduleActorSync);
+  // Distinct purpose: actor data changes that drive CONFLICT cards (stress,
+  // consequences, aspects, skills, items) re-project the active board through
+  // the same serialized sync queue. Kept separate from scheduleActorSync so
+  // ordinary actor-widget sync and the fateOnTheTableSync recursion guard are
+  // never touched.
+  Hooks.on("updateActor", onConflictBoardActorUpdate);
   Hooks.on("deleteActor", cleanupActor);
   Hooks.on("updateUser", onUpdateUser);
   Hooks.on("updateSetting", onUpdateSetting);
@@ -95,6 +166,36 @@ Hooks.once("ready", () => {
   Hooks.on("renderFateUtilities", onRenderFateUtilities);
   Hooks.on(`${MODULE_ID}.newScene`, onNewScene);
   registerSceneControl();
+  try {
+    // Feature 5 — conflict board integration (idempotent, guarded inside
+    // ConflictInteractions/ConflictZoneEditor). Players get the read-only
+    // interactions (sheets, no GM menus); GM-only paths are gated internally.
+    registerConflictInteractions();
+    injectConflictManager(ConflictManager);
+    Hooks.on("renderCombatTracker", onRenderCombatTracker);
+    Hooks.on("updateCombat", onUpdateCombat);
+    Hooks.on("createCombatant", onCreateCombatant);
+    Hooks.on("updateCombatant", onUpdateCombatant);
+    Hooks.on("deleteCombatant", onDeleteCombatant);
+    Hooks.on("updateToken", onUpdateToken);
+    Hooks.on("deleteToken", onDeleteToken);
+    // Close-combat guard: while a Combat document is being deleted the board
+    // projection must stay untouched (no automatic cleanup on combat end).
+    Hooks.on("preDeleteCombat", () => {
+      combatDeleteInProgress = true;
+      clearTimeout(combatDeleteResetTimer);
+      combatDeleteResetTimer = setTimeout(() => {
+        combatDeleteInProgress = false;
+      }, 3000);
+    });
+    Hooks.on("deleteCombat", () => {
+      combatDeleteInProgress = false;
+      clearTimeout(combatDeleteResetTimer);
+    });
+    registerPublicApi();
+  } catch (err) {
+    console.error("[fate-on-the-table] failed to wire conflict integration:", err);
+  }
   console.log("[fate-on-the-table] hooks wired");
 });
 
@@ -110,6 +211,24 @@ function onCanvasReady() {
   syncSituationAspects(canvas.scene).catch((err) =>
     console.error("[fate-on-the-table] situation aspects sync failed:", err),
   );
+  syncConflictOnCanvasReady().catch((err) =>
+    console.error("[fate-on-the-table] conflict board sync failed:", err),
+  );
+}
+
+/**
+ * Feature 5: reconcile + project the conflict board of the active scene.
+ * Without a valid `conflictBoard` flag nothing is created. `game.combat` is
+ * only passed to the projection when it matches the board's `combatId` and is
+ * bound to the scene; otherwise the combat is resolved from the board state.
+ */
+function syncConflictOnCanvasReady() {
+  const scene = canvas?.scene;
+  if (!scene) return Promise.resolve();
+  const state = readConflictBoard(scene);
+  if (!state) return Promise.resolve();
+  const combat = resolveSceneConflictCombat(scene, state);
+  return syncConflictBoard(scene, combat ? { combat } : {});
 }
 
 /** GM fate points changed on some user: re-sync the GM row (debounced). */
@@ -155,20 +274,89 @@ function onUpdateSetting(setting) {
   }
   if (SITUATION_ASPECT_SETTINGS.includes(key)) {
     scheduleSituationAspectSync();
+    return;
+  }
+  if (CONFLICT_BOARD_SETTING_KEYS.includes(key)) {
+    // Conflict board background/size settings: refresh the projection of an
+    // already placed board without moving its origin.
+    scheduleConflictBoardSettingsSync();
   }
 }
 
-/** Situation aspects flag changed on a scene: re-sync its widget (debounced). */
-function onUpdateScene(scene, changed) {
+/** Conflict board settings changed: re-sync an existing board (debounced). */
+function scheduleConflictBoardSettingsSync() {
+  if (!canvas?.scene) return;
+  clearTimeout(conflictSettingsTimer);
+  conflictSettingsTimer = setTimeout(() => {
+    syncConflictBoardSettings(canvas.scene).catch((err) =>
+      console.error("[fate-on-the-table] conflict board settings sync failed:", err),
+    );
+  }, 400);
+}
+
+async function syncConflictBoardSettings(scene) {
+  const state = readConflictBoard(scene);
+  if (!state || !boardRegistry(scene)?.widgetId) return;
+  const opts = getConflictBoardOptions();
+  const origin = state.board?.origin ?? { x: 0, y: 0 };
+  await writeConflictBoard(scene, {
+    ...state,
+    board: {
+      ...(state.board ?? {}),
+      origin,
+      background: {
+        color: opts.background.color,
+        texture: opts.background.texture,
+        alpha: opts.background.alpha,
+      },
+    },
+  });
+  await syncConflictBoard(scene);
+}
+
+/** Scene flags/settings changed: re-sync scene widgets + the conflict board. */
+function onUpdateScene(scene, changed, options) {
   if (
-    !foundry.utils.hasProperty(
+    foundry.utils.hasProperty(
       changed,
       `flags.${SITUATION_ASPECTS_SCOPE}.${SITUATION_ASPECTS_KEY}`,
     )
   ) {
+    scheduleSituationAspectSync(scene);
+  }
+
+  // Feature 5 — conflict board flag changed: sync ONLY the current board.
+  // `fateOnTheTableSync` marks our own writes (writeConflictBoard/registry)
+  // and is ignored to prevent recursion.
+  const conflictFlagChanged =
+    foundry.utils.hasProperty(
+      changed,
+      `flags.${FLAG_SCOPE}.${CONFLICT_BOARD_FLAG}`,
+    ) ||
+    foundry.utils.hasProperty(
+      changed,
+      `flags.${FLAG_SCOPE}.${CONFLICT_BOARD_WIDGET_FLAG}`,
+    );
+  if (conflictFlagChanged) {
+    if (options?.fateOnTheTableSync) return;
+    if (!canvas?.scene || scene.id !== canvas.scene.id) return;
+    syncConflictBoard(scene).catch((err) =>
+      console.error("[fate-on-the-table] conflict board sync failed:", err),
+    );
     return;
   }
-  scheduleSituationAspectSync(scene);
+
+  // Scene background/size settings changed in the Scene Config: refresh the
+  // projection of an existing board without moving its origin.
+  if (SCENE_GEOMETRY_KEYS.some((k) => foundry.utils.hasProperty(changed, k))) {
+    if (options?.fateOnTheTableSync) return;
+    if (!canvas?.scene || scene.id !== canvas.scene.id) return;
+    const state = readConflictBoard(scene);
+    if (!state || !boardRegistry(scene)?.widgetId) return;
+    syncConflictBoard(scene).catch((err) =>
+      console.error("[fate-on-the-table] conflict board sync failed:", err),
+    );
+  }
 }
 
 /** "New Scene" from the FatePointManager: update an already placed widget. */
@@ -194,6 +382,322 @@ function scheduleSituationAspectSync(scene = canvas?.scene) {
       console.error("[fate-on-the-table] situation aspects sync failed:", err),
     );
   }, 400);
+}
+
+/* ------------------------------------------------------------------ *
+ * Feature 5 — conflict board hooks (combat / combatant / token)
+ * ------------------------------------------------------------------ */
+
+/**
+ * The combat a board is bound to, but only when it is pinned to the active
+ * scene: `game.combat` when its id matches `state.combatId`, otherwise the
+ * world combat of that id. Returns `null` for a deleted/foreign combat so a
+ * board is never auto-cleaned when a conflict/combat ends.
+ */
+function resolveSceneConflictCombat(scene, state) {
+  if (!state?.combatId || typeof game === "undefined") return null;
+  const combatId = state.combatId;
+  const combat =
+    game.combat?.id === combatId
+      ? game.combat
+      : (game.combats?.get?.(combatId) ?? null);
+  if (!combat) return null;
+  return isCombatBoundToScene(combat, scene) ? combat : null;
+}
+
+/** True when a combat is pinned to the scene (sceneId or tokens on it). */
+function isCombatBoundToScene(combat, scene) {
+  if (!combat || !scene) return false;
+  const combatSceneId = combat.scene?.id ?? combat.sceneId ?? null;
+  if (combatSceneId) return combatSceneId === scene.id;
+  try {
+    const list = Array.isArray(combat.combatants)
+      ? combat.combatants
+      : (combat.combatants?.contents ?? []);
+    return list.some((c) => c?.tokenId && scene.tokens?.get?.(c.tokenId));
+  } catch (err) {
+    return false;
+  }
+}
+
+/** True when the active scene hosts a board bound to the given combat id. */
+function hasActiveBoardForCombat(combatId) {
+  const scene = canvas?.scene;
+  if (!scene || !combatId) return false;
+  const state = readConflictBoard(scene);
+  if (!state || state.combatId !== combatId) return false;
+  return !!boardRegistry(scene)?.widgetId;
+}
+
+/**
+ * Resolves the combat id of a Combatant document. Foundry v14 removed the
+ * `combatId` property: the relationship lives on `combatant.combat` /
+ * `combatant.parent` (checked first, both alive and already-dropped parents).
+ * A deleted combatant may have lost both links already, so the active scene's
+ * board `combatId` is used as a last-resort fallback only when the
+ * combatant's token is still present on that scene (v13 `combatId` is kept
+ * for older API compatibility).
+ */
+function combatIdOfCombatant(combatant) {
+  const id =
+    combatant?.combat?.id ?? combatant?.parent?.id ?? combatant?.combatId ?? null;
+  if (id) return id;
+  const scene = canvas?.scene;
+  if (!scene || !combatant?.tokenId) return null;
+  const state = readConflictBoard(scene);
+  if (!state?.combatId || !scene.tokens?.get?.(combatant.tokenId)) return null;
+  return state.combatId;
+}
+
+/** Combat document updated (turn/round/started): re-project the board. */
+function onUpdateCombat(combat, changed, options) {
+  if (options?.fateOnTheTableSync) return;
+  if (combatDeleteInProgress) return;
+  if (!combat?.id || !hasActiveBoardForCombat(combat.id)) return;
+  const combatDoc = resolveSceneConflictCombat(canvas?.scene, {
+    combatId: combat.id,
+  });
+  if (!combatDoc) return;
+  syncConflictBoard(canvas.scene, { combat: combatDoc }).catch((err) =>
+    console.error("[fate-on-the-table] conflict board sync failed:", err),
+  );
+}
+
+/** Combatant updated (hasActed, sort, flags): re-project the board. */
+function onUpdateCombatant(combatant, changed, options) {
+  if (options?.fateOnTheTableSync) return;
+  if (combatDeleteInProgress) return;
+  const combatId = combatIdOfCombatant(combatant);
+  if (!combatId || !hasActiveBoardForCombat(combatId)) return;
+  const combat = resolveSceneConflictCombat(canvas?.scene, { combatId });
+  if (!combat) return;
+  syncConflictBoard(canvas.scene, { combat }).catch((err) =>
+    console.error("[fate-on-the-table] conflict board sync failed:", err),
+  );
+}
+
+/**
+ * Combatant created (a token enters combat mode mid-conflict): admit its card
+ * immediately. Foundry v14 fires ONLY `createCombatant` when a new embedded
+ * Combatant is created — the parent Combat document does not emit an
+ * `updateCombat` for embedded-document create/delete, so this listener is the
+ * single runtime path covering the "new token joins an active board" scenario.
+ *
+ * It runs the exact same guards as `updateCombatant` (anti-recursive
+ * `fateOnTheTableSync`, no work during a combat deletion) and calls the SAME
+ * serialized `syncConflictBoard(scene, { combat })` queue, where
+ * `reconcileConflictBoardProjection` -> `reconcileConflictBoard` admits the
+ * newcomer card via `admitMissingCards` — but only when the new combatant's
+ * token is actually available on the pinned active scene (no card without a
+ * token). The hook signature is Foundry v14's `(combatant, options, userId)`.
+ * @param {object} combatant  The created Combatant document.
+ * @param {object} options    Operation options (may carry the module's own
+ *   `fateOnTheTableSync` marker from other module writes).
+ */
+function onCreateCombatant(combatant, options) {
+  if (options?.fateOnTheTableSync) return;
+  if (combatDeleteInProgress) return;
+  const combatId = combatIdOfCombatant(combatant);
+  if (!combatId || !hasActiveBoardForCombat(combatId)) return;
+  const combat = resolveSceneConflictCombat(canvas?.scene, { combatId });
+  if (!combat) return;
+  syncConflictBoard(canvas.scene, { combat }).catch((err) =>
+    console.error("[fate-on-the-table] conflict board sync failed:", err),
+  );
+}
+
+/** Combatant removed: prune its orphan card/zone projections (module-owned). */
+function onDeleteCombatant(combatant, options) {
+  if (options?.fateOnTheTableSync) return;
+  if (combatDeleteInProgress) return;
+  const combatId = combatIdOfCombatant(combatant);
+  if (!combatId || !hasActiveBoardForCombat(combatId)) return;
+  const combat = resolveSceneConflictCombat(canvas?.scene, { combatId });
+  if (!combat) return;
+  syncConflictBoard(canvas.scene, { combat }).catch((err) =>
+    console.error("[fate-on-the-table] conflict board sync failed:", err),
+  );
+}
+
+/**
+ * Token updated: reconcile `tokenZones` membership on a manual x/y change
+ * (never on the module's own drop/sync) and re-project the board. Debounced
+ * so continuous drags do not hammer the scene. A shared debounce would drop
+ * earlier tokens of a simultaneous multi-token move, so the pending token ids
+ * are accumulated and every moved board token is reconciled on the fire.
+ */
+function onUpdateToken(token, changed, options) {
+  if (options?.fateOnTheTableSync) return;
+  const scene = canvas?.scene;
+  const tokenSceneId = token?.scene?.id ?? token?.parent?.id ?? null;
+  if (!scene || !token || tokenSceneId !== scene.id) return;
+  const state = readConflictBoard(scene);
+  if (!state || !state.combatId || !boardRegistry(scene)?.widgetId) return;
+  // Position change: reconcile the token-zones membership (debounced).
+  if (changed?.x !== undefined || changed?.y !== undefined) {
+    pendingConflictTokens.add(token.id);
+  }
+  clearTimeout(conflictTokenTimer);
+  // A synthetic (unlinked token) actor data change arrives as a `delta`
+  // update to the TokenDocument (e.g. a stress/consequence row edited on a
+  // conflict card). Re-project the board so the card reflects it, the same
+  // way a linked actor's `updateActor` hook does. The serialized, idempotent
+  // sync handles both position and actor-data paths without a hook loop.
+  conflictTokenTimer = setTimeout(() => {
+    const pending = [...pendingConflictTokens];
+    pendingConflictTokens.clear();
+    const done = Promise.all(
+      pending.map((id) => {
+        const doc = scene.tokens?.get?.(id);
+        if (!doc) return Promise.resolve({ changed: false, zoneId: null });
+        return reconcileTokenZoneMembership(scene, doc);
+      }),
+    );
+    done.catch((err) =>
+      console.error(
+        "[fate-on-the-table] conflict token zone reconcile failed:",
+        err,
+      ),
+    ).then(() =>
+      syncConflictBoard(scene).catch((err) =>
+        console.error("[fate-on-the-table] conflict board sync failed:", err),
+      ),
+    );
+  }, 150);
+}
+
+/**
+ * True when the given ACTOR document is the data source of a card currently
+ * projected on the active board: any board combatant whose token (or the
+ * combatant's own actor for tokens without one) is this actor, on this scene.
+ * Used by `updateActor` to decide whether a conflict card must be refreshed.
+ * @param {object} scene   Active scene with the board.
+ * @param {object} combat  Board-bound combat.
+ * @param {object} actor   The updated Actor document.
+ * @returns {boolean}
+ */
+function actorDrivesBoardCard(scene, combat, actor) {
+  const actorUuid = actor?.uuid ?? actor?.id ?? null;
+  const actorId = actor?.id;
+  if (!actorUuid && !actorId) return false;
+  const combatants = Array.isArray(combat?.combatants)
+    ? combat.combatants
+    : (combat?.combatants?.contents ?? []);
+  for (const c of combatants ?? []) {
+    if (!c?.tokenId) continue;
+    const token = scene?.tokens?.get?.(c.tokenId);
+    if (!token) continue;
+    const a = token.actor ?? c.actor ?? null;
+    if (!a) continue;
+    if (actorUuid && a.uuid && a.uuid === actorUuid) return true;
+    if (actorId && a.id && a.id === actorId) return true;
+  }
+  return false;
+}
+
+/**
+ * Actor document updated: re-project the active conflict board when the actor
+ * drives a card (linked token actor → stress/consequences/aspects/skills/items
+ * on the card). Runs the SAME serialized, idempotent `syncConflictBoard`
+ * queue as every other conflict hook, guarded by `fateOnTheTableSync` and
+ * filtered to the active scene board. Debounced so sheet editing does not
+ * hammer the scene; completely independent of the actor-widget
+ * `scheduleActorSync` debounce, so neither path interferes with the other.
+ * Synthetic (unlinked token) actor data changes arrive through `updateToken`
+ * and are handled by `onUpdateToken` instead.
+ */
+function onConflictBoardActorUpdate(actor, changed, options) {
+  if (options?.fateOnTheTableSync) return;
+  const scene = canvas?.scene;
+  if (!scene || !actor) return;
+  const state = readConflictBoard(scene);
+  if (!state?.combatId || !boardRegistry(scene)?.widgetId) return;
+  const combat = resolveSceneConflictCombat(scene, state);
+  if (!combat) return;
+  if (!actorDrivesBoardCard(scene, combat, actor)) return;
+  clearTimeout(conflictActorTimer);
+  conflictActorTimer = setTimeout(() => {
+    syncConflictBoard(scene, { combat }).catch((err) =>
+      console.error("[fate-on-the-table] conflict board sync failed:", err),
+    );
+  }, 400);
+}
+
+/** Token deleted: safely clean up orphan card/tokenZone projections. */
+function onDeleteToken(token, options) {
+  if (options?.fateOnTheTableSync) return;
+  const scene = canvas?.scene;
+  if (!scene || !token) return;
+  const state = readConflictBoard(scene);
+  if (!state || !state.combatId || !boardRegistry(scene)?.widgetId) return;
+  syncConflictBoard(scene).catch((err) =>
+    console.error("[fate-on-the-table] conflict board sync failed:", err),
+  );
+}
+
+/** Extends the module public API with the conflict integration (in `ready`). */
+function registerPublicApi() {
+  try {
+    const moduleData = game.modules?.get?.(MODULE_ID);
+    if (!moduleData) return;
+    moduleData.api = {
+      ...(moduleData.api ?? {}),
+      conflict: {
+        ConflictManager,
+        placeBoard,
+        openConflictManager,
+        returnTurn,
+        getActiveConflictForScene,
+        canPlaceConflictBoard,
+        syncConflictBoard,
+        removeConflictBoard,
+        reconcileConflictBoardProjection,
+        readConflictBoard,
+        writeConflictBoard,
+        boardRegistry,
+        registerConflictInteractions,
+        registerConflictManager: injectConflictManager,
+        reconcileTokenZoneMembership,
+        handleTokenDropOnConflictZone,
+        enterConflictZoneEditMode,
+        exitConflictZoneEditMode,
+        isConflictEditModeActive,
+      },
+    };
+  } catch (err) {
+    console.warn("[fate-on-the-table] failed to register public API:", err);
+  }
+}
+
+/** Resolves the DOM root of a render hook payload (v13 jQuery or v14 node). */
+function resolveHtmlRoot(html) {
+  if (!html) return null;
+  if (typeof html.querySelector === "function") return html;
+  if (Array.isArray(html)) return html[0] ?? null;
+  const first = html?.[0];
+  if (first && typeof first.querySelector === "function") return first;
+  return null;
+}
+
+/**
+ * GM-only "Place conflict board" control in the Combat Tracker. Added only
+ * when placement is currently possible; it calls `placeBoard()` unchanged.
+ * The control is inserted as its OWN row directly ABOVE the standard
+ * `.combat-controls` (previous/next/end combat) — never inside that flex row
+ * — via the pure `conflictUi` helper.
+ */
+function onRenderCombatTracker(app, html) {
+  if (!game?.user?.isGM) return;
+  const scene = canvas?.scene;
+  if (!scene) return;
+  if (!canPlaceConflictBoard(scene, game.combat)) return;
+  const root = resolveHtmlRoot(html);
+  if (!root?.querySelector) return;
+  const button = createCombatTrackerPlaceButton(
+    game.i18n.localize(`${MODULE_ID}.conflict.placement.fromCombatTracker`),
+  );
+  if (!insertCombatTrackerBoardPlacement(root, button)) return;
+  attachPlaceBoardClick(button, placeBoard);
 }
 
 /** GM-only scene control tools opening the manager dialogs. */
@@ -227,6 +731,32 @@ function registerSceneControl() {
       onClick: () => LayoutImportExport.open(),
       button: true,
     });
+    group.tools.push({
+      name: "fateOnTheTableConflictManager",
+      title: game.i18n.localize(`${MODULE_ID}.conflict.tool`),
+      icon: "fas fa-crosshairs",
+      visible: game.user.isGM,
+      onClick: () => openConflictManager(),
+      button: true,
+    });
+    // GM toggle for the conflict zone editor. Outside the mode the zone
+    // drawings never intercept token clicks/drags (the editor only attaches
+    // its own listeners while it is active).
+    group.tools.push({
+      name: "fateOnTheTableConflictZoneEditor",
+      title: game.i18n.localize(`${MODULE_ID}.conflict.zone.editor`),
+      icon: "fas fa-draw-polygon",
+      visible: game.user.isGM,
+      toggle: true,
+      active: isConflictEditModeActive(),
+      onClick: () => {
+        if (isConflictEditModeActive()) {
+          exitConflictZoneEditMode();
+          return false;
+        }
+        return enterConflictZoneEditMode();
+      },
+    });
   });
 }
 
@@ -238,6 +768,7 @@ function registerSceneControl() {
  */
 function onRenderFateUtilities(app, html) {
   if (!game.user.isGM) return;
+  const root = resolveHtmlRoot(html);
   const input = html.querySelector?.(
     `input[name="gmfp"][data-gmid="${game.user.id}"]`,
   );
@@ -285,5 +816,22 @@ function onRenderFateUtilities(app, html) {
       });
     });
     saRow.append(button);
+  }
+
+  // Feature 5 — "Place conflict board" icon button in the conflict pane of
+  // the scene tab (GM-only action row). Icon-only `fu_button` inserted via the
+  // pure `conflictUi` helper EXACTLY between the "Timed event"
+  // (`#fco_timed_event`) and the "Cycle to next available conflict"
+  // (`#fco_next_conflict`) controls (the latter lives in a neighbouring
+  // table cell, so the button goes into the timed event's own flex row). Same
+  // shared `placeBoard()` handler as the Combat Tracker; no second board
+  // variant. Hidden when no combat is pinned to the scene, and panes without
+  // the conflict controls never break the rest of the utilities.
+  if (root?.querySelector && canPlaceConflictBoard(canvas?.scene, game.combat)) {
+    const button = createFateUtilsPlaceButton(
+      game.i18n.localize(`${MODULE_ID}.conflict.placement.fromFateUtils`),
+    );
+    if (!insertFateUtilsBoardPlacement(root, button)) return;
+    attachPlaceBoardClick(button, placeBoard);
   }
 }
