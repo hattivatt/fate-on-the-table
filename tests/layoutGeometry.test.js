@@ -59,13 +59,15 @@ function resolvedData({ rows = 4, tokens = 3, portrait = "modules/fate-on-the-ta
   };
 }
 
+/** Deterministic fast text metric shared by the render helpers below. */
+const fastMeasureText = (text, style) =>
+  String(text ?? "").length * (Number(style?.size) || 20) * 0.5;
 /** Renders the default layout with the given data. */
 function renderDefault(data, options = {}) {
   const layout = loadNormalized("default");
   const { docs, canvas } = computeLayoutDocs(layout, data, {
     fatePointImage: "modules/fate-on-the-table/fp.png",
-    measureText: (text, style) =>
-      String(text ?? "").length * (Number(style?.size) || 20) * 0.5,
+    measureText: fastMeasureText,
     ...options,
   });
   return { docs: toAnchorRelative(docs, options.scale ?? 1), canvas };
@@ -390,8 +392,7 @@ test("minimal layout creates no empty sections for a bare actor", () => {
 function renderMinimal(data, options = {}) {
   const layout = loadNormalized("minimal");
   const { docs, canvas } = computeLayoutDocs(layout, data, {
-    measureText: (text, style) =>
-      String(text ?? "").length * (Number(style?.size) || 20) * 0.5,
+    measureText: fastMeasureText,
     ...options,
   });
   return { docs, canvas };
@@ -401,8 +402,7 @@ function renderMinimal(data, options = {}) {
 function renderFull(data, options = {}) {
   const layout = loadNormalized("full");
   const { docs, canvas } = computeLayoutDocs(layout, data, {
-    measureText: (text, style) =>
-      String(text ?? "").length * (Number(style?.size) || 20) * 0.5,
+    measureText: fastMeasureText,
     ...options,
   });
   return { docs, canvas };

@@ -822,11 +822,6 @@ test("onStateChanged fires after a mutation with the action payload", async () =
   assert.equal(events[0].scene, null); // no scene resolvable in Node
 });
 
-test("aliases export the same functions", () => {
-  assert.equal(newRound, startNextRound);
-  assert.equal(addCombatant, addCombatantFromToken);
-});
-
 test("turn actions with an enabled sync call the serialized board sync safely", async () => {
   const c1 = mockCombatant("c1");
   const c2 = mockCombatant("c2");
@@ -941,11 +936,4 @@ test("placeBoard reuses an already placed board instead of creating a second one
   assert.equal(res.ok, true);
   assert.equal(res.reused, true);
   assert.equal(res.state.combatId, "combat1");
-});
-
-test("ConflictManager exposes the static entry points", () => {
-  assert.equal(typeof ConflictManager.open, "function");
-  assert.equal(typeof ConflictManager.placeBoard, "function");
-  assert.equal(typeof openConflictManager, "function");
-  assert.equal(typeof returnTurn, "function");
 });

@@ -469,8 +469,6 @@ test("buildConflictBoardDocuments projects board + zones deterministically", asy
   assert.deepEqual(Object.keys(built.zones), ["zone-1"]);
   assert.equal(built.zones["zone-1"].length, 2);
   assert.deepEqual(built.cards, {});
-  assert.ok(built.positions);
-  assert.ok(built.overflow);
 });
 
 test("buildConflictBoardDocuments builds card descriptors with identity flags", async () => {

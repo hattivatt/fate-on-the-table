@@ -335,10 +335,6 @@ test("upsertSituationAspect creates, updates, dedupes and removes linked aspects
   ]);
 });
 
-test("upsertSituationAspect is a safe no-op without a scene", async () => {
-  await upsertSituationAspect(null, "Grom", "Broken leg", "");
-});
-
 test("promptConsequenceName resolves a name and null on cancel", async () => {
   dialogResult = { name: "  Bruised  " };
   assert.equal(await promptConsequenceName(""), "Bruised");

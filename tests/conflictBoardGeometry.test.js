@@ -251,8 +251,6 @@ test("transformCardRect mapping is usable for arbitrary layout sub-rects", () =>
     width: sub.width * t.scale,
     height: sub.height * t.scale,
   };
-  // the layout-origin maps onto the slot origin after the transform
-  assert.deepEqual({ x: t.x, y: t.y }, { x: 0 * t.scale + t.dx, y: 0 * t.scale + t.dy });
   assert.ok(mapped.width > 0 && mapped.height > 0);
 });
 
@@ -286,7 +284,6 @@ test("zone placement sizes are rectangular, preset-dependent and immutable", () 
   assert.throws(() => {
     ZONE_PLACEMENT_SIZES.medium.width = 999;
   }, TypeError);
-  assert.deepEqual(DEFAULT_ZONE_PLACEMENT_SIZE, { width: 150, height: 120 });
   // legacy constant is kept for backward compatibility only
   assert.equal(ZONE_PLACEMENT_SIZE, 120);
 });

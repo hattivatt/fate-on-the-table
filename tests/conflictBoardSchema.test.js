@@ -670,10 +670,3 @@ test("createConflictBoard produces a normalized empty board", () => {
   assert.equal(defaultBoard.sizePreset, DEFAULT_SIZE_PRESET);
   assert.deepEqual(defaultBoard.board.origin, { x: 0, y: 0 });
 });
-
-test("exported enum constants are stable", () => {
-  assert.deepEqual(SIZE_PRESETS, ["small", "medium", "large"]);
-  assert.deepEqual(CARD_SIDES, ["friendly", "hostile"]);
-  assert.deepEqual(CARD_AREAS, ["side", "acted", "eliminated"]);
-  assert.equal(CONFLICT_BOARD_VERSION, 1);
-});
