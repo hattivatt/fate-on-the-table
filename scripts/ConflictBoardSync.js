@@ -216,6 +216,35 @@ export function boardRegistry(scene = null) {
   return scene?.getFlag(FLAG_SCOPE, CONFLICT_BOARD_WIDGET_FLAG) ?? null;
 }
 
+/**
+ * True when the scene hosts a LIVE conflict board: the board state flag is
+ * valid (readConflictBoard) AND the projection registry record carries a
+ * `widgetId` — i.e. the board is actually placed on this scene. Same guard
+ * shape as `hasActiveBoardForCombat` in module.js, without the combat
+ * binding.
+ * @param {object} scene
+ * @returns {boolean}
+ */
+export function hasConflictBoardOnScene(scene) {
+  return !!readConflictBoard(scene) && !!boardRegistry(scene)?.widgetId;
+}
+
+/**
+ * Zone names of the scene's conflict board in storage order (`state.zones`);
+ * empty/whitespace-only names are filtered out. Without a valid board state
+ * the list is empty. Callers gate visibility through
+ * `hasConflictBoardOnScene`, so this helper stays purely state-derived.
+ * @param {object} scene
+ * @returns {string[]}
+ */
+export function zoneOptions(scene) {
+  const state = readConflictBoard(scene);
+  if (!state) return [];
+  return (Array.isArray(state.zones) ? state.zones : [])
+    .map((zone) => String(zone?.name ?? "").trim())
+    .filter((name) => name.length > 0);
+}
+
 async function writeBoardState(scene, state) {
   await scene.update(
     { [`flags.${FLAG_SCOPE}.${CONFLICT_BOARD_FLAG}`]: state },

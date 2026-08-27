@@ -13,8 +13,15 @@ import { PlacementManager } from "./PlacementManager.js";
 import { toDocumentData } from "./WidgetBuilder.js";
 import { getPlacementOptions } from "./settings.js";
 import { syncActorNow, reconcileScene, removeWidgetRecord } from "./WidgetSync.js";
-import { allWidgetDocs } from "./widgetDocs.js";
+import { allWidgetDocs, widgetDocsByOwnerType } from "./widgetDocs.js";
 import { SituationAspectManager } from "./SituationAspectManager.js";
+import { situationAspects, saRegistry } from "./SituationAspectSync.js";
+import {
+  adjustInvokes,
+  removeAspectAt,
+  saAspectMenuItems,
+  saWidgetMenuItems,
+} from "./situationAspectActions.js";
 import {
   buildGmRowDocs,
   buildGmFrameDoc,
@@ -34,6 +41,7 @@ import {
   GM_FP_WIDGET_FLAG,
   GM_OWNER_TYPE,
   SA_OWNER_TYPE,
+  SA_TEXT_PART,
   SITUATION_ASPECTS_SCOPE,
   SITUATION_ASPECTS_KEY,
 } from "./constants.js";
@@ -41,6 +49,7 @@ import {
   isConflictDocument,
   handleConflictDocumentDoubleClick,
   handleConflictContextMenu,
+  hitTestConflictPart,
   CONFLICT_OWNER_PRIORITY,
 } from "./ConflictInteractions.js";
 import { isStressBoxDrawing, handleStressBoxClick } from "./StressBoxes.js";
@@ -227,6 +236,18 @@ function patchRightClick(proto) {
       handleConflictContextMenu(doc, event);
       return;
     }
+    // GM right-click on the situation aspects widget: aspect row under the
+    // cursor gets the per-aspect menu, any other part of the widget the
+    // widget menu. Non-GM users keep the native behaviour.
+    if (
+      doc?.getFlag?.(FLAG_SCOPE, "ownerType") === SA_OWNER_TYPE &&
+      game.user.isGM
+    ) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      handleSaContextMenu(doc, event);
+      return;
+    }
     if (doc?.getFlag?.(FLAG_SCOPE, "actorUuid")) {
       event?.preventDefault?.();
       event?.stopPropagation?.();
@@ -239,6 +260,16 @@ function patchRightClick(proto) {
   proto._onClickRight2 = function (event) {
     const doc = this.document ?? this;
     if (isConflictDocument(doc)) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      return;
+    }
+    // Second right-click must not fall through to the native config sheet
+    // when the first one was answered with a module menu.
+    if (
+      doc?.getFlag?.(FLAG_SCOPE, "ownerType") === SA_OWNER_TYPE &&
+      game.user.isGM
+    ) {
       event?.preventDefault?.();
       event?.stopPropagation?.();
       return;
@@ -306,10 +337,62 @@ function patchControlPermissions(proto) {
   };
 }
 
-/* --- Own widget context menu (GM: give/take/remove) --- */
+/* --- Own widget context menus (GM) --- */
 
-let widgetMenu = null;function openWidgetMenu(event, doc) {
+let widgetMenu = null;
+
+/**
+ * Relative-key helper for the actor widget menu (`context.*` keys).
+ */
+const ctxT = (key) => game.i18n.localize(`${MODULE_ID}.context.${key}`);
+
+/**
+ * Relative-key helper for the situation aspects context menus
+ * (`situationAspects.menu.*` keys).
+ */
+const saT = (key) =>
+  game.i18n.localize(`${MODULE_ID}.situationAspects.menu.${key}`);
+
+/**
+ * Renders one of the module's own canvas context menus from showMenu-style
+ * items `{icon, label, disabled?, sep?, onClick}` — labels must arrive ALREADY
+ * localized. Shared by the actor-widget menu, the per-aspect menu and the
+ * situation aspects widget menu; styling lives in `.ctt-widget-menu`.
+ */
+function openModuleMenu(items, event) {
   closeWidgetMenu();
+  const menu = document.createElement("div");
+  menu.className = "ctt-widget-menu";
+  for (const item of items ?? []) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    if (item.sep) btn.classList.add("ctt-menu-sep");
+    if (item.disabled) btn.disabled = true;
+    btn.innerHTML = `<i class="fas ${escapeHtml(item.icon ?? "")}"></i> ${escapeHtml(
+      item.label ?? "",
+    )}`;
+    btn.addEventListener("click", () => {
+      closeWidgetMenu();
+      if (!item.disabled && typeof item.onClick === "function") {
+        Promise.resolve(item.onClick()).catch((err) =>
+          console.error("[fate-on-the-table] widget menu action failed:", err),
+        );
+      }
+    });
+    menu.append(btn);
+  }
+  if (!menu.childElementCount) return;
+  document.body.append(menu);
+  const rect = menu.getBoundingClientRect();
+  const x = event?.clientX ?? 0;
+  const y = event?.clientY ?? 0;
+  menu.style.left = `${Math.min(x, window.innerWidth - rect.width - 8)}px`;
+  menu.style.top = `${Math.min(y, window.innerHeight - rect.height - 8)}px`;
+  widgetMenu = menu;
+}
+
+/** Actor widget menu: give/take fate points, remove widget. */
+function openWidgetMenu(event, doc) {
   const actorUuid = doc.getFlag?.(FLAG_SCOPE, "actorUuid");
   const widgetId = doc.getFlag?.(FLAG_SCOPE, "widgetId");
   let actor = null;
@@ -320,47 +403,182 @@ let widgetMenu = null;function openWidgetMenu(event, doc) {
       /* actor not resolvable — skip give/take */
     }
   }
-  const menu = document.createElement("div");
-  menu.className = "ctt-widget-menu";
-  const add = (icon, key, fn, sep = false) => {
-    const item = document.createElement("button");
-    item.type = "button";
-    if (sep) item.classList.add("ctt-menu-sep");
-    item.innerHTML = `<i class="fas ${icon}"></i> ${game.i18n.localize(
-      `${MODULE_ID}.${key}`,
-    )}`;
-    item.addEventListener("click", () => {
-      closeWidgetMenu();
-      Promise.resolve(fn()).catch((err) =>
-        console.error("[fate-on-the-table] widget menu action failed:", err),
-      );
-    });
-    menu.append(item);
-  };
+  const items = [];
   if (actor) {
-    add("fa-plus", "context.giveFatePoint", () =>
-      modifyActorFatePoints(actor, +1),
-    );
-    add("fa-minus", "context.takeFatePoint", () =>
-      modifyActorFatePoints(actor, -1),
-    );
+    items.push({
+      icon: "fa-plus",
+      label: ctxT("giveFatePoint"),
+      onClick: () => modifyActorFatePoints(actor, +1),
+    });
+    items.push({
+      icon: "fa-minus",
+      label: ctxT("takeFatePoint"),
+      onClick: () => modifyActorFatePoints(actor, -1),
+    });
   }
   if (actor && widgetId) {
-    add(
-      "fa-trash",
-      "context.removeWidget",
-      () => removeWidgetFromMenu(actor, widgetId),
-      true,
-    );
+    items.push({
+      icon: "fa-trash",
+      label: ctxT("removeWidget"),
+      sep: true,
+      onClick: () => removeWidgetFromMenu(actor, widgetId),
+    });
   }
-  if (!menu.childElementCount) return;
-  document.body.append(menu);
-  const rect = menu.getBoundingClientRect();
-  const x = event?.clientX ?? 0;
-  const y = event?.clientY ?? 0;
-  menu.style.left = `${Math.min(x, window.innerWidth - rect.width - 8)}px`;
-  menu.style.top = `${Math.min(y, window.innerHeight - rect.height - 8)}px`;
-  widgetMenu = menu;
+  openModuleMenu(items, event);
+}
+
+/* --- Situation aspects widget context menus (GM) --- */
+
+/**
+ * Resolves a GM right-click on a situation aspects widget part into an
+ * ASPECT hit or an EMPTY-place hit.
+ *
+ * The frame part covers the whole widget ABOVE the text rows (elevation
+ * 10/sort 1000 vs 0/0), so the event usually arrives on the frame document
+ * even when the cursor visually sits on an aspect line — hence the geometric
+ * refinement against the real text-part rectangles of the same widget group.
+ *
+ * @param {object} doc  Drawing document with the SA widget flags.
+ * @param {Event|null} event  Pointer event (world position is derived).
+ * @returns {{kind: "aspect", index: number, scene: object, widgetId: string}
+ *   |{kind: "empty", scene: object, widgetId: string|null}}
+ */
+function resolveSaContext(doc, event) {
+  const scene = doc?.parent ?? canvas?.scene;
+  const widgetId = doc?.getFlag?.(FLAG_SCOPE, "widgetId") ?? null;
+  const part = doc?.getFlag?.(FLAG_SCOPE, "part");
+  const flaggedIndex = Number(doc?.getFlag?.(FLAG_SCOPE, "index"));
+  const aspects = situationAspects(scene);
+
+  // Direct text-part hit: trust the flag when it points at a live aspect.
+  // The 0-aspect PLACEHOLDER is also `situationAspectsText` with index 0 —
+  // the range check against the current list excludes it automatically, as
+  // well as stale rows after deletions.
+  if (
+    part === SA_TEXT_PART &&
+    Number.isInteger(flaggedIndex) &&
+    flaggedIndex >= 0 &&
+    flaggedIndex < aspects.length
+  ) {
+    return { kind: "aspect", index: flaggedIndex, scene, widgetId };
+  }
+
+  // Frame / background / placeholder / legacy combined text: refine by the
+  // world position of the cursor against the text-row rectangles.
+  const point = canvasWorldPosition(event);
+  const index =
+    point == null
+      ? -1
+      : saAspectIndexAtPoint(scene, widgetId, point, aspects.length);
+  if (index >= 0) {
+    return { kind: "aspect", index, scene, widgetId };
+  }
+  return { kind: "empty", scene, widgetId };
+}
+
+/**
+ * Index of the aspect text row containing the given world point, or −1.
+ * Only text parts of THIS widget group qualify; indexes outside the live
+ * aspect list (placeholder at 0 aspects, legacy `index: -1`, stale rows)
+ * never count as an aspect hit. Highest z (elevation*1000+sort) wins among
+ * overlapping rows.
+ */
+function saAspectIndexAtPoint(scene, widgetId, point, aspectCount) {
+  if (!scene || !widgetId || !point) return -1;
+  let best = null;
+  for (const d of widgetDocsByOwnerType(scene, SA_OWNER_TYPE, widgetId)) {
+    if (d.getFlag?.(FLAG_SCOPE, "part") !== SA_TEXT_PART) continue;
+    const idx = Number(d.getFlag(FLAG_SCOPE, "index"));
+    if (!Number.isInteger(idx) || idx < 0 || idx >= aspectCount) continue;
+    const w = d.shape?.width ?? 0;
+    const h = d.shape?.height ?? 0;
+    if (
+      point.x >= d.x &&
+      point.x <= d.x + w &&
+      point.y >= d.y &&
+      point.y <= d.y + h
+    ) {
+      const z = (d.elevation ?? 0) * 1000 + (d.sort ?? 0);
+      if (!best || z > best.z) best = { idx, z };
+    }
+  }
+  return best ? best.idx : -1;
+}
+
+/** GM right-click entry point for any situation aspects widget part. */
+function handleSaContextMenu(doc, event) {
+  const ctx = resolveSaContext(doc, event);
+  if (ctx.kind === "aspect") openSaAspectMenu(ctx, event);
+  else openSaWidgetMenu(ctx, event);
+}
+
+/** Per-aspect menu: invokes +/-, edit (manager inline form), delete. */
+function openSaAspectMenu({ scene, index }, event) {
+  const aspect = situationAspects(scene)[index];
+  if (!aspect) {
+    // Stale list between click and menu build — degrade to the widget menu.
+    openSaWidgetMenu({ scene }, event);
+    return;
+  }
+  openModuleMenu(
+    saAspectMenuItems({
+      freeInvokes: Number(aspect.free_invokes) || 0,
+      labels: {
+        addInvoke: saT("addInvoke"),
+        removeInvoke: saT("removeInvoke"),
+        edit: saT("edit"),
+        delete: saT("delete"),
+      },
+      handlers: {
+        addInvoke: () => adjustInvokes(scene, index, +1),
+        removeInvoke: () => adjustInvokes(scene, index, -1),
+        edit: () => SituationAspectManager.open({ editIndex: index }),
+        delete: () => removeAspectWithConfirm(scene, index),
+      },
+    }),
+    event,
+  );
+}
+
+/** Widget menu (empty place): manager, add aspect, remove widget. */
+function openSaWidgetMenu(ctx, event) {
+  const scene = ctx?.scene ?? canvas?.scene;
+  const widgetId = ctx?.widgetId ?? null;
+  const placed =
+    !!widgetId && saRegistry(scene)?.widgetId === widgetId;
+  openModuleMenu(
+    saWidgetMenuItems({
+      widgetPlaced: placed,
+      labels: {
+        openManager: saT("openManager"),
+        addAspect: saT("addAspect"),
+        removeWidget: saT("removeWidget"),
+      },
+      handlers: {
+        openManager: () => SituationAspectManager.open(),
+        addAspect: () => SituationAspectManager.open({ beginAdd: true }),
+        removeWidget: () => SituationAspectManager.removeWidget(),
+      },
+    }),
+    event,
+  );
+}
+
+/** Delete confirmation (same wording as the manager dialog) + removal. */
+async function removeAspectWithConfirm(scene, index) {
+  const aspect = situationAspects(scene)[index];
+  if (!aspect) return;
+  const confirmed = await foundry.applications.api.DialogV2.confirm({
+    window: {
+      title: game.i18n.localize(`${MODULE_ID}.situationAspects.removeTitle`),
+    },
+    content: game.i18n.format(`${MODULE_ID}.situationAspects.removeConfirm`, {
+      name: aspect.name,
+    }),
+    rejectClose: false,
+  });
+  if (!confirmed) return;
+  await removeAspectAt(scene, index);
 }
 
 async function removeWidgetFromMenu(actor, widgetId) {
@@ -961,16 +1179,23 @@ async function clearFleetingStress(scene) {
 
 let lastWidgetClick = null;
 
-/** Attach the fallback listener to the current canvas view (idempotent). */
+/** Attach the fallback listeners to the current canvas view (idempotent). */
 export function initCanvasClickFallback() {
   const view = canvas?.app?.view;
   if (!view || view.dataset.cttClickFallback) return;
   view.dataset.cttClickFallback = "true";
   view.addEventListener("pointerdown", onCanvasPointerDown);
+  view.addEventListener("contextmenu", onCanvasContextMenu);
 }
 
 function onCanvasPointerDown(event) {
   if (PlacementManager.active) return;
+  // GM right-clicks on situation aspects widget parts work through the same
+  // DOM fallback (players / inactive layers never reach the PIXI patch).
+  if (event.button === 2) {
+    onCanvasRightPointerDown(event);
+    return;
+  }
   if (event.button !== 0) return;
   // Widget parts (actor widgets, conflict zones/cards, ...) must never block
   // the standard token interactions: when a rendered token sits under the
@@ -1003,6 +1228,60 @@ function onCanvasPointerDown(event) {
     return;
   }
   selectWidgetPart(part);
+}
+
+/**
+ * DOM fallback for GM RIGHT-clicks on situation aspects widget parts — the
+ * mirror of the conflict fallback (`onConflictCanvasPointerDown` in
+ * ConflictInteractions.js): where the PIXI `_onClickRight` patch never fires
+ * (players, inactive layers), the raw view event routes here. Same
+ * aspect / empty-place split and the same menus as the PIXI path. Double
+ * clicks are untouched; conflict documents keep their own routing.
+ */
+function onCanvasRightPointerDown(event) {
+  if (!game.user.isGM) return;
+  // Never steal right-clicks that carry normal token interactions (HUD).
+  if (tokenUnderPointer(event)) return;
+  const part = hitTestWidgetPart(event);
+  if (!part) return;
+  if (part.getFlag?.(FLAG_SCOPE, "ownerType") !== SA_OWNER_TYPE) return;
+  // When the part's own layer is active the PIXI patch path handles it —
+  // do not double-handle.
+  const layerActive =
+    part.documentName === "Drawing"
+      ? canvas.drawings?.active
+      : canvas.tiles?.active;
+  if (layerActive) return;
+  // Conflict parts outrank SA parts in hitTestWidgetPart already; skip when
+  // a conflict document would answer this click itself.
+  const point = canvasWorldPosition(event);
+  if (point && hitTestConflictPart(point, canvas.scene)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  handleSaContextMenu(part, event);
+}
+
+/**
+ * Keeps the native browser context menu off the module's right-click targets
+ * in the fallback: while one of the module menus is open, and over situation
+ * aspects widget parts answered by the GM fallback (the PIXI patch path
+ * prevents default on its own).
+ */
+function onCanvasContextMenu(event) {
+  if (widgetMenu) {
+    event.preventDefault();
+    return;
+  }
+  if (!game.user.isGM) return;
+  if (PlacementManager.active) return;
+  const part = hitTestWidgetPart(event);
+  if (part?.getFlag?.(FLAG_SCOPE, "ownerType") !== SA_OWNER_TYPE) return;
+  const layerActive =
+    part.documentName === "Drawing"
+      ? canvas.drawings?.active
+      : canvas.tiles?.active;
+  if (layerActive) return;
+  event.preventDefault();
 }
 
 /**

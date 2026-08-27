@@ -189,6 +189,13 @@
   border-radius: 0;
 }
 
+.ctt-widget-menu button:disabled,
+.ctt-widget-menu button:disabled:hover {
+  opacity: 0.45;
+  cursor: default;
+  background: transparent;
+}
+
 /* --- Situation Aspects Manager dialog --- */
 
 .situation-aspects .window-content {
