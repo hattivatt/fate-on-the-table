@@ -150,8 +150,8 @@ async function deleteWidgetDocs(scene, widgetId) {
   const tileIds = docs
     .filter((d) => d.documentName === "Tile")
     .map((d) => d.id);
-  if (drawIds.length) await scene.deleteEmbeddedDocuments("Drawing", drawIds);
-  if (tileIds.length) await scene.deleteEmbeddedDocuments("Tile", tileIds);
+  if (drawIds.length) await scene.deleteEmbeddedDocuments("Drawing", drawIds, { fateOnTheTableSync: true });
+  if (tileIds.length) await scene.deleteEmbeddedDocuments("Tile", tileIds, { fateOnTheTableSync: true });
 }
 
 /**
@@ -210,8 +210,8 @@ export async function cleanupStaleConsequenceBoxes(scene, actor) {
     const tileIds = stale
       .filter((d) => d.documentName === "Tile")
       .map((d) => d.id);
-    if (drawIds.length) await scene.deleteEmbeddedDocuments("Drawing", drawIds);
-    if (tileIds.length) await scene.deleteEmbeddedDocuments("Tile", tileIds);
+    if (drawIds.length) await scene.deleteEmbeddedDocuments("Drawing", drawIds, { fateOnTheTableSync: true });
+    if (tileIds.length) await scene.deleteEmbeddedDocuments("Tile", tileIds, { fateOnTheTableSync: true });
   }
 }
 
@@ -356,10 +356,10 @@ async function syncWidget(actor, record, docs) {
     await canvas.scene.updateEmbeddedDocuments("Tile", updates.Tile, syncOptions);
   }
   if (deletions.Drawing.length) {
-    await canvas.scene.deleteEmbeddedDocuments("Drawing", deletions.Drawing);
+    await canvas.scene.deleteEmbeddedDocuments("Drawing", deletions.Drawing, syncOptions);
   }
   if (deletions.Tile.length) {
-    await canvas.scene.deleteEmbeddedDocuments("Tile", deletions.Tile);
+    await canvas.scene.deleteEmbeddedDocuments("Tile", deletions.Tile, syncOptions);
   }
   if (creations.Drawing.length) {
     await canvas.scene.createEmbeddedDocuments("Drawing", creations.Drawing);
