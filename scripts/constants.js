@@ -39,5 +39,6 @@ export const CONFLICT_BOARD_BACKGROUND_PART = "conflictBoardBackground";
 export const CONFLICT_AREA_PART = "conflictArea";
 export const CONFLICT_ZONE_BODY_PART = "conflictZoneBody";
 export const CONFLICT_ZONE_LABEL_PART = "conflictZoneLabel";
+export const CONFLICT_ZONE_ASPECTS_PART = "conflictZoneAspects";
 export const CONFLICT_CARD_PART = "conflictCard";
 export const CONFLICT_TURN_MARKER_PART = "conflictTurnMarker";

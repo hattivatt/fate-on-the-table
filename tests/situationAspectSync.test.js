@@ -294,8 +294,8 @@ test("normalizeAspects preserves unknown system fields (linked) and coerces invo
     { name: "Zero", free_invokes: -3 },
   ]);
   assert.deepEqual(out, [
-    { name: "In the trees", free_invokes: 2, linked: "skill.stealth" },
-    { name: "Zero", free_invokes: 0 },
+    { name: "In the trees", free_invokes: 2, linked: "skill.stealth", zoneIds: [] },
+    { name: "Zero", free_invokes: 0, zoneIds: [] },
   ]);
 });
 

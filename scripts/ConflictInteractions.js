@@ -83,6 +83,7 @@ import {
   removeConflictBoard,
   boardRegistry,
 } from "./ConflictBoardSync.js";
+import { syncSituationAspects } from "./SituationAspectSync.js";
 import {
   getConflictBoardGeometry,
   hitTestConflictZone,
@@ -926,6 +927,11 @@ async function removeBoardFromScene(scene) {
   });
   if (!confirmed) return;
   await removeConflictBoard(scene, { clearState: true });
+  try {
+    await syncSituationAspects(scene);
+  } catch (err) {
+    console.warn("[fate-on-the-table] situation aspects zone cleanup failed:", err);
+  }
   if (typeof ui !== "undefined") {
     ui.notifications?.info?.(
       game.i18n.localize(`${MODULE_ID}.conflict.board.removed`),
@@ -1037,6 +1043,11 @@ async function removeZone(scene, zoneId, name) {
   if (!current) return;
   await writeConflictBoard(scene, nextStateWithoutZone(current, zoneId));
   await syncConflictBoard(scene);
+  try {
+    await syncSituationAspects(scene);
+  } catch (err) {
+    console.warn("[fate-on-the-table] situation aspects zone cleanup failed:", err);
+  }
   if (typeof ui !== "undefined") {
     ui.notifications?.info?.(
       game.i18n.localize(`${MODULE_ID}.conflict.zone.removed`),

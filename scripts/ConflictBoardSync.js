@@ -96,7 +96,10 @@ import {
   CONFLICT_AREA_PART,
   CONFLICT_ZONE_BODY_PART,
   CONFLICT_ZONE_LABEL_PART,
+  CONFLICT_ZONE_ASPECTS_PART,
   CONFLICT_TURN_MARKER_PART,
+  SITUATION_ASPECTS_SCOPE,
+  SITUATION_ASPECTS_KEY,
 } from "./constants.js";
 import {
   normalizeConflictBoard,
@@ -110,10 +113,31 @@ import {
 } from "./conflictBoardGeometry.js";
 import { build, toDocumentData, stressBoxTarget, consequenceCostTarget } from "./WidgetBuilder.js";
 import { getLayout } from "./layoutRegistry.js";
+import { aspectsForZone, normalizeZoneIds } from "./situationAspectZones.js";
 
 /** System flag scope carrying `hasActed` on Combatants. */
 const SYSTEM_FLAG_SCOPE = GM_FP_SCOPE;
 const HAS_ACTED_KEY = "hasActed";
+
+/**
+ * Local read of situation aspects without importing SituationAspectSync
+ * (which pulls settings/LayoutImportExport requiring `foundry` at import time).
+ * Mirrors SituationAspectSync.normalizeAspects + situationAspects exactly:
+ * name trimmed, free_invokes coerced, zoneIds normalized, unknown fields preserved.
+ */
+function situationAspects(scene) {
+  const raw = scene?.getFlag?.(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY);
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const r of raw) {
+    const name = String(r?.name ?? "").trim();
+    if (!name) continue;
+    const invokes = Math.max(0, Math.trunc(Number(r?.free_invokes) || 0));
+    const zoneIds = normalizeZoneIds(r?.zoneIds);
+    out.push({ ...r, name, free_invokes: invokes, zoneIds });
+  }
+  return out;
+}
 
 // ownerType of the board-level projection parts (background/areas/labels).
 export const CONFLICT_BOARD_OWNER_TYPE = "conflictBoard";
@@ -588,7 +612,83 @@ function framePart(part, index, rect, elevation, sort, strokeAlpha) {
  * @param {object} zone  Zone record `{ id, name, rect, style, sort }`.
  * @returns {object[]}
  */
-export function buildZoneDescriptors(state, geometry, zone) {
+export const ZONE_ASPECTS_LINE_HEIGHT = Math.round(14 * 1.25);
+const ZONE_ASPECTS_TOP_OFFSET = 24;
+
+/**
+ * Pure text of the zone-aspects overlay: names of aspects bound to `zone`,
+ * truncated to the free vertical space of the zone.
+ *
+ * @param {object[]} aspects  Full aspect list (or already filtered — filtering
+ *   by `zone` is idempotent).
+ * @param {object|string|null} zone  Zone record `{id, rect}` or zone id string.
+ * @param {object} [opts]  `{ rect?: Rect, lineHeight?: number }` override for tests.
+ * @returns {string}  "\n"-joined names, truncated with a final `+N` line when needed.
+ */
+export function zoneAspectsText(aspects, zone, opts = {}) {
+  const lineHeight = Number(opts.lineHeight) > 0 ? Number(opts.lineHeight) : ZONE_ASPECTS_LINE_HEIGHT;
+  let zoneId = null;
+  let rect = null;
+  if (typeof zone === "string") {
+    zoneId = zone;
+    rect = opts.rect ?? null;
+  } else if (zone && typeof zone === "object") {
+    zoneId = zone.id ?? opts.zoneId ?? null;
+    rect = zone.rect ?? opts.rect ?? null;
+  } else {
+    rect = opts.rect ?? null;
+  }
+  // If opts carries an explicit rect but zone also has one, zone.rect wins (see above).
+  // Fallback: opts may carry height directly when rect is not available.
+  if (!rect && Number.isFinite(opts.height)) {
+    rect = { height: Number(opts.height), width: Number(opts.width) || 0, x: 0, y: 0 };
+  }
+  let filtered = Array.isArray(aspects) ? aspects : [];
+  if (zoneId) filtered = aspectsForZone(filtered, zoneId);
+  const names = filtered
+    .map((a) => String(a?.name ?? "").trim())
+    .filter((n) => n.length > 0);
+  if (names.length === 0) return "";
+  if (!rect || !Number.isFinite(Number(rect.height))) {
+    return names.join("\n");
+  }
+  const h = Number(rect.height);
+  const available = h - ZONE_ASPECTS_TOP_OFFSET;
+  const maxLines = Math.floor(available / lineHeight);
+  if (maxLines <= 0) {
+    return `+${names.length}`;
+  }
+  if (names.length <= maxLines) return names.join("\n");
+  const keep = maxLines - 1;
+  const remaining = names.length - keep;
+  if (keep <= 0) return `+${names.length}`;
+  const lines = names.slice(0, keep);
+  lines.push(`+${remaining}`);
+  return lines.join("\n");
+}
+
+/**
+ * Zone projection descriptors for one zone: a fill/stroke body and (when the
+ * zone has a name) a label, plus an optional aspects overlay.
+ * Coordinates are BOARD-LOCAL.
+ *
+ * Layer order: the zone sits ABOVE the board-level field frame
+ * (`elevation: -3, sort: -300`) and the area labels (`elevation: -2,
+ * sort: -200`) — so a click/right-click on the zone never falls through to
+ * the field — but BELOW the participant cards (`elevation: 0, sort: 0`) and
+ * the turn marker (`elevation: 12, sort: 1200`), so the zone never covers
+ * them. Fill/stroke/text stay fully visible at the raised elevation.
+ * The aspects overlay (when present) renders at elevation -1 / sort -40
+ * (above body -100 / label -50, below cards 0).
+ * @param {object} state  Normalized conflict board state.
+ * @param {object} geometry  Output of `getConflictBoardGeometry`.
+ * @param {object} zone  Zone record `{ id, name, rect, style, sort }`.
+ * @param {object[]} [zoneAspects]  Aspects bound to this zone (already filtered;
+ *   when omitted the aspects part is omitted). Passing the FULL aspect list is
+ *   also accepted — it will be filtered by `zone.id` internally.
+ * @returns {object[]}
+ */
+export function buildZoneDescriptors(state, geometry, zone, zoneAspects) {
   const style = zone?.style ?? {};
   const rect = zone?.rect ?? { x: 0, y: 0, width: 0, height: 0 };
   const parts = [
@@ -639,6 +739,32 @@ export function buildZoneDescriptors(state, geometry, zone) {
       elevation: -1,
       sort: -50,
     });
+  }
+  if (Array.isArray(zoneAspects) && zoneAspects.length > 0) {
+    const text = zoneAspectsText(zoneAspects, zone);
+    if (text) {
+      parts.push({
+        kind: "drawing",
+        part: CONFLICT_ZONE_ASPECTS_PART,
+        index: -1,
+        x: rect.x + 4,
+        y: rect.y + ZONE_ASPECTS_TOP_OFFSET,
+        w: Math.max(rect.width - 8, 0),
+        h: Math.max(rect.height - ZONE_ASPECTS_TOP_OFFSET, 0),
+        font: "Montserrat",
+        size: 14,
+        color: "#000000",
+        align: "left",
+        stroke: 0,
+        text,
+        fillType: 0,
+        fillColor: "#ffffff",
+        fillAlpha: 0,
+        texture: null,
+        elevation: -1,
+        sort: -40,
+      });
+    }
   }
   return parts;
 }
@@ -892,9 +1018,13 @@ export async function buildConflictBoardDocuments(scene, state, combat, options 
   );
   if (marker) board.push(marker);
 
+  const allZoneAspects = Array.isArray(options.aspects)
+    ? options.aspects
+    : (scene ? situationAspects(scene) : []);
   const zones = {};
   for (const zone of state.zones ?? []) {
-    zones[zone.id] = buildZoneDescriptors(state, geometry, zone);
+    const filtered = aspectsForZone(allZoneAspects, zone.id);
+    zones[zone.id] = buildZoneDescriptors(state, geometry, zone, filtered);
   }
 
   const cards = {};
@@ -1217,9 +1347,13 @@ async function syncConflictBoardNow(scene, options = {}) {
   const fullRegistry = { ...nextRegistry, zoneWidgetIds, cardWidgetIds };
 
   const activeCombat = resolveActiveCombat(nextState, options);
+  // Fresh read of situation aspects on every sync — never cached, so a
+  // rename / move / resize of a zone immediately refreshes the overlay.
+  const zoneAspects = Array.isArray(options.aspects) ? options.aspects : situationAspects(scene);
   const built = await buildConflictBoardDocuments(scene, nextState, combat, {
     ...options,
     activeCombat,
+    aspects: zoneAspects,
   });
 
   const origin = nextState.board?.origin ?? { x: 0, y: 0 };

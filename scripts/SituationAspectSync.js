@@ -21,6 +21,7 @@
 
 import { toDocumentData } from "./WidgetBuilder.js";
 import { getSituationAspectOptions } from "./settings.js";
+import { normalizeConflictBoard } from "./conflictBoardSchema.js";
 import {
   FLAG_SCOPE,
   SITUATION_ASPECTS_SCOPE,
@@ -30,7 +31,14 @@ import {
   SA_TEXT_PART,
   SA_FRAME_PART,
   SA_BACKGROUND_PART,
+  CONFLICT_BOARD_FLAG,
 } from "./constants.js";
+import {
+  normalizeZoneIds,
+  aspectZoneIds,
+  migrateZoneSuffixes,
+  SA_ZONE_MARKER,
+} from "./situationAspectZones.js";
 
 const SA_PARTS = [SA_TEXT_PART, SA_FRAME_PART, SA_BACKGROUND_PART];
 
@@ -66,7 +74,8 @@ export function normalizeAspects(list) {
     const name = String(raw?.name ?? "").trim();
     if (!name) continue;
     const invokes = Math.max(0, Math.trunc(Number(raw.free_invokes) || 0));
-    out.push({ ...raw, name, free_invokes: invokes });
+    const zoneIds = normalizeZoneIds(raw?.zoneIds);
+    out.push({ ...raw, name, free_invokes: invokes, zoneIds });
   }
   return out;
 }
@@ -132,7 +141,9 @@ const SA_LINE_HEIGHT_FACTOR = 1.25;
 
 /** Rendered line of one aspect — same format as one `aspectsText()` row. */
 export function saAspectLine(aspect) {
-  return `${aspect.name} (${aspect.free_invokes})`;
+  const line = `${aspect.name} (${aspect.free_invokes})`;
+  const ids = aspectZoneIds(aspect);
+  return ids.length ? `${SA_ZONE_MARKER} ${line}` : line;
 }
 
 /** Pixel line height of one widget text row for the given font size. */
@@ -310,6 +321,18 @@ const SYNC_FIELDS = [
  */
 export async function syncSituationAspects(scene = canvas?.scene) {
   if (!scene) return false;
+
+  // Structural zone migration + dangling cleanup (idempotent, no-op when
+  // nothing to do). Must run BEFORE the drawing reconcile so the widget
+  // reflects the migrated/cleaned list, and must NOT import
+  // ConflictBoardSync (cycle). Board state is read directly via the flag
+  // + normalizeConflictBoard.
+  try {
+    await migrateAndCleanSituationAspects(scene);
+  } catch (err) {
+    console.warn("[fate-on-the-table] situation aspect zone migration failed:", err);
+  }
+
   const registry = saRegistry(scene);
   if (!registry?.widgetId) return false;
 
@@ -429,6 +452,127 @@ async function upsertPart(scene, existing, part, payload) {
   } else {
     await scene.createEmbeddedDocuments("Drawing", [payload]);
   }
+}
+
+/**
+ * Reads the board's live zone ids and name->id map via the pure schema.
+ * No import of ConflictBoardSync (cycle-free).
+ * @param {object} scene
+ * @returns {{validIds: Set<string>, zoneNameToId: Record<string,string>}}
+ */
+function readBoardZoneInfo(scene) {
+  const rawBoard = scene?.getFlag?.(FLAG_SCOPE, CONFLICT_BOARD_FLAG);
+  if (rawBoard == null) return { validIds: new Set(), zoneNameToId: {} };
+  let normalized = null;
+  try {
+    const res = normalizeConflictBoard(rawBoard);
+    if (!res?.ok || !res?.normalized) return { validIds: new Set(), zoneNameToId: {} };
+    normalized = res.normalized;
+  } catch {
+    return { validIds: new Set(), zoneNameToId: {} };
+  }
+  const zones = Array.isArray(normalized.zones) ? normalized.zones : [];
+  const validIds = new Set(zones.map((z) => z?.id).filter((id) => typeof id === "string" && id));
+  const zoneNameToId = {};
+  for (const z of zones) {
+    const n = String(z?.name ?? "").trim();
+    if (!n) continue;
+    if (zoneNameToId[n] === undefined) zoneNameToId[n] = z.id;
+  }
+  return { validIds, zoneNameToId };
+}
+
+function sceneCharacterNames(scene) {
+  try {
+    const tokens = scene?.tokens;
+    if (!tokens) return new Set();
+    let arr = [];
+    if (Array.isArray(tokens)) arr = tokens;
+    else if (Array.isArray(tokens?.contents)) arr = tokens.contents;
+    else if (typeof tokens?.values === "function") arr = [...tokens.values()];
+    else if (tokens instanceof Map) arr = [...tokens.values()];
+    else {
+      try {
+        arr = [...tokens];
+      } catch {
+        return new Set();
+      }
+    }
+    const names = arr.map((t) => String(t?.name ?? "").trim()).filter((n) => n.length > 0);
+    return new Set(names);
+  } catch {
+    return new Set();
+  }
+}
+
+async function migrateAndCleanSituationAspects(scene) {
+  const rawFlag = scene?.getFlag?.(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY);
+  if (!Array.isArray(rawFlag)) return;
+  const { validIds, zoneNameToId } = readBoardZoneInfo(scene);
+  const characterNames = sceneCharacterNames(scene);
+
+  let list = rawFlag;
+  let changed = false;
+
+  // 1) migrate textual zone suffixes -> structural zoneIds
+  const mig = migrateZoneSuffixes(list, zoneNameToId, characterNames);
+  if (mig.changed) {
+    list = mig.list;
+    changed = true;
+  }
+
+  // 2) clean dangling / duplicate / garbage zoneIds
+  let cleanedList = [];
+  let dangling = false;
+  for (const aspect of list) {
+    if (!aspect || typeof aspect !== "object") {
+      cleanedList.push(aspect);
+      continue;
+    }
+    const desired = normalizeZoneIds(aspect.zoneIds, validIds);
+    const hasField = Object.prototype.hasOwnProperty.call(aspect, "zoneIds");
+    const original = aspect.zoneIds;
+    let needsUpdate = false;
+    if (!hasField) {
+      needsUpdate = desired.length > 0;
+    } else if (!Array.isArray(original)) {
+      needsUpdate = true;
+    } else if (original.length !== desired.length) {
+      needsUpdate = true;
+    } else {
+      for (let i = 0; i < original.length; i++) {
+        if (original[i] !== desired[i]) {
+          needsUpdate = true;
+          break;
+        }
+      }
+      // Also catch non-string entries that were filtered: if original contains non-string,
+      // desired will have fewer entries, already caught by length check.
+      // For original with same length but different ids (dangling removed and replaced? actually filtered)
+      // the length check already covers invalid removal.
+    }
+    // Additional check: if hasField but original contains non-string values, the length check
+    // would be same but desired filtered them, so lengths differ? Example [123,"z1"] length 2 vs desired ["z1"] length 1 => differ, so needsUpdate true.
+    if (!needsUpdate) {
+      cleanedList.push(aspect);
+      continue;
+    }
+    dangling = true;
+    if (desired.length === 0) {
+      const copy = { ...aspect };
+      delete copy.zoneIds;
+      cleanedList.push(copy);
+    } else {
+      cleanedList.push({ ...aspect, zoneIds: desired });
+    }
+  }
+  if (dangling) {
+    list = cleanedList;
+    changed = true;
+  }
+
+  if (!changed) return;
+  await scene.setFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY, list);
 }
 
 /**

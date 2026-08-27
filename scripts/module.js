@@ -323,6 +323,18 @@ function onUpdateScene(scene, changed, options) {
     )
   ) {
     scheduleSituationAspectSync(scene);
+    // Zone-bound situation aspects changed: refresh the conflict zone
+    // overlays on the same scene when a live board is present. The sync is
+    // serialized through `syncConflictBoard`'s per-scene queue; its writes
+    // are marked `fateOnTheTableSync` and the conflict-flag branch above
+    // bails on that marker, so no hook loop is possible. Aspect changes are
+    // rare (invoke spend), so an immediate per-change sync is acceptable;
+    // the queue itself coalesces concurrent calls without extra debounce.
+    if (readConflictBoard(scene) && boardRegistry(scene)?.widgetId) {
+      syncConflictBoard(scene).catch((err) =>
+        console.error("[fate-on-the-table] conflict board sync failed:", err),
+      );
+    }
   }
 
   // Feature 5 — conflict board flag changed: sync ONLY the current board.

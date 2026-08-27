@@ -12,11 +12,10 @@
  * double-click on any part of the placed widget (GM only — players see the
  * widget but never get the editor).
  *
- * Aspect binding is textual (Fate-Core-style): a chosen character token or
- * conflict-board zone is appended to the aspect name as exactly ONE
- * parenthetical suffix — `${base} (${choice})`. The zone select exists only
- * while a conflict board is actually placed on the active scene
- * (`hasConflictBoardOnScene`); character and zone are mutually exclusive.
+ * Aspect binding: character is textual (Fate-Core-style) — `${base} (${choice})`;
+ * zones are structural — `zoneIds: string[]` bound to the live conflict board.
+ * The zone checkbox block exists only while a conflict board is actually placed
+ * (`hasConflictBoardOnScene`); character and zone checkboxes are mutually exclusive.
  */
 
 import { PlacementManager } from "./PlacementManager.js";
@@ -31,8 +30,16 @@ import {
   removeSituationAspectWidget,
   syncSituationAspects,
 } from "./SituationAspectSync.js";
-import { hasConflictBoardOnScene, zoneOptions } from "./ConflictBoardSync.js";
-import { buildBoundName, parseBinding } from "./situationAspectNames.js";
+import {
+  hasConflictBoardOnScene,
+  readConflictBoard,
+} from "./ConflictBoardSync.js";
+import { parseBinding } from "./situationAspectNames.js";
+import {
+  aspectZoneIds,
+  normalizeZoneIds,
+  applyAspectBinding,
+} from "./situationAspectZones.js";
 import {
   MODULE_ID,
   FLAG_SCOPE,
@@ -86,7 +93,7 @@ export class SituationAspectManager {
       app.addName = "";
       app.addInvokes = 1;
       app.addCharacter = "";
-      app.addZone = "";
+      app.addZoneIds = [];
     };
     const arm = (app) => {
       // beginAddForm, NOT beginAdd: inside this closure the identifier
@@ -167,15 +174,15 @@ class SituationAspectsDialog extends foundry.applications.api.ApplicationV2 {
     this.addName = "";
     this.addInvokes = 1;
     this.addCharacter = "";
-    this.addZone = "";
+    this.addZoneIds = [];
     // Inline EDIT form draft (the renameIndex row). Kept on the app so the
     // automatic post-action re-render never wipes unsaved input.
     this.editName = "";
     this.editInvokes = 0;
     this.editCharacter = "";
-    this.editZone = "";
+    this.editZoneIds = [];
     // Whether the edited aspect carried a KNOWN binding (matched a token or
-    // zone name) when editing started — drives unknown-suffix preservation.
+    // a structural zoneIds) when editing started — drives unknown-suffix preservation.
     this.editHadKnownBinding = false;
   }
 
@@ -188,10 +195,10 @@ class SituationAspectsDialog extends foundry.applications.api.ApplicationV2 {
   _replaceHTML(result, content, options) {
     content.innerHTML = "";
     content.append(result);
-    // The character/zone binding selects of BOTH inline forms are mutually
-    // exclusive: picking one clears the other (onBindingSelectChange). The
-    // delegated listener rides on the freshly attached subtree — exactly one
-    // listener per render, never duplicated across re-renders.
+    // The character select and zone checkboxes of BOTH inline forms are
+    // mutually exclusive: picking one clears the other (onBindingSelectChange).
+    // The delegated listener rides on the freshly attached subtree — exactly
+    // one listener per render, never duplicated across re-renders.
     result.addEventListener("change", (event) =>
       onBindingSelectChange(this, event),
     );
@@ -241,7 +248,7 @@ function characterOptions() {
 }
 
 /**
- * The zone binding select exists only while a conflict board is actually
+ * The zone binding block exists only while a conflict board is actually
  * placed on the active scene (valid state + registry widgetId).
  * @returns {boolean}
  */
@@ -251,8 +258,8 @@ function zonesAvailable() {
 
 /**
  * One binding `<select>` with a leading empty option. Shared by the
- * character and zone choices of the add and edit forms.
- * @param {string} name  Input name (`ctt-sa-character` | `ctt-sa-zone`).
+ * character choice of the add and edit forms.
+ * @param {string} name  Input name (`ctt-sa-character`).
  * @param {string} title  Localized title/tooltip of the select.
  * @param {string} emptyLabel  Text of the leading empty option.
  * @param {string[]} choices
@@ -274,17 +281,58 @@ function bindingSelectHtml(name, title, emptyLabel, choices, selected) {
     </select>`;
 }
 
-/** The zone select markup for one form, or '' when no board is placed. */
-function zoneSelectHtml(selected) {
+/**
+ * Live zone records of the active scene in storage order: `{id, name}`.
+ * Empty/whitespace names filtered, order preserved. Requires a valid board
+ * state via `readConflictBoard` (no registry check here — caller gates).
+ * @returns {{id: string, name: string}[]}
+ */
+function liveZoneRecords() {
+  const state = readConflictBoard(canvas?.scene);
+  if (!state?.zones) return [];
+  const out = [];
+  for (const z of state.zones) {
+    const id = String(z?.id ?? "").trim();
+    const name = String(z?.name ?? "").trim();
+    if (!id || !name) continue;
+    out.push({ id, name });
+  }
+  return out;
+}
+
+/**
+ * Multi-select zone block: a list of checkboxes (preferred for 2-6 zones).
+ * Options come from the LIVE board (`readConflictBoard` → `state.zones`).
+ * Returns '' when no board is placed or no zones exist.
+ * @param {string[]} selectedIds
+ * @returns {string}
+ */
+function zoneCheckboxesHtml(selectedIds) {
   if (!zonesAvailable()) return "";
+  const zones = liveZoneRecords();
+  if (!zones.length) return "";
   const t = (key) => game.i18n.localize(`${MODULE_ID}.${key}`);
-  return bindingSelectHtml(
-    "ctt-sa-zone",
-    t("situationAspects.addZone"),
-    t("situationAspects.zoneEmpty"),
-    zoneOptions(canvas?.scene),
-    selected,
-  );
+  const label = t("situationAspects.addZone");
+  const selectedSet = new Set(selectedIds ?? []);
+  const boxes = zones
+    .map(
+      (z) =>
+        `<label class="ctt-sa-zone-option"><input type="checkbox" name="ctt-sa-zone" value="${escapeHtml(
+          z.id,
+        )}" ${selectedSet.has(z.id) ? "checked" : ""}> ${escapeHtml(z.name)}</label>`,
+    )
+    .join("");
+  return `<div class="ctt-sa-zones"><div class="ctt-sa-zones-label">${escapeHtml(
+    label,
+  )}</div><div class="ctt-sa-zones-options">${boxes}</div></div>`;
+}
+
+/** Zone names of an aspect resolved against the live board, in stored order. */
+function zoneNamesForAspect(aspect) {
+  const ids = aspectZoneIds(aspect);
+  if (!ids.length) return [];
+  const map = new Map(liveZoneRecords().map((z) => [z.id, z.name]));
+  return ids.map((id) => map.get(id)).filter((n) => typeof n === "string" && n);
 }
 
 /**
@@ -304,83 +352,75 @@ function beginEdit(app, index) {
 
 /**
  * Fills the edit draft from an aspect: the name field shows the full name
- * verbatim; invokes are clamped to >= 0; the binding selects preselect ONLY
- * when the trailing `(suffix)` matches a known token/zone name. An
- * unrecognized suffix stays "no known binding" (`editHadKnownBinding` is
- * false), so saving without touching the selects keeps it verbatim.
+ * verbatim; invokes are clamped to >= 0; the character select preselects
+ * ONLY when the trailing `(suffix)` matches a known token name; zone
+ * checkboxes are pre-checked from the structural `zoneIds` (filtered by
+ * live board ids). An unrecognized suffix stays "no known binding"
+ * (`editHadKnownBinding` is false), so saving without touching the inputs
+ * keeps it verbatim.
  */
 function prepareEditDraft(app, aspect) {
   const name = String(aspect?.name ?? "");
   const { suffix } = parseBinding(name);
   const characters = characterOptions();
-  const zones = zonesAvailable() ? zoneOptions(canvas?.scene) : [];
   const boundCharacter = characters.includes(suffix) ? suffix : "";
-  const boundZone =
-    !boundCharacter && zones.includes(suffix) ? suffix : "";
+  const liveZones = liveZoneRecords();
+  const validIds = new Set(liveZones.map((z) => z.id));
+  // Structural zone binding has priority over textual suffix.
+  let zoneIds = aspectZoneIds(aspect).filter((id) => validIds.has(id));
+  // If no structural binding, do NOT derive zone from suffix (structural only).
+  // Character and zones are mutually exclusive for the draft.
+  const hasZones = zoneIds.length > 0;
+  const effectiveCharacter = hasZones ? "" : boundCharacter;
+  if (hasZones) {
+    // When zones are bound, ignore character suffix in hadKnownBinding.
+    zoneIds = normalizeZoneIds(zoneIds, validIds);
+  }
   app.editName = name;
   app.editInvokes = Math.max(0, Math.trunc(Number(aspect?.free_invokes) || 0));
-  app.editCharacter = boundCharacter;
-  app.editZone = boundZone;
-  app.editHadKnownBinding = !!(boundCharacter || boundZone);
+  app.editCharacter = effectiveCharacter;
+  app.editZoneIds = zoneIds;
+  app.editHadKnownBinding = !!(effectiveCharacter || zoneIds.length > 0);
 }
 
 /**
- * Mutual exclusion of the binding selects (delegated `change` listener from
- * the dialog root): picking a non-empty character clears the zone choice in
- * the same row and vice versa; setting a select back to empty leaves the
- * other untouched. The draft state is kept in sync so any automatic
+ * Mutual exclusion of the binding inputs (delegated `change` listener from
+ * the dialog root): picking a non-empty character clears all zone checkboxes
+ * in the same row and vice versa (checking any zone clears the character
+ * select). Setting the character back to empty or unchecking the last zone
+ * leaves the other untouched. Draft state is kept in sync so any automatic
  * re-render preserves the visible choices.
  */
 function onBindingSelectChange(app, event) {
   const el = event.target;
-  if (!el || el.tagName !== "SELECT") return;
-  if (el.name !== "ctt-sa-character" && el.name !== "ctt-sa-zone") return;
-  const value = String(el.value ?? "").trim();
+  if (!el) return;
   const isEdit = !!el.closest?.(".ctt-sa-renaming");
   if (el.name === "ctt-sa-character") {
+    if (el.tagName !== "SELECT") return;
+    const value = String(el.value ?? "").trim();
     if (isEdit) app.editCharacter = value;
     else app.addCharacter = value;
-    if (value) clearBoundSelect(el, "ctt-sa-zone", isEdit, app);
-  } else {
-    if (isEdit) app.editZone = value;
-    else app.addZone = value;
-    if (value) clearBoundSelect(el, "ctt-sa-character", isEdit, app);
+    if (value) {
+      if (isEdit) app.editZoneIds = [];
+      else app.addZoneIds = [];
+      const row = el.closest?.(".ctt-sa-row");
+      const checks = row?.querySelectorAll?.('input[name="ctt-sa-zone"]');
+      checks?.forEach((c) => (c.checked = false));
+    }
+  } else if (el.name === "ctt-sa-zone") {
+    if (el.type !== "checkbox") return;
+    const row = el.closest?.(".ctt-sa-row");
+    const checks = row?.querySelectorAll?.('input[name="ctt-sa-zone"]');
+    const ids = checks ? [...checks].filter((c) => c.checked).map((c) => String(c.value)) : [];
+    if (isEdit) app.editZoneIds = ids;
+    else app.addZoneIds = ids;
+    if (ids.length) {
+      if (isEdit) app.editCharacter = "";
+      else app.addCharacter = "";
+      const other = row?.querySelector('select[name="ctt-sa-character"]');
+      if (other) other.value = "";
+    }
   }
-}
-
-/** Clears the sibling binding select in the DOM and in the draft state. */
-function clearBoundSelect(el, otherName, isEdit, app) {
-  if (otherName === "ctt-sa-zone") {
-    if (isEdit) app.editZone = "";
-    else app.addZone = "";
-  } else {
-    if (isEdit) app.editCharacter = "";
-    else app.addCharacter = "";
-  }
-  const row = el.closest?.(".ctt-sa-row");
-  const other = row?.querySelector(`select[name="${otherName}"]`);
-  if (other) other.value = "";
-}
-
-/**
- * Final aspect name after an EDIT submit. With a chosen binding the
- * trailing parenthetical currently shown in the field is replaced by
- * exactly ONE suffix (character wins over zone). Without a binding: when
- * the aspect carried a KNOWN binding when editing started, saving with both
- * selects empty removes it (the visible suffix is stripped); otherwise the
- * field text is kept verbatim — an unrecognized suffix such as
- * "(custom note)" survives untouched.
- * @param {string} name  Trimmed text of the name field.
- * @param {{character: string, zone: string}} binding  Submit-time choices.
- * @param {object} app  Dialog draft (editHadKnownBinding).
- * @returns {string}
- */
-function editedAspectName(name, binding, app) {
-  if (binding.character || binding.zone) {
-    return buildBoundName(parseBinding(name).base, binding);
-  }
-  if (app.editHadKnownBinding) return parseBinding(name).base || name;
-  return name;
 }
 
 function renderContent(app) {
@@ -411,7 +451,7 @@ function renderContent(app) {
               characterOptions(),
               app.editCharacter,
             )}
-            ${zoneSelectHtml(app.editZone)}
+            ${zoneCheckboxesHtml(app.editZoneIds)}
             <button type="button" class="ctt-sa-btn" data-action="renameSubmit" title="${escapeHtml(
               t("situationAspects.confirm"),
             )}"><i class="fas fa-check"></i></button>
@@ -422,11 +462,16 @@ function renderContent(app) {
         </div>`;
       return;
     }
+    const zoneNames = zoneNamesForAspect(aspect);
+    const zoneHint = zoneNames.length
+      ? `<span class="ctt-sa-zone-names" title="${escapeHtml(zoneNames.join(", "))}">${escapeHtml(zoneNames.join(", "))}</span>`
+      : "";
     listHtml += `
       <div class="ctt-sa-row">
         <span class="ctt-sa-name" title="${escapeHtml(aspect.name)}">${escapeHtml(
           aspect.name,
         )}</span>
+        ${zoneHint}
         <span class="ctt-sa-invokes">(${aspect.free_invokes})</span>
         <div class="ctt-sa-actions">
           <button type="button" class="ctt-sa-btn" data-action="invokePlus" data-index="${i}" title="${escapeHtml(
@@ -463,7 +508,7 @@ function renderContent(app) {
               characterOptions(),
               app.addCharacter,
             )}
-            ${zoneSelectHtml(app.addZone)}
+            ${zoneCheckboxesHtml(app.addZoneIds)}
             <button type="button" class="ctt-sa-btn" data-action="addSubmit" title="${escapeHtml(
               t("situationAspects.confirm"),
             )}"><i class="fas fa-check"></i></button>
@@ -588,7 +633,7 @@ function beginAdd(app) {
   app.addName = "";
   app.addInvokes = 1;
   app.addCharacter = "";
-  app.addZone = "";
+  app.addZoneIds = [];
   app.addOpen = true;
   app.renameIndex = null;
 }
@@ -615,25 +660,29 @@ async function submitAdd(app, target) {
   const character = String(
     root?.querySelector('select[name="ctt-sa-character"]')?.value ?? "",
   ).trim();
-  const zoneEl = root?.querySelector('select[name="ctt-sa-zone"]');
-  const zone = zoneEl ? String(zoneEl.value ?? "").trim() : "";
+  const zoneIdsRaw = [
+    ...(root?.querySelectorAll('input[name="ctt-sa-zone"]:checked') ?? []),
+  ].map((el) => String(el.value ?? "").trim()).filter((v) => v.length > 0);
   // Keep the form state so a failed validation does not wipe the fields.
   app.addName = name;
   app.addInvokes = invokes;
   app.addCharacter = character;
-  app.addZone = zone;
+  app.addZoneIds = zoneIdsRaw;
   if (!name) {
     ui.notifications.warn(
       game.i18n.localize(`${MODULE_ID}.situationAspects.nameEmpty`),
     );
     return;
   }
-  // Binding is textual, like the system's "add track aspect" button:
-  // exactly ONE parenthetical suffix after the aspect text. Should both
-  // selects be non-empty against all odds, the character wins
-  // (buildBoundName enforces the priority).
-  const fullName = buildBoundName(name, { character, zone });
-  app.aspects.push({ name: fullName, free_invokes: invokes });
+  const validIds = liveZoneRecords().map((z) => z.id);
+  const { name: finalName, zoneIds: finalZoneIds } = applyAspectBinding(
+    name,
+    { character, zoneIds: zoneIdsRaw },
+    validIds,
+  );
+  const entry = { name: finalName, free_invokes: invokes };
+  if (finalZoneIds.length) entry.zoneIds = finalZoneIds;
+  app.aspects.push(entry);
   app.addOpen = false;
   await commitAspects(app);
 }
@@ -657,13 +706,14 @@ async function submitRename(app, target) {
   const character = String(
     root?.querySelector('select[name="ctt-sa-character"]')?.value ?? "",
   ).trim();
-  const zoneEl = root?.querySelector('select[name="ctt-sa-zone"]');
-  const zone = zoneEl ? String(zoneEl.value ?? "").trim() : "";
+  const zoneIdsRaw = [
+    ...(root?.querySelectorAll('input[name="ctt-sa-zone"]:checked') ?? []),
+  ].map((el) => String(el.value ?? "").trim()).filter((v) => v.length > 0);
   // Preserve the drafts across the automatic re-render (validation failure).
   app.editName = name;
   app.editInvokes = invokes;
   app.editCharacter = character;
-  app.editZone = zone;
+  app.editZoneIds = zoneIdsRaw;
   if (!name) {
     ui.notifications.warn(
       game.i18n.localize(`${MODULE_ID}.situationAspects.nameEmpty`),
@@ -672,8 +722,17 @@ async function submitRename(app, target) {
   }
   const aspect = app.aspects[app.renameIndex];
   if (aspect) {
-    aspect.name = editedAspectName(name, { character, zone }, app);
+    const validIds = liveZoneRecords().map((z) => z.id);
+    const { name: nextName, zoneIds: nextZoneIds } = applyAspectBinding(
+      name,
+      { character, zoneIds: zoneIdsRaw, hadKnownBinding: app.editHadKnownBinding },
+      validIds,
+    );
+    // Mutate the existing object (spread would drop linked) — preserve unknown fields.
+    aspect.name = nextName;
     aspect.free_invokes = invokes;
+    if (nextZoneIds.length) aspect.zoneIds = nextZoneIds;
+    else delete aspect.zoneIds;
   }
   app.renameIndex = null;
   await commitAspects(app);

@@ -316,6 +316,58 @@
   opacity: 0.55;
 }
 
+.situation-aspects .ctt-sa-zones {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+  max-width: 200px;
+}
+
+.situation-aspects .ctt-sa-zones-label {
+  font-size: 0.8em;
+  font-weight: 600;
+  opacity: 0.8;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.situation-aspects .ctt-sa-zones-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 88px;
+  overflow-y: auto;
+  border: 1px solid rgba(0,0,0,0.15);
+  border-radius: 3px;
+  padding: 4px 6px;
+  background: rgba(0,0,0,0.03);
+}
+
+.situation-aspects .ctt-sa-zone-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.situation-aspects .ctt-sa-zone-option input[type="checkbox"] {
+  margin: 0;
+}
+
+.situation-aspects .ctt-sa-zone-names {
+  color: #666;
+  font-size: 0.82em;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+  opacity: 0.9;
+}
+
 /* --- Layout Import / Export Manager dialog --- */
 
 .fate-on-the-table-layout-io .window-content {
