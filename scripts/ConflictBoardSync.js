@@ -1441,10 +1441,10 @@ async function upsertParts(scene, existing, descriptors, widgetId, ownerType, op
     await scene.updateEmbeddedDocuments("Tile", updates.Tile, syncOptions);
   }
   if (deletions.Drawing.length) {
-    await scene.deleteEmbeddedDocuments("Drawing", deletions.Drawing);
+    await scene.deleteEmbeddedDocuments("Drawing", deletions.Drawing, syncOptions);
   }
   if (deletions.Tile.length) {
-    await scene.deleteEmbeddedDocuments("Tile", deletions.Tile);
+    await scene.deleteEmbeddedDocuments("Tile", deletions.Tile, syncOptions);
   }
   if (creations.Drawing.length) {
     await scene.createEmbeddedDocuments("Drawing", creations.Drawing);
