@@ -71,3 +71,17 @@ test("collectTurnMarkerPatches: handles _id and document wrapper", () => {
   const patches = collectTurnMarkerPatches(tokens);
   assert.equal(patches.length, 2);
 });
+
+test("collectTurnMarkerPatches: deduplicates by id (first wins)", () => {
+  const tokens = [
+    { id: "dup", turnMarker: { mode: 0, src: "a" } },
+    { id: "dup", turnMarker: { mode: 0, src: "b" } },
+  ];
+  const patches = collectTurnMarkerPatches(tokens);
+  assert.equal(patches.length, 1);
+  assert.equal(patches[0].id, "dup");
+  assert.equal(patches[0]._id, "dup");
+  // first occurrence wins
+  assert.equal(patches[0].patch.src, "a");
+  assert.equal(patches[0].turnMarker.src, "a");
+});

@@ -7,6 +7,7 @@ import { getLayoutRecord, getLayoutIds } from "./layoutRegistry.js";
 import { resolveFont } from "./WidgetBuilder.js";
 import { LayoutImportExport } from "./LayoutImportExport.js";
 import { BOARD_SIZE_PRESETS } from "./conflictBoardGeometry.js";
+import { TURN_MARKER_SETTING } from "./constants.js";
 
 export const MODULE_ID = "fate-on-the-table";
 
@@ -492,7 +493,7 @@ export function registerSettings() {
     ),
   });
 
-  game.settings.register(MODULE_ID, "autoTurnMarker", {
+  game.settings.register(MODULE_ID, TURN_MARKER_SETTING, {
     name: game.i18n.localize(`${MODULE_ID}.settings.autoTurnMarker`),
     hint: game.i18n.localize(`${MODULE_ID}.settings.autoTurnMarkerHint`),
     scope: "world",

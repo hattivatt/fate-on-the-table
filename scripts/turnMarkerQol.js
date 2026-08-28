@@ -35,11 +35,12 @@ export function turnMarkerPatchFor(turnMarker) {
  */
 export function collectTurnMarkerPatches(tokenDocs) {
   if (!Array.isArray(tokenDocs)) return [];
-  const out = [];
+  const seen = new Map();
   for (const tok of tokenDocs) {
     if (!tok || typeof tok !== "object") continue;
     const id = tok.id ?? tok._id ?? tok.document?.id ?? null;
     if (!id) continue;
+    if (seen.has(id)) continue;
     const tm =
       tok.turnMarker ??
       tok.document?.turnMarker ??
@@ -48,7 +49,7 @@ export function collectTurnMarkerPatches(tokenDocs) {
     // the case where tok itself wraps the document differently.
     const patch = turnMarkerPatchFor(tm);
     if (!patch) continue;
-    out.push({ id, patch, _id: id, turnMarker: patch });
+    seen.set(id, { id, patch, _id: id, turnMarker: patch });
   }
-  return out;
+  return [...seen.values()];
 }
