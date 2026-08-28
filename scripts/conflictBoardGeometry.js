@@ -30,6 +30,18 @@ export const BOARD_SIZE_PRESETS = Object.freeze({
 });
 export const DEFAULT_SIZE_PRESET = "medium";
 
+/** Width of the central round box in the bottom strip per preset (scene units).
+ *  ~1.2–2× the round-number font size (48/56/64), rounded to a pleasant number
+ *  so a 1–2 digit round fits comfortably. Height is always `bottomH` so the box
+ *  spans the full bottom strip vertically.
+ */
+export const ROUND_BOX_WIDTHS = Object.freeze({
+  small: 96,
+  medium: 112,
+  large: 128,
+});
+export const DEFAULT_ROUND_BOX_WIDTH = ROUND_BOX_WIDTHS.medium;
+
 /** Size of a participant card (minimal layout proportions), scene units. */
 export const DEFAULT_CARD_SIZE = Object.freeze({ width: 220, height: 150 });
 
@@ -165,12 +177,16 @@ export function getConflictBoardGeometry(options = {}) {
   const friendly = area(0, 0, sideW, fieldSize);
   const field = { x: sideW + gap, y: 0, width: fieldSize, height: fieldSize };
   const hostile = area(sideW + gap + fieldSize + gap, 0, sideW, fieldSize);
-  const bottomFriendlyW = totalW / 2;
+  const preset = normalizePreset(options.sizePreset);
+  const roundBoxW = ROUND_BOX_WIDTHS[preset] ?? DEFAULT_ROUND_BOX_WIDTH;
+  const roundBox = { x: totalW / 2 - roundBoxW / 2, y: bottomY, width: roundBoxW, height: bottomH };
+  const bottomFriendlyW = totalW / 2 - roundBoxW / 2;
   const bottomFriendly = area(0, bottomY, bottomFriendlyW, bottomH);
-  const bottomHostile = area(bottomFriendlyW, bottomY, totalW - bottomFriendlyW, bottomH);
+  const bottomHostileW = totalW - (totalW / 2 + roundBoxW / 2);
+  const bottomHostile = area(totalW / 2 + roundBoxW / 2, bottomY, bottomHostileW, bottomH);
 
   return {
-    sizePreset: normalizePreset(options.sizePreset),
+    sizePreset: preset,
     boardSize,
     fieldSize,
     card,
@@ -179,6 +195,7 @@ export function getConflictBoardGeometry(options = {}) {
     field,
     bottomFriendly,
     bottomHostile,
+    roundBox,
     // deprecated aliases for backward compatibility (parallel schema agent / old callers)
     acted: bottomFriendly,
     eliminated: bottomHostile,
@@ -418,6 +435,9 @@ export function hitTestConflictZone(geometry, zones = [], point) {
   }
   if (geometry?.field && pointInRect(geometry.field, point)) {
     return { type: "field", area: "central", zone: null, zoneId: null };
+  }
+  if (geometry?.roundBox && pointInRect(geometry.roundBox, point)) {
+    return { type: "area", area: "roundBox", zone: null, zoneId: null };
   }
   for (const areaName of AREA_NAMES) {
     if (geometry?.[areaName] && pointInRect(geometry[areaName], point)) {

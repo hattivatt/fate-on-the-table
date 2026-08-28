@@ -275,11 +275,16 @@ test("buildBoardPartDescriptors emits background + 5 frames + 2 labels + divider
   assert.equal(friendly.stroke, 1);
   assert.equal(friendly.strokeAlpha, 0.35);
 
-  // divider spans bottom strip vertically at center
+  // divider is now a boxed frame covering roundBox (never overlapped by cards)
   const divider = parts.find((p) => p.part === "conflictRoundDivider");
-  assert.equal(divider.y, geometry.bottomFriendly.y);
-  assert.equal(divider.h, geometry.bottomFriendly.height);
-  assert.equal(divider.x + divider.w / 2, geometry.bottomFriendly.width);
+  assert.deepEqual(
+    { x: divider.x, y: divider.y, w: divider.w, h: divider.h },
+    { x: geometry.roundBox.x, y: geometry.roundBox.y, w: geometry.roundBox.width, h: geometry.roundBox.height },
+  );
+  assert.equal(divider.stroke, 1);
+  assert.equal(divider.strokeAlpha, 0.35);
+  assert.equal(divider.fillType, 0);
+  assert.equal(divider.fillAlpha, 0);
   assert.equal(divider.elevation, -3);
 });
 
@@ -307,6 +312,57 @@ test("buildBoardPartDescriptors round number appears only with activeCombat roun
   assert.equal(smallNum.size, 48);
   assert.equal(num.size, 56);
   assert.equal(largeNum.size, 64);
+  // number is centered inside roundBox and never overlaps bottom cards
+  assert.equal(num.x, geomMedium.roundBox.x);
+  assert.equal(num.w, geomMedium.roundBox.width);
+  assert.equal(num.y, geomMedium.roundBox.y + (geomMedium.roundBox.height - num.h) / 2);
+  assert.equal(smallNum.x, geomSmall.roundBox.x);
+  assert.equal(smallNum.w, geomSmall.roundBox.width);
+  assert.equal(largeNum.x, geomLarge.roundBox.x);
+  assert.equal(largeNum.w, geomLarge.roundBox.width);
+  // divider box is always present even without a round
+  const dividerSmall = buildBoardPartDescriptors(state, geomSmall).find((p) => p.part === "conflictRoundDivider");
+  assert.deepEqual(
+    { x: dividerSmall.x, y: dividerSmall.y, w: dividerSmall.w, h: dividerSmall.h },
+    { x: geomSmall.roundBox.x, y: geomSmall.roundBox.y, w: geomSmall.roundBox.width, h: geomSmall.roundBox.height },
+  );
+});
+
+test("bottom cards never intersect the roundBox divider (no overlap key test)", () => {
+  const state = validState({
+    cards: {
+      c1: { side: "friendly", order: 0 },
+      c2: { side: "friendly", order: 1 },
+      c3: { side: "friendly", order: 2 },
+      c4: { side: "friendly", order: 3 },
+      c5: { side: "friendly", order: 4 },
+      c6: { side: "hostile", order: 0 },
+      c7: { side: "hostile", order: 1 },
+    },
+  });
+  for (const preset of ["small", "medium", "large"]) {
+    const geometry = getConflictBoardGeometry({ sizePreset: preset });
+    const { positions } = layoutConflictCards(geometry, state);
+    for (const [id, pos] of Object.entries(positions)) {
+      if (pos.area !== "bottom") continue;
+      const cardRect = { x: pos.x, y: pos.y, width: pos.width, height: pos.height };
+      const rb = geometry.roundBox;
+      const intersect = !(
+        cardRect.x + cardRect.width <= rb.x ||
+        rb.x + rb.width <= cardRect.x ||
+        cardRect.y + cardRect.height <= rb.y ||
+        rb.y + rb.height <= cardRect.y
+      );
+      assert.equal(intersect, false, `${preset} bottom card ${id} must not intersect roundBox`);
+    }
+    const parts = buildBoardPartDescriptors(state, geometry, { round: 2 });
+    const divider = parts.find((p) => p.part === "conflictRoundDivider");
+    const num = parts.find((p) => p.part === "conflictRoundNumber");
+    assert.ok(divider, `${preset} divider box present`);
+    assert.equal(divider.x, geometry.roundBox.x, `${preset} divider x matches roundBox`);
+    assert.equal(num.x, geometry.roundBox.x, `${preset} number inside roundBox`);
+    assert.equal(num.w, geometry.roundBox.width, `${preset} number width equals roundBox`);
+  }
 });
 
 test("board background uses texture/color/alpha from the state (never shifts origin)", () => {

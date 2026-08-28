@@ -63,7 +63,14 @@ test("geometry contains the five areas; friendly/hostile flank a square field", 
   assert.equal(g.field.x + g.field.width, g.hostile.x - BOARD_GAP);
   assert.ok(g.field.y + g.field.height < g.bottomFriendly.y);
   assert.equal(g.bottomFriendly.y, g.bottomHostile.y);
-  assert.equal(g.bottomFriendly.width + g.bottomHostile.width, g.bounds.width - 2 * BOARD_PADDING);
+  assert.ok(g.roundBox, "roundBox reserved in bottom strip");
+  assert.equal(
+    g.bottomFriendly.width + g.roundBox.width + g.bottomHostile.width,
+    g.bounds.width - 2 * BOARD_PADDING,
+  );
+  assert.equal(g.bottomFriendly.width, g.bottomHostile.width);
+  assert.equal(g.roundBox.y, g.bottomFriendly.y);
+  assert.equal(g.roundBox.height, g.bottomFriendly.height);
   // deprecated aliases still point to bottom boxes
   assert.deepEqual(g.acted, g.bottomFriendly);
   assert.deepEqual(g.eliminated, g.bottomHostile);
@@ -546,4 +553,74 @@ test("custom card size and area minimums are honoured", () => {
     cards: { a: { side: "friendly", area: "side", order: 0 } },
   });
   assert.deepEqual({ w: positions.a.width, h: positions.a.height }, { w: 300, h: 200 });
+});
+
+test("roundBox is reserved per preset and does not intersect bottom boxes", () => {
+  const expected = { small: 96, medium: 112, large: 128 };
+  for (const preset of ["small", "medium", "large"]) {
+    const g = getConflictBoardGeometry({ sizePreset: preset });
+    assert.equal(g.roundBox.width, expected[preset], `roundBox width for ${preset}`);
+    assert.equal(g.roundBox.height, g.bottomFriendly.height);
+    assert.equal(g.roundBox.y, g.bottomFriendly.y);
+    assert.equal(g.bottomFriendly.x + g.bottomFriendly.width, g.roundBox.x);
+    assert.equal(g.roundBox.x + g.roundBox.width, g.bottomHostile.x);
+    // no intersection
+    const intersect = (a, b) =>
+      !(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
+    assert.equal(intersect(g.bottomFriendly, g.roundBox), false, `${preset} bottomFriendly vs roundBox`);
+    assert.equal(intersect(g.bottomHostile, g.roundBox), false, `${preset} bottomHostile vs roundBox`);
+    // bottom boxes keep enough width for a standard card
+    assert.ok(
+      g.bottomFriendly.content.width >= DEFAULT_CARD_SIZE.width,
+      `${preset} bottomFriendly fits card width ${g.bottomFriendly.content.width}`,
+    );
+    assert.ok(
+      g.bottomHostile.content.width >= DEFAULT_CARD_SIZE.width,
+      `${preset} bottomHostile fits card width ${g.bottomHostile.content.width}`,
+    );
+  }
+});
+
+test("bottom cards never overlap roundBox (layout positions)", () => {
+  for (const preset of ["small", "medium", "large"]) {
+    const g = getConflictBoardGeometry({ sizePreset: preset });
+    // force overflow into bottom boxes with 6 cards per side
+    const cards = {};
+    for (let i = 0; i < 6; i++) cards[`f${i}`] = { side: "friendly", order: i };
+    for (let i = 0; i < 6; i++) cards[`h${i}`] = { side: "hostile", order: i };
+    const { positions } = layoutConflictCards(g, { cards });
+    const roundBox = g.roundBox;
+    for (const [id, pos] of Object.entries(positions)) {
+      if (pos.area !== "bottom") continue;
+      const cardRect = { x: pos.x, y: pos.y, width: pos.width, height: pos.height };
+      const intersect =
+        !(cardRect.x + cardRect.width <= roundBox.x ||
+          roundBox.x + roundBox.width <= cardRect.x ||
+          cardRect.y + cardRect.height <= roundBox.y ||
+          roundBox.y + roundBox.height <= cardRect.y);
+      assert.equal(intersect, false, `${preset} card ${id} must not intersect roundBox`);
+      // also inside its bottom area
+      const bottomArea = pos.side === "friendly" ? g.bottomFriendly : g.bottomHostile;
+      assert.ok(
+        pos.x >= bottomArea.content.x - 1e-6 && pos.x + pos.width <= bottomArea.x + bottomArea.width + 1e-6,
+        `${preset} card ${id} inside its bottom box`,
+      );
+    }
+  }
+});
+
+test("hitTestConflictZone distinguishes bottomFriendly, bottomHostile and roundBox", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "medium" });
+  const bf = hitTestConflictZone(g, [], { x: g.bottomFriendly.x + 5, y: g.bottomFriendly.y + 5 });
+  assert.equal(bf.type, "area");
+  assert.equal(bf.area, "bottomFriendly");
+  const bh = hitTestConflictZone(g, [], { x: g.bottomHostile.x + 5, y: g.bottomHostile.y + 5 });
+  assert.equal(bh.type, "area");
+  assert.equal(bh.area, "bottomHostile");
+  const rb = hitTestConflictZone(g, [], {
+    x: g.roundBox.x + g.roundBox.width / 2,
+    y: g.roundBox.y + g.roundBox.height / 2,
+  });
+  assert.equal(rb.type, "area");
+  assert.equal(rb.area, "roundBox");
 });

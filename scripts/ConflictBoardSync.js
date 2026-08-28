@@ -557,12 +557,49 @@ export function buildBoardPartDescriptors(state, geometry, activeCombat = null) 
     });
   }
 
-  // vertical divider in the middle of the bottom strip (always)
-  if (bottomFriendly && bottomHostile) {
+  // round divider as a boxed area in the centre of the bottom strip (always)
+  // so bottom cards can never overlap the round number.
+  const roundBox = geometry?.roundBox ?? null;
+  if (roundBox && bottomFriendly && bottomHostile) {
+    // divider box – framed rectangle covering roundBox (readable border)
+    parts.push(framePart(CONFLICT_ROUND_DIVIDER_PART, -1, roundBox, -3, -290, 0.35, 1));
+
+    // large round number centred INSIDE the box, under cards
+    const roundNum = Number(activeCombat?.round);
+    if (Number.isFinite(roundNum) && Number.isInteger(roundNum) && roundNum >= 1) {
+      const preset = geometry?.sizePreset ?? state?.sizePreset ?? "medium";
+      const fontSize = preset === "small" ? 48 : preset === "large" ? 64 : 56;
+      const boxW = roundBox.width;
+      const boxH = fontSize;
+      const boxX = roundBox.x;
+      const boxY = roundBox.y + (roundBox.height - boxH) / 2;
+      parts.push({
+        kind: "drawing",
+        part: CONFLICT_ROUND_NUMBER_PART,
+        index: -1,
+        x: boxX,
+        y: boxY,
+        w: boxW,
+        h: boxH,
+        font: "Montserrat",
+        size: fontSize,
+        color: "#000000",
+        align: "center",
+        stroke: 0,
+        text: String(roundNum),
+        fillType: 0,
+        fillColor: "#ffffff",
+        fillAlpha: 0,
+        texture: null,
+        elevation: -2,
+        sort: -200,
+      });
+    }
+  } else if (bottomFriendly && bottomHostile) {
+    // fallback for geometries without roundBox (backward compat with old saves)
     const bottomY = bottomFriendly.y;
     const bottomH = bottomFriendly.height;
-    const centerX = bottomFriendly.width; // totalW/2 since x=0
-    // divider as a thin filled rectangle 2px wide centered on the split
+    const centerX = bottomFriendly.width;
     parts.push({
       kind: "drawing",
       part: CONFLICT_ROUND_DIVIDER_PART,
@@ -586,38 +623,6 @@ export function buildBoardPartDescriptors(state, geometry, activeCombat = null) 
       sort: -290,
       text: "",
     });
-
-    // large round number centered on the bottom strip, under cards
-    const roundNum = Number(activeCombat?.round);
-    if (Number.isFinite(roundNum) && Number.isInteger(roundNum) && roundNum >= 1) {
-      const preset = geometry?.sizePreset ?? state?.sizePreset ?? "medium";
-      const fontSize = preset === "small" ? 48 : preset === "large" ? 64 : 56;
-      const boxW = 100;
-      const boxH = fontSize;
-      const boxX = centerX - boxW / 2;
-      const boxY = bottomY + (bottomH - boxH) / 2;
-      parts.push({
-        kind: "drawing",
-        part: CONFLICT_ROUND_NUMBER_PART,
-        index: -1,
-        x: boxX,
-        y: boxY,
-        w: boxW,
-        h: boxH,
-        font: "Montserrat",
-        size: fontSize,
-        color: "#000000",
-        align: "center",
-        stroke: 0,
-        text: String(roundNum),
-        fillType: 0,
-        fillColor: "#ffffff",
-        fillAlpha: 0,
-        texture: null,
-        elevation: -2,
-        sort: -200,
-      });
-    }
   }
 
   return parts;
