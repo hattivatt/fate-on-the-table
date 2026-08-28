@@ -1302,3 +1302,162 @@ test("conflict card double-click on a consequence cost row is consumed without o
   assert.equal(rendered, 0, "the consequence cost row must NOT open the sheet");
   assert.equal(actorUpdated, false, "a cancelled prompt must not write the actor");
 });
+
+test("conflict card double-click opens sheet for an UNLINKED synthetic token actor (via combatant.token.actor)", async () => {
+  let rendered = 0;
+  const syntheticActor = {
+    name: "Grom (unlinked)",
+    isToken: true,
+    testUserPermission: (user, level) => true,
+    sheet: { render: (force) => { rendered += 1; assert.equal(force, true); } },
+  };
+  const token = { id: "t-c1", actor: syntheticActor, name: "Grom Token" };
+  globalThis.CONST = {
+    DOCUMENT_OWNERSHIP_LEVELS: { LIMITED: 1, OWNER: 2 },
+    DRAWING_TYPES: { RECTANGLE: "r" },
+  };
+  // combatant with synthetic token actor, no linked actor
+  const combat = {
+    id: "combat-abc",
+    combatants: [{ id: "c1", token, actor: null }],
+  };
+  const scene = menuScene("combat-abc", ["c1"]);
+  scene.flags[FLAG_SCOPE][sync.CONFLICT_BOARD_WIDGET_FLAG] = {
+    widgetId: "wBoard",
+    zoneWidgetIds: {},
+    cardWidgetIds: { c1: "wCard1" },
+  };
+  installMenuCombat({}, combat, scene);
+  const handled = await mod.handleConflictDocumentDoubleClick(
+    fullCardDoc("c1", { part: "name", index: 0 }),
+    fakeMenuEvent(),
+  );
+  assert.equal(handled, true);
+  assert.equal(rendered, 1, "unlinked synthetic token actor must open its sheet");
+});
+
+test("conflict card double-click falls back to tokenUuid via fromUuid when combat is unavailable (unlinked-aware)", async () => {
+  let rendered = 0;
+  const syntheticActor = {
+    name: "Grom (orphan)",
+    isToken: true,
+    testUserPermission: (user, level) => true,
+    sheet: { render: () => { rendered += 1; } },
+  };
+  const tokenDoc = { id: "t-c1", uuid: "Scene.scene1.Token.t-c1", actor: syntheticActor };
+  globalThis.CONST = {
+    DOCUMENT_OWNERSHIP_LEVELS: { LIMITED: 1, OWNER: 2 },
+    DRAWING_TYPES: { RECTANGLE: "r" },
+  };
+  globalThis.fromUuid = async (uuid) => {
+    assert.equal(uuid, "Scene.scene1.Token.t-c1");
+    return tokenDoc;
+  };
+  // No combat available — state has combatId but game.combats returns null
+  const scene = menuScene("combat-abc", ["c1"]);
+  scene.flags[FLAG_SCOPE][sync.CONFLICT_BOARD_WIDGET_FLAG] = {
+    widgetId: "wBoard",
+    zoneWidgetIds: {},
+    cardWidgetIds: { c1: "wCard1" },
+  };
+  globalThis.canvas = { scene };
+  globalThis.game = {
+    user: { isGM: true },
+    i18n: { localize: (key) => key },
+    combat: null,
+    combats: { get: () => null },
+  };
+  globalThis.CONST.DOCUMENT_OWNERSHIP_LEVELS.LIMITED = 1;
+  // Need a board state so readConflictBoard returns state; menuScene already has it.
+  // Provide a minimal canvas.scene for resolveCardActor fallback.
+  const handled = await mod.handleConflictDocumentDoubleClick(
+    fullCardDoc("c1"),
+    fakeMenuEvent(),
+  );
+  assert.equal(handled, true);
+  assert.equal(rendered, 1, "fallback via tokenUuid must open synthetic actor sheet");
+  delete globalThis.fromUuid;
+});
+
+test("conflict card double-click respects LIMITED permission (no render for unauthorized user)", async () => {
+  let rendered = 0;
+  const actor = {
+    name: "Grom",
+    testUserPermission: (user, level) => false,
+    sheet: { render: () => { rendered += 1; } },
+  };
+  globalThis.CONST = {
+    DOCUMENT_OWNERSHIP_LEVELS: { LIMITED: 1, OWNER: 2 },
+    DRAWING_TYPES: { RECTANGLE: "r" },
+  };
+  const combat = {
+    id: "combat-abc",
+    combatants: [{ id: "c1", token: { actor }, actor }],
+  };
+  const scene = menuScene("combat-abc", ["c1"]);
+  scene.flags[FLAG_SCOPE][sync.CONFLICT_BOARD_WIDGET_FLAG] = {
+    widgetId: "wBoard",
+    zoneWidgetIds: {},
+    cardWidgetIds: { c1: "wCard1" },
+  };
+  installMenuCombat({}, combat, scene);
+  const handled = await mod.handleConflictDocumentDoubleClick(
+    fullCardDoc("c1"),
+    fakeMenuEvent(),
+  );
+  assert.equal(handled, true);
+  assert.equal(rendered, 0, "unauthorized user must not open the sheet (permission gate)");
+});
+
+test("zone and board double-clicks are consumed without opening any sheet", async () => {
+  let rendered = 0;
+  const actor = {
+    name: "Grom",
+    testUserPermission: () => true,
+    sheet: { render: () => { rendered += 1; } },
+  };
+  globalThis.CONST = {
+    DOCUMENT_OWNERSHIP_LEVELS: { LIMITED: 1, OWNER: 2 },
+    DRAWING_TYPES: { RECTANGLE: "r" },
+  };
+  const combat = {
+    id: "combat-abc",
+    combatants: [{ id: "c1", token: { actor }, actor }],
+  };
+  const scene = menuScene("combat-abc", ["c1"]);
+  scene.flags[FLAG_SCOPE][sync.CONFLICT_BOARD_WIDGET_FLAG] = {
+    widgetId: "wBoard",
+    zoneWidgetIds: { "zone-1": "wZone1" },
+    cardWidgetIds: { c1: "wCard1" },
+  };
+  installMenuCombat({}, combat, scene);
+  function zoneDoc() {
+    return {
+      id: "zone-doc",
+      documentName: "Drawing",
+      x: 0, y: 0, shape: { width: 10, height: 10 },
+      getFlag(scope, key) {
+        if (scope !== FLAG_SCOPE) return undefined;
+        if (key === "ownerType") return "conflictZone";
+        if (key === "widgetId") return "wZone1";
+        return undefined;
+      },
+    };
+  }
+  function boardDoc() {
+    return {
+      id: "board-doc",
+      documentName: "Drawing",
+      x: 0, y: 0, shape: { width: 10, height: 10 },
+      getFlag(scope, key) {
+        if (scope !== FLAG_SCOPE) return undefined;
+        if (key === "ownerType") return "conflictBoard";
+        if (key === "widgetId") return "wBoard";
+        return undefined;
+      },
+    };
+  }
+  assert.equal(await mod.handleConflictDocumentDoubleClick(zoneDoc(), fakeMenuEvent()), true);
+  assert.equal(await mod.handleConflictDocumentDoubleClick(boardDoc(), fakeMenuEvent()), true);
+  assert.equal(rendered, 0, "zone/board double-clicks must not open the sheet");
+});
