@@ -832,11 +832,12 @@ export function buildZoneDescriptors(state, geometry, zone, zoneAspects) {
 export function currentCombatantIdOf(combat) {
   const turn = combat?.turn;
   if (!Number.isInteger(turn) || turn < 0) return null;
-  return (
-    combatantsInTurnOrder(combat)[turn]?.id ??
-    combatantsOf(combat)[turn]?.id ??
-    null
-  );
+  const byTurns = combatantsInTurnOrder(combat)[turn]?.id ?? combatantsOf(combat)[turn]?.id ?? null;
+  if (byTurns) return byTurns;
+  // Foundry v14 fallback: combat.combatant is the canonical current combatant
+  // getter (derived from turn). Used when turns/combatants arrays are not
+  // present or the index lookup failed (e.g., mocked combats, post-migration).
+  return combat?.combatant?.id ?? null;
 }
 
 /** Active marker color: "currently acting", independent of `hasActed`. */
@@ -1489,7 +1490,11 @@ async function syncConflictBoardNow(scene, options = {}) {
     combat,
   });
 
-  const nextState = readConflictBoard(scene) ?? state;
+  // Build from the FINAL projected state (after hasActed -> acted). Using
+  // rec.state guarantees the documents reflect the live turn state even when
+  // the reconciled flag was already up-to-date and no scene.update was needed
+  // (deepEqual no-op) or when the scene flag read would be stale.
+  const nextState = rec.state ?? readConflictBoard(scene) ?? state;
   const nextRegistry = boardRegistry(scene) ?? registry;
 
   // Stable widget ids for new zones/cards.

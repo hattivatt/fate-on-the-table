@@ -2629,3 +2629,191 @@ test("eliminated card survives round change: applyCombatTurnStateToCards keeps e
     uninstallProjectionGlobals();
   }
 });
+
+/* ------------------------------------------------------------------ *
+ * Acted fade tracks turn state exactly (regression for complaints 1-3)
+ * ------------------------------------------------------------------ */
+
+test("acted fade: current combatant with hasActed true is never grey (same sync, popcorn)", async () => {
+  installProjectionGlobals();
+  const raw = JSON.parse(readFileSync(new URL("../layouts/minimal.json", import.meta.url), "utf8"));
+  addLayout(analyzeLayout(raw).normalized);
+  try {
+    const state = validState({ cards: { c1: { side: "friendly", area: "side", order: 0 }, c2: { side: "hostile", area: "side", order: 1 } }, tokenZones: {} });
+    const scene = mockScene({ tokens: { t1: { uuid: "Scene.scene1.Token.t1" }, t2: { uuid: "Scene.scene1.Token.t2" } } });
+    await writeConflictBoard(scene, state);
+    await scene.update({ [`flags.${FLAG_SCOPE}.${CONFLICT_BOARD_WIDGET_FLAG}`]: { widgetId: "wBoard", zoneWidgetIds: {}, cardWidgetIds: { c1: "wCard1", c2: "wCard2" } } }, { fateOnTheTableSync: true });
+    // c1 is current and already hasActed (popcorn: action marks hasActed but turn stays)
+    const combat = {
+      id: "combat-abc",
+      turn: 0,
+      round: 1,
+      combatants: [
+        { id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? true : undefined; } },
+        { id: "c2", tokenId: "t2", sceneId: "scene1", token: { name: "B", texture: { src: "b.png" }, disposition: -1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? false : undefined; } },
+      ],
+    };
+    const res = await syncConflictBoard(scene, { combat, forceProjection: true });
+    assert.equal(res.ok, true);
+    const stored = readConflictBoard(scene);
+    assert.equal(stored.cards.c1.acted, undefined, "current never grey even with hasActed true");
+    assert.equal(stored.cards.c2.acted, undefined);
+    const overlays = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ACTED_OVERLAY_PART);
+    assert.equal(overlays.length, 0, "no grey overlay while current");
+  } finally { uninstallProjectionGlobals(); }
+});
+
+test("acted fade: grey appears same sync when turn moves away (previous current hasActed)", async () => {
+  installProjectionGlobals();
+  const raw = JSON.parse(readFileSync(new URL("../layouts/minimal.json", import.meta.url), "utf8"));
+  addLayout(analyzeLayout(raw).normalized);
+  try {
+    const state = validState({ cards: { c1: { side: "friendly", area: "side", order: 0 }, c2: { side: "hostile", area: "side", order: 1 } }, tokenZones: {} });
+    const scene = mockScene({ tokens: { t1: { uuid: "Scene.scene1.Token.t1" }, t2: { uuid: "Scene.scene1.Token.t2" } } });
+    await writeConflictBoard(scene, state);
+    await scene.update({ [`flags.${FLAG_SCOPE}.${CONFLICT_BOARD_WIDGET_FLAG}`]: { widgetId: "wBoard", zoneWidgetIds: {}, cardWidgetIds: { c1: "wCard1", c2: "wCard2" } } }, { fateOnTheTableSync: true });
+    // initial: c1 current with hasActed true, c2 not acted
+    const combat1 = {
+      id: "combat-abc",
+      turn: 0,
+      round: 1,
+      combatants: [
+        { id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? true : undefined; } },
+        { id: "c2", tokenId: "t2", sceneId: "scene1", token: { name: "B", texture: { src: "b.png" }, disposition: -1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? false : undefined; } },
+      ],
+    };
+    await syncConflictBoard(scene, { combat: combat1, forceProjection: true });
+    assert.equal(scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ACTED_OVERLAY_PART).length, 0);
+    // pass turn to c2: both haveActed true, c2 is current
+    const combat2 = {
+      id: "combat-abc",
+      turn: 1,
+      round: 1,
+      combatants: [
+        { id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? true : undefined; } },
+        { id: "c2", tokenId: "t2", sceneId: "scene1", token: { name: "B", texture: { src: "b.png" }, disposition: -1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? true : undefined; } },
+      ],
+    };
+    const res2 = await syncConflictBoard(scene, { combat: combat2 });
+    assert.equal(res2.ok, true);
+    const stored = readConflictBoard(scene);
+    assert.equal(stored.cards.c1.acted, true, "previous current now grey");
+    assert.equal(stored.cards.c2.acted, undefined, "new current not grey");
+    const overlays = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ACTED_OVERLAY_PART);
+    assert.equal(overlays.length, 1);
+    assert.equal(overlays[0].getFlag(FLAG_SCOPE, "combatantId"), "c1");
+  } finally { uninstallProjectionGlobals(); }
+});
+
+test("acted fade: returnTurn clears grey same sync (hasActed false -> overlay removed)", async () => {
+  installProjectionGlobals();
+  const raw = JSON.parse(readFileSync(new URL("../layouts/minimal.json", import.meta.url), "utf8"));
+  addLayout(analyzeLayout(raw).normalized);
+  try {
+    const state = validState({ cards: { c1: { side: "friendly", area: "side", order: 0, acted: true }, c2: { side: "hostile", area: "side", order: 1 } }, tokenZones: {} });
+    const scene = mockScene({ tokens: { t1: { uuid: "Scene.scene1.Token.t1" }, t2: { uuid: "Scene.scene1.Token.t2" } } });
+    await writeConflictBoard(scene, state);
+    await scene.update({ [`flags.${FLAG_SCOPE}.${CONFLICT_BOARD_WIDGET_FLAG}`]: { widgetId: "wBoard", zoneWidgetIds: {}, cardWidgetIds: { c1: "wCard1", c2: "wCard2" } } }, { fateOnTheTableSync: true });
+    const combatBefore = {
+      id: "combat-abc",
+      turn: 1,
+      round: 1,
+      combatants: [
+        { id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? true : undefined; } },
+        { id: "c2", tokenId: "t2", sceneId: "scene1", token: { name: "B", texture: { src: "b.png" }, disposition: -1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? true : undefined; } },
+      ],
+    };
+    await syncConflictBoard(scene, { combat: combatBefore, forceProjection: true });
+    assert.equal(scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ACTED_OVERLAY_PART).length, 1);
+    // returnTurn for c1: hasActed false, turn stays 1 (c2 current)
+    const combatAfter = {
+      id: "combat-abc",
+      turn: 1,
+      round: 1,
+      combatants: [
+        { id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? false : undefined; } },
+        { id: "c2", tokenId: "t2", sceneId: "scene1", token: { name: "B", texture: { src: "b.png" }, disposition: -1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? true : undefined; } },
+      ],
+    };
+    const res = await syncConflictBoard(scene, { combat: combatAfter });
+    assert.equal(res.ok, true);
+    const stored = readConflictBoard(scene);
+    assert.equal(stored.cards.c1.acted, undefined, "returned card not grey");
+    // c2 is current with hasActed true -> still not grey (popcorn)
+    assert.equal(stored.cards.c2.acted, undefined);
+    const overlays = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ACTED_OVERLAY_PART);
+    assert.equal(overlays.length, 0, "grey overlay removed same sync");
+  } finally { uninstallProjectionGlobals(); }
+});
+
+test("acted fade: round change clears all grey same sync (hasActed reset) while eliminated strikes remain", async () => {
+  installProjectionGlobals();
+  const raw = JSON.parse(readFileSync(new URL("../layouts/minimal.json", import.meta.url), "utf8"));
+  addLayout(analyzeLayout(raw).normalized);
+  try {
+    const state = validState({
+      cards: {
+        c1: { side: "friendly", area: "side", order: 0, acted: true },
+        c2: { side: "hostile", area: "side", order: 1, acted: true },
+        c3: { side: "hostile", area: "side", order: 2, eliminated: true },
+      },
+      tokenZones: {},
+    });
+    const scene = mockScene({ tokens: { t1: { uuid: "Scene.scene1.Token.t1" }, t2: { uuid: "Scene.scene1.Token.t2" }, t3: { uuid: "Scene.scene1.Token.t3" } } });
+    await writeConflictBoard(scene, state);
+    await scene.update({ [`flags.${FLAG_SCOPE}.${CONFLICT_BOARD_WIDGET_FLAG}`]: { widgetId: "wBoard", zoneWidgetIds: {}, cardWidgetIds: { c1: "wCard1", c2: "wCard2", c3: "wCard3" } } }, { fateOnTheTableSync: true });
+    const combatBefore = {
+      id: "combat-abc",
+      turn: 0,
+      round: 1,
+      combatants: [
+        { id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? true : undefined; } },
+        { id: "c2", tokenId: "t2", sceneId: "scene1", token: { name: "B", texture: { src: "b.png" }, disposition: -1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? true : undefined; } },
+        { id: "c3", tokenId: "t3", sceneId: "scene1", token: { name: "C", texture: { src: "c.png" }, disposition: -1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? false : undefined; } },
+      ],
+    };
+    await syncConflictBoard(scene, { combat: combatBefore, forceProjection: true });
+    const greyBefore = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ACTED_OVERLAY_PART);
+    // c1 is current with hasActed true -> not grey, c2 grey, c3 eliminated (strike, not grey)
+    assert.equal(greyBefore.length, 1);
+    assert.equal(greyBefore[0].getFlag(FLAG_SCOPE, "combatantId"), "c2");
+    const strikesBefore = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ELIMINATED_STRIKE_PART);
+    assert.equal(strikesBefore.length, 2);
+    // next exchange: hasActed reset for all, round 2, turn null
+    const combatAfter = {
+      id: "combat-abc",
+      turn: null,
+      round: 2,
+      combatants: [
+        { id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? false : undefined; } },
+        { id: "c2", tokenId: "t2", sceneId: "scene1", token: { name: "B", texture: { src: "b.png" }, disposition: -1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? false : undefined; } },
+        { id: "c3", tokenId: "t3", sceneId: "scene1", token: { name: "C", texture: { src: "c.png" }, disposition: -1 }, getFlag(s, k) { return s === "fate-core-official" && k === "hasActed" ? false : undefined; } },
+      ],
+    };
+    const res = await syncConflictBoard(scene, { combat: combatAfter });
+    assert.equal(res.ok, true);
+    const stored = readConflictBoard(scene);
+    assert.equal(stored.cards.c1.acted, undefined);
+    assert.equal(stored.cards.c2.acted, undefined);
+    assert.equal(stored.cards.c3.eliminated, true);
+    const greyAfter = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ACTED_OVERLAY_PART);
+    assert.equal(greyAfter.length, 0, "all grey overlays cleared same sync");
+    const strikesAfter = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ELIMINATED_STRIKE_PART);
+    assert.equal(strikesAfter.length, 2, "eliminated strikes untouched by round change");
+  } finally { uninstallProjectionGlobals(); }
+});
+
+test("currentCombatantIdOf handles turn null and combat.combatant fallback (v14)", () => {
+  assert.equal(currentCombatantIdOf({ turn: null, combatants: [{ id: "a" }] }), null);
+  assert.equal(currentCombatantIdOf({ turn: undefined, combatants: [{ id: "a" }] }), null);
+  assert.equal(currentCombatantIdOf({ turn: -1, combatants: [{ id: "a" }] }), null);
+  // normal turns order
+  assert.equal(currentCombatantIdOf({ turn: 1, turns: [{ id: "c1" }, { id: "c2" }], combatants: [{ id: "c1" }, { id: "c2" }] }), "c2");
+  // fallback to combatants when turns empty
+  assert.equal(currentCombatantIdOf({ turn: 0, turns: [], combatants: [{ id: "c1" }] }), "c1");
+  // fallback to combat.combatant when arrays miss
+  assert.equal(currentCombatantIdOf({ turn: 0, combatants: [], combatant: { id: "c9" } }), "c9");
+  assert.equal(currentCombatantIdOf({ turn: 0, turns: [], combatants: [], combatant: { id: "c9" } }), "c9");
+  // turn null never returns combatant even if present (popcorn: no current)
+  assert.equal(currentCombatantIdOf({ turn: null, combatant: { id: "c9" }, combatants: [{ id: "c9" }] }), null);
+});
