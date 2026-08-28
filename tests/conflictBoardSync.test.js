@@ -36,6 +36,7 @@ import {
   docsBounds,
   currentCombatantIdOf,
   buildCardDescriptors,
+  applyCombatTurnStateToCards,
   CONFLICT_BOARD_OWNER_TYPE,
   CONFLICT_BOARD_WIDGET_FLAG,
   CONFLICT_AREA_LABEL_PART,
@@ -2538,6 +2539,92 @@ test("syncConflictBoard: eliminated strikes created and respect acted+eliminated
     assert.equal(third.ok, true);
     assert.equal(third.updated, 0);
     assert.equal(scene.embeddedUpdates.Drawing.length, beforeUpdates);
+  } finally {
+    uninstallProjectionGlobals();
+  }
+});
+
+test("eliminated card survives round change: applyCombatTurnStateToCards keeps eliminated despite hasActed/current fluctuations, sync retains strikes and updates round number", async () => {
+  installProjectionGlobals();
+  const raw = JSON.parse(readFileSync(new URL("../layouts/minimal.json", import.meta.url), "utf8"));
+  addLayout(analyzeLayout(raw).normalized);
+  try {
+    // pure check: eliminated card never touched by turn-state, even when current
+    const baseState = validState({
+      cards: {
+        c1: { side: "friendly", area: "side", order: 0, eliminated: true },
+        c2: { side: "hostile", area: "side", order: 1 },
+      },
+      tokenZones: {},
+    });
+    const pure1 = applyCombatTurnStateToCards(baseState, { c1: true, c2: true }, { currentCombatantId: "c1" });
+    assert.equal(pure1.state.cards.c1.eliminated, true);
+    assert.equal(pure1.state.cards.c1.acted, undefined);
+    assert.equal(pure1.state.cards.c1.area, "side");
+    assert.deepEqual(pure1.changed, ["c2"]);
+    const pure2 = applyCombatTurnStateToCards(pure1.state, { c1: false, c2: false }, { currentCombatantId: "c1" });
+    assert.equal(pure2.state.cards.c1.eliminated, true);
+    assert.equal(pure2.state.cards.c1.acted, undefined);
+    assert.deepEqual(pure2.changed, ["c2"]);
+
+    // e2e sync: round 1 -> strikes present, round number 1
+    const scene = mockScene({
+      tokens: {
+        t1: { uuid: "Scene.scene1.Token.t1" },
+        t2: { uuid: "Scene.scene1.Token.t2" },
+      },
+    });
+    await writeConflictBoard(scene, baseState);
+    await scene.update(
+      { [`flags.${FLAG_SCOPE}.${CONFLICT_BOARD_WIDGET_FLAG}`]: { widgetId: "wBoard", zoneWidgetIds: {}, cardWidgetIds: { c1: "wCard1", c2: "wCard2" } } },
+      { fateOnTheTableSync: true },
+    );
+    const combatR1 = {
+      id: "combat-abc",
+      round: 1,
+      turn: 0,
+      combatants: [
+        { id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 }, getFlag(scope, key) { return scope === "fate-core-official" && key === "hasActed" ? true : undefined; } },
+        { id: "c2", tokenId: "t2", sceneId: "scene1", token: { name: "B", texture: { src: "b.png" }, disposition: -1 }, getFlag(scope, key) { return scope === "fate-core-official" && key === "hasActed" ? true : undefined; } },
+      ],
+    };
+    const first = await syncConflictBoard(scene, { combat: combatR1, forceProjection: true });
+    assert.equal(first.ok, true);
+    let stored = readConflictBoard(scene);
+    assert.equal(stored.cards.c1.eliminated, true);
+    assert.equal(stored.cards.c1.acted, undefined);
+    assert.equal(stored.cards.c1.area, "side");
+    let strikes = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ELIMINATED_STRIKE_PART);
+    assert.equal(strikes.length, 2);
+    let roundNums = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === "conflictRoundNumber");
+    assert.equal(roundNums.length, 1);
+    assert.equal(roundNums[0].text, "1");
+
+    // new round: hasActed reset, eliminated card is current (turn 0), strikes stay, round number -> 2
+    const combatR2 = {
+      id: "combat-abc",
+      round: 2,
+      turn: 0,
+      combatants: [
+        { id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 }, getFlag(scope, key) { return scope === "fate-core-official" && key === "hasActed" ? false : undefined; } },
+        { id: "c2", tokenId: "t2", sceneId: "scene1", token: { name: "B", texture: { src: "b.png" }, disposition: -1 }, getFlag(scope, key) { return scope === "fate-core-official" && key === "hasActed" ? false : undefined; } },
+      ],
+    };
+    const second = await syncConflictBoard(scene, { combat: combatR2 });
+    assert.equal(second.ok, true);
+    stored = readConflictBoard(scene);
+    assert.equal(stored.cards.c1.eliminated, true);
+    assert.equal(stored.cards.c1.acted, undefined);
+    assert.equal(stored.cards.c1.area, "side");
+    assert.equal(stored.cards.c2.acted, undefined);
+    strikes = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ELIMINATED_STRIKE_PART);
+    assert.equal(strikes.length, 2, "eliminated strikes survive round change");
+    for (const s of strikes) {
+      assert.equal(s.getFlag(FLAG_SCOPE, "combatantId"), "c1");
+    }
+    roundNums = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === "conflictRoundNumber");
+    assert.equal(roundNums.length, 1);
+    assert.equal(roundNums[0].text, "2", "round number updated to new round");
   } finally {
     uninstallProjectionGlobals();
   }

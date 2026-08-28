@@ -108,6 +108,7 @@ function renderLevel(menuEl, items, menuClass) {
         submenu.className = menuClass || "ctt-menu";
         // ensure fixed positioning like root (css .ctt-menu already does)
         submenu.classList.add("ctt-submenu");
+        submenu.__parent = menuEl;
         renderLevel(submenu, item.children, menuClass);
         document.body.append(submenu);
         menuEl.__submenus.push(submenu);
@@ -176,9 +177,21 @@ function closeSubmenu(submenu) {
   submenu.__submenus = [];
   const idx = activeSubmenus.indexOf(submenu);
   if (idx >= 0) activeSubmenus.splice(idx, 1);
-  // remove from parent __submenus if present
-  // parent tracking is via menuEl.__submenus; we already removed from activeSubmenus,
-  // but keep parent array clean for sibling logic
+  // remove from parent __submenus to avoid dead refs on sibling iteration
+  const parent = submenu.__parent;
+  if (parent?.__submenus) {
+    const pIdx = parent.__submenus.indexOf(submenu);
+    if (pIdx >= 0) parent.__submenus.splice(pIdx, 1);
+  } else {
+    // fallback: scan active menu/submenus when __parent not set (defensive)
+    const candidates = [activeMenu, ...activeSubmenus];
+    for (const cand of candidates) {
+      if (!cand?.__submenus) continue;
+      const pIdx = cand.__submenus.indexOf(submenu);
+      if (pIdx >= 0) cand.__submenus.splice(pIdx, 1);
+    }
+  }
+  submenu.__parent = null;
   try {
     submenu.remove();
   } catch {
