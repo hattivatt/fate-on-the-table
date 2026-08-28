@@ -38,6 +38,7 @@ import {
   writeConflictBoard,
   syncConflictBoard,
 } from "./ConflictBoardSync.js";
+import { escapeHtml, dialogField, canvasWorldPosition } from "./utils.js";
 
 /** Corners used for zone resize handles. */
 const CORNERS = ["nw", "ne", "sw", "se"];
@@ -700,48 +701,4 @@ function isGm() {
   return game.user.isGM === true;
 }
 
-function canvasWorldPosition(event) {
-  try {
-    const v = canvas.app.view;
-    const rect = v.getBoundingClientRect();
-    const x = (event.clientX - rect.left) * (v.width / rect.width);
-    const y = (event.clientY - rect.top) * (v.height / rect.height);
-    const world = canvas.stage.worldTransform.applyInverse(
-      new PIXI.Point(x, y),
-    );
-    return { x: world.x, y: world.y };
-  } catch (err) {
-    return null;
-  }
-}
 
-function escapeHtml(text) {
-  return String(text ?? "").replace(/[&<>"']/g, (c) => {
-    const map = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    };
-    return map[c];
-  });
-}
-
-/**
- * Reads a named field from a DialogV2.input() result. In Foundry v14 the
- * result is the submitted form data (a plain object keyed by the field `name`
- * attributes, or a FormData instance in some builds), the id of a non-ok
- * button (e.g. `"cancel"`), or `null` when the dialog was dismissed. Returns
- * the raw field value, or `undefined` when absent/cancelled.
- * @param {unknown} result  The DialogV2.input() resolution.
- * @param {string} name  The field `name` attribute to read.
- * @returns {string|number|File|null|undefined}
- */
-function dialogField(result, name) {
-  if (!result || typeof result !== "object") return undefined;
-  if (typeof FormData !== "undefined" && result instanceof FormData) {
-    return result.get(name);
-  }
-  return result[name];
-}

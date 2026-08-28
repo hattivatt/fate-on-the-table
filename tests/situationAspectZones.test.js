@@ -1,8 +1,8 @@
 /**
  * Node tests for the situation-aspect <-> conflict-board ZONE binding:
  *
- * - `hasConflictBoardOnScene` / `zoneOptions` (ConflictBoardSync.js): the
- *   "board is actually placed" guard and the zone-name choices;
+ * - `hasConflictBoardOnScene` (ConflictBoardSync.js): the
+ *   "board is actually placed" guard;
  * - `buildBoundName` / `parseBinding` (situationAspectNames.js): the pure
  *   textual `${base} (${choice})` suffix format used by both inline forms of
  *   the SituationAspectManager.
@@ -16,7 +16,6 @@ import { strict as assert } from "node:assert";
 import {
   readConflictBoard,
   hasConflictBoardOnScene,
-  zoneOptions,
 } from "../scripts/ConflictBoardSync.js";
 import {
   buildBoundName,
@@ -108,38 +107,6 @@ test("hasConflictBoardOnScene: false when the registry lacks a widgetId", () => 
 test("hasConflictBoardOnScene: true only for a live board (state + widgetId)", () => {
   const scene = sceneWithZones([zone("z1", "Room")]);
   assert.equal(hasConflictBoardOnScene(scene), true);
-});
-
-/* ------------------------------------------------------------------ *
- * zoneOptions
- * ------------------------------------------------------------------ */
-
-test("zoneOptions: empty array without any board state", () => {
-  assert.deepEqual(zoneOptions(null), []);
-  assert.deepEqual(zoneOptions(mockScene()), []);
-});
-
-test("zoneOptions: names in storage order, empties and blanks filtered", () => {
-  const scene = sceneWithZones([
-    zone("z3", "Cellar"),
-    zone("z1", ""),
-    zone("z2", "  "),
-    zone("z4", "Rooftop"),
-    zone("z5"), // name absent entirely
-  ]);
-  assert.deepEqual(zoneOptions(scene), ["Cellar", "Rooftop"]);
-});
-
-test("zoneOptions: trims surrounding whitespace of kept names", () => {
-  const scene = sceneWithZones([zone("z1", "  Bridge  ")]);
-  assert.deepEqual(zoneOptions(scene), ["Bridge"]);
-});
-
-test("zoneOptions: works from state alone (registry not required)", () => {
-  // Visibility is gated by hasConflictBoardOnScene in the UI; the option
-  // list itself stays purely state-derived.
-  const scene = sceneWithZones([zone("z1", "Room")], { withRegistry: false });
-  assert.deepEqual(zoneOptions(scene), ["Room"]);
 });
 
 /* ------------------------------------------------------------------ *

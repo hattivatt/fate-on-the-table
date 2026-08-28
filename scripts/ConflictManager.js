@@ -108,6 +108,7 @@ import {
   combatantDescriptors,
   CONFLICT_BOARD_WIDGET_FLAG,
 } from "./ConflictBoardSync.js";
+import { escapeHtml, toArray } from "./utils.js";
 
 /* ------------------------------------------------------------------ *
  * Runtime feature flags / lazy imports
@@ -158,9 +159,7 @@ let busy = false;
  * ------------------------------------------------------------------ */
 
 function combatantsOf(combat) {
-  if (Array.isArray(combat?.combatants)) return combat.combatants;
-  if (Array.isArray(combat?.combatants?.contents)) return combat.combatants.contents;
-  return [];
+  return toArray(combat?.combatants);
 }
 
 /**
@@ -176,6 +175,8 @@ function combatantsOf(combat) {
 function combatantsInTurnOrder(combat) {
   if (Array.isArray(combat?.turns)) return combat.turns;
   if (Array.isArray(combat?.turns?.contents)) return combat.turns.contents;
+  const extra = toArray(combat?.turns);
+  if (extra.length && combat?.turns != null) return extra;
   return combatantsOf(combat);
 }
 
@@ -1019,19 +1020,6 @@ function reasonMessageKey(reason) {
 function notifyReason(reason) {
   if (typeof game === "undefined" || typeof ui === "undefined") return;
   ui.notifications?.warn?.(game.i18n.localize(reasonMessageKey(reason)));
-}
-
-function escapeHtml(text) {
-  return String(text ?? "").replace(/[&<>"']/g, (c) => {
-    const map = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    };
-    return map[c];
-  });
 }
 
 function combatantDisplayName(combatant) {

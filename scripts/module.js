@@ -57,6 +57,7 @@ import {
   reconcileTokenZoneMembership,
   handleTokenDropOnConflictZone,
 } from "./ConflictInteractions.js";
+import { toArray } from "./utils.js";
 import {
   enterConflictZoneEditMode,
   exitConflictZoneEditMode,
@@ -419,19 +420,7 @@ function onActorConsequenceSync(actor, changed, options) {
   const actorId = actor.id;
   let hasToken = false;
   try {
-    const col = scene.tokens;
-    let docs = [];
-    if (Array.isArray(col)) docs = col;
-    else if (Array.isArray(col?.contents)) docs = col.contents;
-    else if (typeof col?.values === "function") docs = [...col.values()];
-    else if (col instanceof Map) docs = [...col.values()];
-    else {
-      try {
-        docs = [...col];
-      } catch {
-        docs = [];
-      }
-    }
+    const docs = toArray(scene.tokens);
     for (const t of docs) {
       if (!t) continue;
       const tid = t.actorId ?? t.document?.actorId ?? t.actor?.id ?? null;
@@ -478,9 +467,7 @@ function isCombatBoundToScene(combat, scene) {
   const combatSceneId = combat.scene?.id ?? combat.sceneId ?? null;
   if (combatSceneId) return combatSceneId === scene.id;
   try {
-    const list = Array.isArray(combat.combatants)
-      ? combat.combatants
-      : (combat.combatants?.contents ?? []);
+    const list = toArray(combat.combatants);
     return list.some((c) => c?.tokenId && scene.tokens?.get?.(c.tokenId));
   } catch (err) {
     return false;
@@ -666,9 +653,7 @@ function actorDrivesBoardCard(scene, combat, actor) {
   const actorUuid = actor?.uuid ?? actor?.id ?? null;
   const actorId = actor?.id;
   if (!actorUuid && !actorId) return false;
-  const combatants = Array.isArray(combat?.combatants)
-    ? combat.combatants
-    : (combat?.combatants?.contents ?? []);
+  const combatants = toArray(combat?.combatants);
   for (const c of combatants ?? []) {
     if (!c?.tokenId) continue;
     const token = scene?.tokens?.get?.(c.tokenId);
@@ -727,19 +712,7 @@ function onDeleteToken(token, options) {
     if (saScene && actorId) {
       let remaining = false;
       try {
-        const col = saScene.tokens;
-        let docs = [];
-        if (Array.isArray(col)) docs = col;
-        else if (Array.isArray(col?.contents)) docs = col.contents;
-        else if (typeof col?.values === "function") docs = [...col.values()];
-        else if (col instanceof Map) docs = [...col.values()];
-        else {
-          try {
-            docs = [...col];
-          } catch {
-            docs = [];
-          }
-        }
+        const docs = toArray(saScene.tokens);
         for (const t of docs) {
           if (!t) continue;
           if (t.id === token.id) continue;

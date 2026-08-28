@@ -113,30 +113,17 @@ import {
 } from "./conflictBoardGeometry.js";
 import { build, toDocumentData, stressBoxTarget, consequenceCostTarget } from "./WidgetBuilder.js";
 import { getLayout } from "./layoutRegistry.js";
-import { aspectsForZone, normalizeZoneIds } from "./situationAspectZones.js";
+import { aspectsForZone } from "./situationAspectZones.js";
+import { normalizeAspects } from "./situationAspectData.js";
+import { toArray } from "./utils.js";
 
 /** System flag scope carrying `hasActed` on Combatants. */
 const SYSTEM_FLAG_SCOPE = GM_FP_SCOPE;
 const HAS_ACTED_KEY = "hasActed";
 
-/**
- * Local read of situation aspects without importing SituationAspectSync
- * (which pulls settings/LayoutImportExport requiring `foundry` at import time).
- * Mirrors SituationAspectSync.normalizeAspects + situationAspects exactly:
- * name trimmed, free_invokes coerced, zoneIds normalized, unknown fields preserved.
- */
 function situationAspects(scene) {
   const raw = scene?.getFlag?.(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY);
-  if (!Array.isArray(raw)) return [];
-  const out = [];
-  for (const r of raw) {
-    const name = String(r?.name ?? "").trim();
-    if (!name) continue;
-    const invokes = Math.max(0, Math.trunc(Number(r?.free_invokes) || 0));
-    const zoneIds = normalizeZoneIds(r?.zoneIds);
-    out.push({ ...r, name, free_invokes: invokes, zoneIds });
-  }
-  return out;
+  return normalizeAspects(raw);
 }
 
 // ownerType of the board-level projection parts (background/areas/labels).
@@ -253,22 +240,6 @@ export function hasConflictBoardOnScene(scene) {
   return !!readConflictBoard(scene) && !!boardRegistry(scene)?.widgetId;
 }
 
-/**
- * Zone names of the scene's conflict board in storage order (`state.zones`);
- * empty/whitespace-only names are filtered out. Without a valid board state
- * the list is empty. Callers gate visibility through
- * `hasConflictBoardOnScene`, so this helper stays purely state-derived.
- * @param {object} scene
- * @returns {string[]}
- */
-export function zoneOptions(scene) {
-  const state = readConflictBoard(scene);
-  if (!state) return [];
-  return (Array.isArray(state.zones) ? state.zones : [])
-    .map((zone) => String(zone?.name ?? "").trim())
-    .filter((name) => name.length > 0);
-}
-
 async function writeBoardState(scene, state) {
   await scene.update(
     { [`flags.${FLAG_SCOPE}.${CONFLICT_BOARD_FLAG}`]: state },
@@ -379,16 +350,11 @@ function resolveActiveCombat(state, options = {}) {
 
 function resolveCombatants(combat, options = {}) {
   if (Array.isArray(options.combatants)) return options.combatants;
-  const list = combat?.combatants;
-  if (Array.isArray(list)) return list;
-  if (Array.isArray(list?.contents)) return list.contents;
-  return [];
+  return toArray(combat?.combatants);
 }
 
 function combatantsOf(combat) {
-  if (Array.isArray(combat?.combatants)) return combat.combatants;
-  if (Array.isArray(combat?.combatants?.contents)) return combat.combatants.contents;
-  return [];
+  return toArray(combat?.combatants);
 }
 
 /**
@@ -400,6 +366,8 @@ function combatantsOf(combat) {
 function combatantsInTurnOrder(combat) {
   if (Array.isArray(combat?.turns)) return combat.turns;
   if (Array.isArray(combat?.turns?.contents)) return combat.turns.contents;
+  const extra = toArray(combat?.turns);
+  if (extra.length && combat?.turns != null) return extra;
   return combatantsOf(combat);
 }
 

@@ -103,6 +103,7 @@ import {
   isConsequenceCostPart,
   handleConsequenceCostDoubleClick,
 } from "./ConsequenceInteractions.js";
+import { escapeHtml, dialogField, canvasWorldPosition, toArray } from "./utils.js";
 
 /** System flag scope + key carrying `hasActed` on Combatants. */
 const SYSTEM_FLAG_SCOPE = GM_FP_SCOPE;
@@ -1294,9 +1295,7 @@ async function resolveTurnAction(action) {
  * ------------------------------------------------------------------ */
 
 function combatantsOf(combat) {
-  if (Array.isArray(combat?.combatants)) return combat.combatants;
-  if (Array.isArray(combat?.combatants?.contents)) return combat.combatants.contents;
-  return [];
+  return toArray(combat?.combatants);
 }
 
 function combatantOf(combat, id) {
@@ -1312,6 +1311,8 @@ function combatantOf(combat, id) {
 function combatantsInTurnOrder(combat) {
   if (Array.isArray(combat?.turns)) return combat.turns;
   if (Array.isArray(combat?.turns?.contents)) return combat.turns.contents;
+  const extra = toArray(combat?.turns);
+  if (extra.length && combat?.turns != null) return extra;
   return combatantsOf(combat);
 }
 
@@ -1412,22 +1413,6 @@ function clamp(value, lo, hi) {
 function limitedLevel() {
   if (typeof CONST === "undefined") return null;
   return CONST?.DOCUMENT_OWNERSHIP_LEVELS?.LIMITED ?? null;
-}
-
-function canvasWorldPosition(event) {
-  if (!event?.clientX || !canvas?.app?.view) return null;
-  try {
-    const view = canvas.app.view;
-    const rect = view.getBoundingClientRect();
-    const x = (event.clientX - rect.left) * (view.width / rect.width);
-    const y = (event.clientY - rect.top) * (view.height / rect.height);
-    const world = canvas.stage.worldTransform.applyInverse(
-      new PIXI.Point(x, y),
-    );
-    return { x: world.x, y: world.y };
-  } catch (err) {
-    return null;
-  }
 }
 
 function worldPointFromEvent(event) {
@@ -1566,33 +1551,4 @@ function reasonMessageKey(reason) {
   }
 }
 
-function escapeHtml(text) {
-  return String(text ?? "").replace(/[&<>"']/g, (c) => {
-    const map = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    };
-    return map[c];
-  });
-}
 
-/**
- * Reads a named field from a DialogV2.input() result. In Foundry v14 the
- * result is the submitted form data (a plain object keyed by the field `name`
- * attributes, or a FormData instance in some builds), the id of a non-ok
- * button (e.g. `"cancel"`), or `null` when the dialog was dismissed. Returns
- * the raw field value, or `undefined` when absent/cancelled.
- * @param {unknown} result  The DialogV2.input() resolution.
- * @param {string} name  The field `name` attribute to read.
- * @returns {string|number|File|null|undefined}
- */
-function dialogField(result, name) {
-  if (!result || typeof result !== "object") return undefined;
-  if (typeof FormData !== "undefined" && result instanceof FormData) {
-    return result.get(name);
-  }
-  return result[name];
-}

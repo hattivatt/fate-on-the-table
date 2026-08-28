@@ -28,6 +28,7 @@ import {
 import { consequenceCostTarget } from "./WidgetBuilder.js";
 import { syncConflictBoard } from "./ConflictBoardSync.js";
 import { buildConsequenceMeta } from "./situationAspectConsequences.js";
+import { escapeHtml, dialogField, toArray } from "./utils.js";
 
 export const CONSEQUENCE_COST_ROWS_PART = "consequenceCostRows";
 
@@ -145,9 +146,7 @@ async function resolveConflictCardActor(doc) {
   try {
     if (typeof game !== "undefined" && game?.combats?.get && combatId) {
       const combat = game.combats.get(combatId);
-      const combatants = Array.isArray(combat?.combatants)
-        ? combat.combatants
-        : (combat?.combatants?.contents ?? []);
+      const combatants = toArray(combat?.combatants);
       const combatant = combatants.find((c) => c?.id === combatantId);
       if (combatant?.token?.actor) {
         return { actor: combatant.token.actor, token: combatant.token };
@@ -289,28 +288,6 @@ export function promptConsequenceName(currentName) {
     const value = dialogField(result, "name");
     if (value === undefined || value === null) return null;
     return String(value).trim();
-  });
-}
-
-/** Reads a named field from a DialogV2.input() result. */
-function dialogField(result, name) {
-  if (!result || typeof result !== "object") return undefined;
-  if (typeof FormData !== "undefined" && result instanceof FormData) {
-    return result.get(name);
-  }
-  return result[name];
-}
-
-function escapeHtml(text) {
-  return String(text ?? "").replace(/[&<>"']/g, (c) => {
-    const map = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    };
-    return map[c];
   });
 }
 

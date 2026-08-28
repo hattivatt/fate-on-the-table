@@ -10,6 +10,7 @@ import { removeActorWidgets, syncActorNow } from "./WidgetSync.js";
 import { getLayoutIds, getLayoutRecord } from "./layoutRegistry.js";
 import { layoutDisplayName } from "./settings.js";
 import { FLAG_SCOPE, WIDGETS_FLAG } from "./constants.js";
+import { dialogField } from "./utils.js";
 
 export function initSheetButton() {
   const cls = findSheetClass();
@@ -140,20 +141,4 @@ async function removeWithConfirmation(actor) {
   );
 }
 
-/**
- * Reads a named field from a DialogV2.input() result. In Foundry v14 the
- * result is the submitted form data (a plain object keyed by the field `name`
- * attributes, or a FormData instance in some builds), the id of a non-ok
- * button (e.g. `"cancel"`), or `null` when the dialog was dismissed. Returns
- * the raw field value, or `undefined` when absent/cancelled.
- * @param {unknown} result  The DialogV2.input() resolution.
- * @param {string} name  The field `name` attribute to read.
- * @returns {string|number|File|null|undefined}
- */
-function dialogField(result, name) {
-  if (!result || typeof result !== "object") return undefined;
-  if (typeof FormData !== "undefined" && result instanceof FormData) {
-    return result.get(name);
-  }
-  return result[name];
-}
+

@@ -48,6 +48,7 @@ import {
   SITUATION_ASPECTS_WIDGET_FLAG,
   SA_OWNER_TYPE,
 } from "./constants.js";
+import { escapeHtml } from "./utils.js";
 
 const DIALOG_ID = "fate-on-the-table-situation-aspects";
 
@@ -214,19 +215,6 @@ class SituationAspectsDialog extends foundry.applications.api.ApplicationV2 {
   _onClose(options) {
     busy = false;
   }
-}
-
-function escapeHtml(text) {
-  return String(text ?? "").replace(/[&<>"']/g, (c) => {
-    const map = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    };
-    return map[c];
-  });
 }
 
 /**

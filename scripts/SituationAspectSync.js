@@ -43,6 +43,8 @@ import {
   consequenceMarker,
   reconcileConsequences,
 } from "./situationAspectConsequences.js";
+import { normalizeAspects as normalizeAspectsData } from "./situationAspectData.js";
+import { toArray } from "./utils.js";
 
 const SA_PARTS = [SA_TEXT_PART, SA_FRAME_PART, SA_BACKGROUND_PART];
 
@@ -63,25 +65,8 @@ export function saRegistry(scene = canvas?.scene) {
   return scene?.getFlag(FLAG_SCOPE, SITUATION_ASPECTS_WIDGET_FLAG) ?? null;
 }
 
-/**
- * Deep-clones and normalizes a raw situation aspects list:
- * `free_invokes` becomes a non-negative integer (fixes the old string
- * concatenation bug), names are trimmed, empty names are dropped. Unknown
- * extra fields of the system objects are preserved.
- * @param {*} list
- * @returns {object[]}
- */
 export function normalizeAspects(list) {
-  if (!Array.isArray(list)) return [];
-  const out = [];
-  for (const raw of list) {
-    const name = String(raw?.name ?? "").trim();
-    if (!name) continue;
-    const invokes = Math.max(0, Math.trunc(Number(raw.free_invokes) || 0));
-    const zoneIds = normalizeZoneIds(raw?.zoneIds);
-    out.push({ ...raw, name, free_invokes: invokes, zoneIds });
-  }
-  return out;
+  return normalizeAspectsData(list);
 }
 
 /** Normalized situation aspects of a scene (from the system flag). */
@@ -97,7 +82,7 @@ export function situationAspects(scene = canvas?.scene) {
  * @param {object[]} aspects  Normalized aspect objects.
  * @returns {string}
  */
-export function aspectsText(aspects) {
+function aspectsText(aspects) {
   return aspects.map((a) => `${a.name} (${a.free_invokes})`).join("\n\n");
 }
 
@@ -511,18 +496,7 @@ function sceneCharacterNames(scene) {
   try {
     const tokens = scene?.tokens;
     if (!tokens) return new Set();
-    let arr = [];
-    if (Array.isArray(tokens)) arr = tokens;
-    else if (Array.isArray(tokens?.contents)) arr = tokens.contents;
-    else if (typeof tokens?.values === "function") arr = [...tokens.values()];
-    else if (tokens instanceof Map) arr = [...tokens.values()];
-    else {
-      try {
-        arr = [...tokens];
-      } catch {
-        return new Set();
-      }
-    }
+    const arr = toArray(tokens);
     const names = arr.map((t) => String(t?.name ?? "").trim()).filter((n) => n.length > 0);
     return new Set(names);
   } catch {
@@ -534,18 +508,7 @@ function collectSceneActors(scene) {
   try {
     const tokens = scene?.tokens;
     if (!tokens) return [];
-    let arr = [];
-    if (Array.isArray(tokens)) arr = tokens;
-    else if (Array.isArray(tokens?.contents)) arr = tokens.contents;
-    else if (typeof tokens?.values === "function") arr = [...tokens.values()];
-    else if (tokens instanceof Map) arr = [...tokens.values()];
-    else {
-      try {
-        arr = [...tokens];
-      } catch {
-        return [];
-      }
-    }
+    const arr = toArray(tokens);
     const seen = new Set();
     const out = [];
     for (const token of arr) {

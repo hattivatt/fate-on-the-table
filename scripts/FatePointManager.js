@@ -59,6 +59,7 @@ import {
   isConsequenceCostPart,
   handleConsequenceCostDoubleClick,
 } from "./ConsequenceInteractions.js";
+import { escapeHtml, canvasWorldPosition } from "./utils.js";
 
 const OWNER = CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
 const LIMITED = CONST.DOCUMENT_OWNERSHIP_LEVELS.LIMITED;
@@ -650,13 +651,6 @@ function actorWidgetOnScene(actor) {
   return (actor.getFlag(FLAG_SCOPE, WIDGETS_FLAG) ?? []).some(
     (w) => w.sceneId === scene.id && allWidgetDocs(scene, w.widgetId).length > 0,
   );
-}
-
-function escapeHtml(text) {
-  return String(text ?? "").replace(/[&<>"']/g, (c) => {
-    const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-    return map[c];
-  });
 }
 
 function renderContent() {
@@ -1366,21 +1360,6 @@ function hitTestWidgetPart(event) {
     return b.z - a.z;
   });
   return candidates[0].doc;
-}
-
-function canvasWorldPosition(event) {
-  try {
-    const view = canvas.app.view;
-    const rect = view.getBoundingClientRect();
-    const x = (event.clientX - rect.left) * (view.width / rect.width);
-    const y = (event.clientY - rect.top) * (view.height / rect.height);
-    const world = canvas.stage.worldTransform.applyInverse(
-      new PIXI.Point(x, y),
-    );
-    return { x: world.x, y: world.y };
-  } catch (err) {
-    return null;
-  }
 }
 
 /** Selects a widget part so the click gives visible feedback. */
