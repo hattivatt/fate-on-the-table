@@ -336,6 +336,7 @@
         "fontWeight": 400,
         "textColor": "#000000",
         "textAlign": "center",
+        "verticalAlign": "top",
         "fill": {
           "type": "none",
           "color": "#ffffff",

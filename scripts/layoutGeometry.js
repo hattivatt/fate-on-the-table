@@ -87,6 +87,42 @@ function defaultMeasureText(text, style) {
   return String(text ?? "").length * (Number(style?.size) || 20) * 0.55;
 }
 
+/** Resolvers whose value-mode content must be top-aligned inside its rect (block height 450 etc.). */
+const TOP_ASPECT_RESOLVERS = new Set(["@aspects", "@shortAspects"]);
+
+function isTopAlignedValue(el) {
+  if (el.style?.verticalAlign === "top") return true;
+  if (el.content?.mode === "value" && TOP_ASPECT_RESOLVERS.has(el.content?.resolver)) return true;
+  return false;
+}
+
+/** Estimates wrapped line count for a value-mode block, mirroring layout-editor/src/preview/textWrap.ts. */
+function wrapLinesForValue(text, maxWidth, fontSize) {
+  const lines = [];
+  if (!Number.isFinite(maxWidth) || maxWidth <= 0) return String(text ?? "").split("\n");
+  const approx = Math.max(fontSize * 0.62, 4);
+  for (const raw of String(text ?? "").split("\n")) {
+    if (raw.length * approx <= maxWidth) {
+      lines.push(raw);
+      continue;
+    }
+    let current = "";
+    for (const word of raw.split(" ")) {
+      const candidate = current ? `${current} ${word}` : word;
+      if (candidate.length * approx <= maxWidth) {
+        current = candidate;
+      } else if (current) {
+        lines.push(current);
+        current = word;
+      } else {
+        lines.push(word);
+      }
+    }
+    if (current) lines.push(current);
+  }
+  return lines;
+}
+
 /**
  * Computes the concrete document descriptors of a layout.
  * @param {object} layout   Normalized layout document.
@@ -247,15 +283,32 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
         // visible stroke or fill would create a hidden empty document that
         // Foundry v14 rejects (dropping the whole batch).
         if (isDrawingVisible({ ...base, text })) {
-          list.push({
-            ...base,
-            index: -1,
-            x: rect.x * scale,
-            y: rect.y * scale,
-            w: rect.width * scale,
-            h: rect.height * scale,
-            text,
-          });
+          if (isTopAlignedValue(el)) {
+            const fontSize = Number(el.style?.fontSize ?? 20);
+            const lineHeight = fontSize * 1.2 * scale;
+            const maxWidth = el.rect.width;
+            const lines = wrapLinesForValue(text, maxWidth, fontSize);
+            const contentH = Math.max(lineHeight, lines.length * lineHeight);
+            list.push({
+              ...base,
+              index: -1,
+              x: rect.x * scale,
+              y: rect.y * scale,
+              w: rect.width * scale,
+              h: contentH,
+              text,
+            });
+          } else {
+            list.push({
+              ...base,
+              index: -1,
+              x: rect.x * scale,
+              y: rect.y * scale,
+              w: rect.width * scale,
+              h: rect.height * scale,
+              text,
+            });
+          }
         }
       }
     }

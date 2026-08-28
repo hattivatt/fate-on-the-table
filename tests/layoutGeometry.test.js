@@ -108,11 +108,16 @@ test("default layout: full actor (4 skill rows, 3 FP tokens, 2 stress rows)", ()
     { x: 175, y: -150, w: 300, h: 68 },
   );
   const aspects = find("aspects");
+  // Aspects content is top-aligned inside its 450-high block: height equals
+  // wrapped content (3 lines including the blank separator) not the full block,
+  // and y is at the block top (header bottom), not centered.
   assert.deepEqual(
     { x: aspects.x, y: aspects.y, w: aspects.w, h: aspects.h },
-    { x: 165, y: -82, w: 333, h: 450 },
+    { x: 165, y: -82, w: 333, h: 72 },
   );
   assert.equal(aspects.text, "High Concept\n\nTrouble");
+  // Top alignment: aspects top equals header top + header height
+  assert.equal(aspects.y, aspectsHeader.y + aspectsHeader.h);
 
   const label = find("fatePointsLabel");
   assert.deepEqual(
@@ -1059,4 +1064,35 @@ test("minimal layout snapshot matches the provided layout-minimal.json geometry"
 
   // Thin stress box borders in the snapshot too.
   assert.equal(el("stressBoxRows").style.stroke.width, 1);
+});
+
+test("aspects content is top-aligned inside its block (not vertically centered)", () => {
+  const layout = loadNormalized("default");
+  const headerEl = layout.elements.find((e) => e.id === "aspectsHeader");
+  const aspectsEl = layout.elements.find((e) => e.id === "aspects");
+  assert.ok(headerEl && aspectsEl, "default must have aspectsHeader and aspects");
+
+  const renderAspects = (text, scale = 1) => {
+    const data = resolvedData({ rows: 0, tokens: 0 });
+    data.aspects = text;
+    const { docs } = computeLayoutDocs(layout, data, { fatePointImage: "modules/fate-on-the-table/fp.png", measureText: fastMeasureText, scale });
+    const ar = toAnchorRelative(docs, scale);
+    const aspects = ar.find((d) => d.part === "aspects");
+    const header = ar.find((d) => d.part === "aspectsHeader");
+    return { aspects, header };
+  };
+
+  // Two aspects -> 3 wrapped lines (including blank separator) -> h = 3 * 24 = 72
+  const { aspects, header } = renderAspects("High Concept\n\nTrouble");
+  assert.equal(aspects.h, 72, "aspects height equals content height (top-aligned), not block height 450");
+  assert.equal(aspects.y, header.y + header.h, "aspects top is directly below header (no vertical centering gap)");
+  assert.equal(aspects.align, "center", "horizontal centering preserved");
+
+  // Single short aspect -> 1 line -> h = 24
+  const { aspects: single } = renderAspects("Solo");
+  assert.equal(single.h, 24, "single aspect height is one line");
+
+  // Scaled 2x: height doubles but remains content-based (72*2=144)
+  const { aspects: scaled } = renderAspects("High Concept\n\nTrouble", 2);
+  assert.equal(scaled.h, 144, "scaled aspects height is content height * scale");
 });

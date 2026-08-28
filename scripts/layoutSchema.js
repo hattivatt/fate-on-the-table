@@ -518,6 +518,9 @@ function validateStyle(style, error, path) {
   if (style.textAlign !== undefined && !TEXT_ALIGNS.includes(style.textAlign)) {
     error(`${path}.textAlign`, `Expected one of: ${TEXT_ALIGNS.join(", ")}.`);
   }
+  if (style.verticalAlign !== undefined && style.verticalAlign !== "top" && style.verticalAlign !== "middle") {
+    error(`${path}.verticalAlign`, 'Expected "top" or "middle".');
+  }
   if (style.fill !== undefined) {
     if (!isObject(style.fill)) {
       error(`${path}.fill`, "Expected an object.");

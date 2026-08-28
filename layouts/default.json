@@ -133,7 +133,8 @@
         "fontSize": 20,
         "fontWeight": 400,
         "textColor": "#000000",
-        "textAlign": "center"
+        "textAlign": "center",
+        "verticalAlign": "top"
       }
     },
     {
