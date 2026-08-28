@@ -82,9 +82,12 @@ function pointOnRect(rect, point) {
   return { x: rect.x + rect.width * fx, y: rect.y + rect.height * fy };
 }
 
+export const TEXT_MEASURE_FALLBACK_FACTOR = 0.55;
+export const TEXT_WIDTH_APPROX_FACTOR = 0.62;
+
 /** Fallback text width for pure Node geometry tests without a browser font. */
 function defaultMeasureText(text, style) {
-  return String(text ?? "").length * (Number(style?.size) || 20) * 0.55;
+  return String(text ?? "").length * (Number(style?.size) || 20) * TEXT_MEASURE_FALLBACK_FACTOR;
 }
 
 /** Resolvers whose value-mode content must be top-aligned inside its rect (block height 450 etc.). */
@@ -100,7 +103,7 @@ function isTopAlignedValue(el) {
 function wrapLinesForValue(text, maxWidth, fontSize) {
   const lines = [];
   if (!Number.isFinite(maxWidth) || maxWidth <= 0) return String(text ?? "").split("\n");
-  const approx = Math.max(fontSize * 0.62, 4);
+  const approx = Math.max(fontSize * TEXT_WIDTH_APPROX_FACTOR, 4);
   for (const raw of String(text ?? "").split("\n")) {
     if (raw.length * approx <= maxWidth) {
       lines.push(raw);

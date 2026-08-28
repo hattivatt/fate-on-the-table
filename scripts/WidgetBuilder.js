@@ -13,7 +13,7 @@
  * are rejected at validation time (layoutSchema.js).
  */
 
-import { computeLayoutDocs } from "./layoutGeometry.js";
+import { computeLayoutDocs, TEXT_MEASURE_FALLBACK_FACTOR } from "./layoutGeometry.js";
 import { MODULE_ID } from "./constants.js";
 
 const warnedFonts = new Set();
@@ -543,7 +543,7 @@ function measureTextWidth(text, style) {
   } catch (err) {
     // Fall back to a deterministic approximation outside a browser canvas.
   }
-  return String(text ?? "").length * (Number(style?.size) || 20) * 0.55;
+  return String(text ?? "").length * (Number(style?.size) || 20) * TEXT_MEASURE_FALLBACK_FACTOR;
 }
 
 /**

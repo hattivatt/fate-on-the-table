@@ -314,33 +314,37 @@ const SYNC_FIELDS = [
 export async function syncSituationAspects(scene = canvas?.scene) {
   if (!scene) return false;
 
-  // Structural zone migration + dangling cleanup (idempotent, no-op when
-  // nothing to do). Must run BEFORE the drawing reconcile so the widget
-  // reflects the migrated/cleaned list, and must NOT import
-  // ConflictBoardSync (cycle). Board state is read directly via the flag
-  // + normalizeConflictBoard.
-  try {
-    await migrateAndCleanSituationAspects(scene);
-  } catch (err) {
-    console.warn("[fate-on-the-table] situation aspect zone migration failed:", err);
-  }
-
-  // Structural consequence reconciliation (idempotent, no-op when nothing to do).
-  // Must run after zone migration and before drawing so the widget reflects the
-  // renamed/cleaned consequence list. Collects live scene actors from tokens
-  // (guards mirror sceneCharacterNames) and reconciles the aspect list via the
-  // pure `reconcileConsequences` helper.
-  try {
-    const actors = collectSceneActors(scene);
-    const raw = scene?.getFlag?.(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY);
-    if (Array.isArray(raw)) {
-      const { list, changed } = reconcileConsequences(raw, actors);
-      if (changed) {
-        await scene.setFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY, list);
+  // Coalesced structural passes: zone migration/cleanup + consequence
+  // reconciliation share ONE working list and produce at most ONE flag write.
+  // Each pass is isolated (a failure in one does not drop the other) and the
+  // combined change is persisted once. Must run before drawing so the widget
+  // reflects the final list, and must NOT import ConflictBoardSync (cycle).
+  const rawFlag = scene?.getFlag?.(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY);
+  if (Array.isArray(rawFlag)) {
+    let workingList = rawFlag;
+    let structuralChanged = false;
+    try {
+      const res = migrateAndCleanSituationAspects(workingList, scene);
+      if (res.changed) {
+        workingList = res.list;
+        structuralChanged = true;
       }
+    } catch (err) {
+      console.warn("[fate-on-the-table] situation aspect zone migration failed:", err);
     }
-  } catch (err) {
-    console.warn("[fate-on-the-table] situation aspect consequence reconciliation failed:", err);
+    try {
+      const actors = collectSceneActors(scene);
+      const { list, changed } = reconcileConsequences(workingList, actors);
+      if (changed) {
+        workingList = list;
+        structuralChanged = true;
+      }
+    } catch (err) {
+      console.warn("[fate-on-the-table] situation aspect consequence reconciliation failed:", err);
+    }
+    if (structuralChanged) {
+      await scene.setFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY, workingList);
+    }
   }
 
   const registry = saRegistry(scene);
@@ -526,13 +530,12 @@ function collectSceneActors(scene) {
   }
 }
 
-async function migrateAndCleanSituationAspects(scene) {
-  const rawFlag = scene?.getFlag?.(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY);
-  if (!Array.isArray(rawFlag)) return;
+function migrateAndCleanSituationAspects(inputList, scene) {
+  if (!Array.isArray(inputList)) return { list: [], changed: false };
   const { validIds, zoneNameToId } = readBoardZoneInfo(scene);
   const characterNames = sceneCharacterNames(scene);
 
-  let list = rawFlag;
+  let list = inputList;
   let changed = false;
 
   // 1) migrate textual zone suffixes -> structural zoneIds
@@ -592,8 +595,7 @@ async function migrateAndCleanSituationAspects(scene) {
     changed = true;
   }
 
-  if (!changed) return;
-  await scene.setFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY, list);
+  return { list, changed };
 }
 
 /**

@@ -318,3 +318,50 @@ test("sync cleans dangling zoneId after zone deletion", async () => {
   await syncSituationAspects(scene);
   assert.equal(scene.calls.setFlag.length, 0);
 });
+
+test("sync coalesces zone migration and consequence reconciliation into a single setFlag", async () => {
+  const board = validBoard({ zones:[zone("z1","Bridge")] });
+  const tokens = [
+    {
+      name: "Grom",
+      actor: {
+        name: "Grom",
+        system: {
+          tracks: {
+            mild: { harm_can_absorb: 2, aspect: { name: "Broken leg", when_marked: true } },
+          },
+        },
+      },
+    },
+  ];
+  const rawAspects = [
+    { name: "Fire (Bridge)", free_invokes: 1 },
+    { name: "Broken leg (Grom)", free_invokes: 1, linked: true },
+  ];
+  const scene = mockScene({
+    flags: {
+      [FLAG_SCOPE]: { [CONFLICT_BOARD_FLAG]: board, [SITUATION_ASPECTS_WIDGET_FLAG]: { widgetId: WIDGET_ID, anchor: ANCHOR } },
+      [SITUATION_ASPECTS_SCOPE]: { [SITUATION_ASPECTS_KEY]: rawAspects },
+    },
+    tokens,
+  });
+  const normalizedOld = normalizeAspects(rawAspects);
+  const docs = [...buildSaTextDocs(normalizedOld, OPTS), buildSaFrameDoc(OPTS), buildSaBackgroundDoc(OPTS)];
+  for (const doc of docs) {
+    const payload = toDocumentData({ ...doc, x: doc.x + ANCHOR.x, y: doc.y + ANCHOR.y }, { widgetId: WIDGET_ID, part: doc.part, index: doc.index, ownerType: SA_OWNER_TYPE });
+    await scene.createEmbeddedDocuments("Drawing", [payload]);
+  }
+  scene.calls.setFlag.length = 0;
+  await syncSituationAspects(scene);
+  const stored = scene.getFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY);
+  assert.deepEqual(stored, [
+    { name: "Fire", free_invokes: 1, zoneIds: ["z1"] },
+    { name: "Broken leg (Grom)", free_invokes: 1, linked: true, consequence: { trackKey: "mild", cost: 2, actorName: "Grom" } },
+  ]);
+  assert.equal(scene.calls.setFlag.length, 1, "zone + consequence changes must coalesce into a single setFlag");
+  assert.equal(scene.calls.setFlag[0].scope, SITUATION_ASPECTS_SCOPE);
+  scene.calls.setFlag.length = 0;
+  await syncSituationAspects(scene);
+  assert.equal(scene.calls.setFlag.length, 0, "second sync must be no-op");
+});
+

@@ -388,3 +388,32 @@ test("promptConsequenceName degrades to a graceful cancel without DialogV2.input
     globalThis.foundry.applications.api.DialogV2 = original;
   }
 });
+
+test("upsertSituationAspect enriches dedup-hit without consequence with passed meta", async () => {
+  const meta = { trackKey: "mild", cost: 2, actorName: "Grom" };
+  const existing = { name: "Broken leg (Grom)", free_invokes: 1, linked: true };
+  const scene = mockScene([existing, { name: "Room is dark", free_invokes: 2 }]);
+  await upsertSituationAspect(scene, "Grom", "Broken leg", "", meta);
+  const list = scene.getFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY);
+  assert.deepEqual(list, [
+    { name: "Broken leg (Grom)", free_invokes: 1, linked: true, consequence: meta },
+    { name: "Room is dark", free_invokes: 2 },
+  ]);
+  assert.equal(scene.changedFlags.length, 1, "dedup-hit should patch meta with a single setFlag");
+});
+
+test("upsertSituationAspect dedup-hit with already correct meta is no-op (no setFlag)", async () => {
+  const meta = { trackKey: "mild", cost: 2, actorName: "Grom" };
+  const existing = { name: "Broken leg (Grom)", free_invokes: 1, linked: true, consequence: { trackKey: "mild", cost: 2, actorName: "Grom" } };
+  const scene = mockScene([existing]);
+  await upsertSituationAspect(scene, "Grom", "Broken leg", "", meta);
+  assert.equal(scene.changedFlags.length, 0, "equal meta must not trigger setFlag");
+  assert.deepEqual(scene.getFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY), [existing]);
+});
+
+test("upsertSituationAspect dedup-hit without meta is no-op (no setFlag)", async () => {
+  const existing = { name: "Broken leg (Grom)", free_invokes: 1, linked: true };
+  const scene = mockScene([existing]);
+  await upsertSituationAspect(scene, "Grom", "Broken leg", "");
+  assert.equal(scene.changedFlags.length, 0, "dedup without meta must stay no-op");
+});

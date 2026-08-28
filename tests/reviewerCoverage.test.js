@@ -157,8 +157,7 @@ test("consequenceMarker: string cost normalization", () => {
   assert.equal(buildConsequenceMeta("mild", "4", "Grom").cost, 4);
 });
 
-test("upsert: FU record without meta is deduped without adding meta (adoption deferred to reconcile)", async () => {
-  // Mirrors the existing behavior but explicitly documents the deferred-adoption contract
+test("upsert: FU record without meta is deduped with meta enrichment (immediate adoption)", async () => {
   const scene = {
     flags: { [SITUATION_ASPECTS_SCOPE]: { [SITUATION_ASPECTS_KEY]: [{ name: "Broken leg (Grom)", free_invokes: 1, linked: true }] } },
     getFlag(scope, key) { return this.flags[scope]?.[key]; },
@@ -169,10 +168,9 @@ test("upsert: FU record without meta is deduped without adding meta (adoption de
   const list = scene.getFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY);
   assert.equal(list.length, 1);
   assert.equal(list[0].name, "Broken leg (Grom)");
-  // meta NOT added by upsert — reconcile will adopt
-  assert.equal(list[0].consequence, undefined);
+  // meta is now added on dedup-hit (was deferred to reconcile before)
+  assert.deepEqual(list[0].consequence, meta);
   const actors = [{ name: "Grom", tracks: { mild: { harm_can_absorb: 2, aspect: { name: "Broken leg" } } } }];
   const reconciled = reconcileConsequences(list, actors);
-  assert.equal(reconciled.changed, true);
-  assert.deepEqual(reconciled.list[0].consequence, meta);
+  assert.equal(reconciled.changed, false, "reconcile is now no-op after immediate enrichment");
 });

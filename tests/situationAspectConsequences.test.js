@@ -464,7 +464,7 @@ test("upsertSituationAspect writes meta on create", async () => {
   assert.deepEqual(list, [{name:"Broken leg (Grom)", free_invokes:1, linked:true, consequence:meta}]);
 });
 
-test("upsertSituationAspect dedupe with system record without meta still works (no duplicate)", async () => {
+test("upsertSituationAspect dedupe with system record without meta enriches with meta (no duplicate)", async () => {
   const existing = {name:"Broken leg (Grom)", free_invokes:1, linked:true}; // no meta
   const scene = {
     flags:{ [SITUATION_ASPECTS_SCOPE]:{[SITUATION_ASPECTS_KEY]:[existing]} },
@@ -475,8 +475,7 @@ test("upsertSituationAspect dedupe with system record without meta still works (
   await upsertSituationAspect(scene, "Grom", "Broken leg", "", meta);
   const list = scene.getFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY);
   assert.equal(list.length,1);
-  // dedup keeps original without meta (adoption will happen via reconcile, not upsert)
-  assert.deepEqual(list[0], existing);
+  assert.deepEqual(list[0], {name:"Broken leg (Grom)", free_invokes:1, linked:true, consequence: meta});
 });
 
 test("upsertSituationAspect rename preserves previous meta when new meta not passed", async () => {

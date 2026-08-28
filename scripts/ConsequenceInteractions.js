@@ -235,6 +235,7 @@ export async function upsertSituationAspect(
   if (oldName) {
     oldIndex = list.findIndex((a) => a?.name === oldName);
   }
+  let changed = false;
   if (newText) {
     if (oldIndex >= 0) {
       // Rename in place: keep free_invokes and any other fields.
@@ -242,17 +243,53 @@ export async function upsertSituationAspect(
       const nextMeta = meta !== undefined ? meta : prev.consequence;
       const updated = { ...prev, name: newText, linked: true };
       if (nextMeta !== undefined) updated.consequence = nextMeta;
-      list[oldIndex] = updated;
-    } else if (!list.some((a) => a?.name === newText)) {
-      // New consequence: dedupe by name, then add the linked record.
-      const entry = { name: newText, free_invokes: 1, linked: true };
-      if (meta !== undefined) entry.consequence = meta;
-      list.push(entry);
+      const sameConsequence = (() => {
+        const a = prev.consequence;
+        const b = updated.consequence;
+        if (a === b) return true;
+        if (a === undefined && b === undefined) return true;
+        if (a === undefined || b === undefined) return false;
+        try {
+          return JSON.stringify(a) === JSON.stringify(b);
+        } catch {
+          return false;
+        }
+      })();
+      if (prev.name !== updated.name || prev.linked !== true || !sameConsequence) {
+        list[oldIndex] = updated;
+        changed = true;
+      }
+    } else {
+      const existingIdx = list.findIndex((a) => a?.name === newText);
+      if (existingIdx >= 0) {
+        const existing = list[existingIdx];
+        if (meta !== undefined && existing.consequence === undefined) {
+          list[existingIdx] = { ...existing, consequence: meta };
+          changed = true;
+        } else if (meta !== undefined && existing.consequence !== undefined) {
+          let equal = false;
+          try {
+            equal = JSON.stringify(existing.consequence) === JSON.stringify(meta);
+          } catch {
+            equal = false;
+          }
+          if (!equal) {
+            list[existingIdx] = { ...existing, consequence: meta };
+            changed = true;
+          }
+        }
+      } else {
+        const entry = { name: newText, free_invokes: 1, linked: true };
+        if (meta !== undefined) entry.consequence = meta;
+        list.push(entry);
+        changed = true;
+      }
     }
   } else if (oldIndex >= 0) {
-    // Slot cleared: remove the previous linked record.
     list.splice(oldIndex, 1);
+    changed = true;
   }
+  if (!changed) return;
   await scene.setFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY, list);
 }
 

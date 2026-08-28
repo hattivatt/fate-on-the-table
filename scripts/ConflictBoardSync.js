@@ -1216,7 +1216,7 @@ export function syncConflictBoard(scene, options = {}) {
   const result = previous.then(() => syncConflictBoardNow(scene, options));
   // Swallow the chain tail: a failed sync must not unhandled-reject and must
   // not prevent the next queued sync from running.
-  syncQueues.set(key, result.catch(() => {}));
+  syncQueues.set(key, result.catch((err) => console.error("[fate-on-the-table] conflict board sync failed:", err)));
   return result;
 }
 
