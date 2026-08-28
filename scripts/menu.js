@@ -9,7 +9,11 @@
  *  - флип у краёв окна: Math.min(x, innerWidth - rect.width - 8) (объединённая логика обеих реализаций);
  *  - закрытие по Escape / outside pointerdown (capture) / scroll / resize — надмножество поведения обеих.
  *
- * Форма элемента: { icon, label, disabled?, sep?, onClick }
+ * Форма элемента: { icon, label, disabled?, sep?, onClick, children?: array }
+ *  - children — массив таких же items; пункт с children открывает вложенное меню
+ *    справа от пункта (при нехватке места — слева; вертикально флип у краёв).
+ *    Закрытие вложенного: mouseleave с delay ~250мс, клик вне, закрытие родителя.
+ *    Клик по пункту с children не закрывает меню и не выполняет onClick.
  * label/icon уже экранируются через escapeHtml.
  * Поддерживает disabled, sep, кликабельность 1:1.
  * Не использует top-level foundry — только DOM.
@@ -18,6 +22,8 @@
 import { escapeHtml } from "./utils.js";
 
 let activeMenu = null;
+const activeSubmenus = [];
+const submenuCloseTimers = new Map();
 
 function clientPosition(event, point) {
   // point имеет приоритет (мир→клиент)
@@ -57,24 +63,7 @@ export function showCttMenu({ items, event, point, menuClass } = {}) {
   if (!list.length) return null;
   const menu = document.createElement("div");
   menu.className = menuClass || "ctt-menu";
-  for (const item of list) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    if (item.sep) {
-      btn.classList.add("ctt-menu-sep", "ctt-conflict-menu-sep");
-    }
-    if (item.disabled) btn.disabled = true;
-    btn.innerHTML = `<i class="fas ${escapeHtml(item.icon ?? "")}"></i> ${escapeHtml(item.label ?? "")}`;
-    btn.addEventListener("click", () => {
-      closeCttMenu();
-      if (!item.disabled && typeof item.onClick === "function") {
-        Promise.resolve(item.onClick()).catch((err) =>
-          console.error("[fate-on-the-table] menu action failed:", err),
-        );
-      }
-    });
-    menu.append(btn);
-  }
+  renderLevel(menu, list, menuClass || "ctt-menu");
   if (!menu.childElementCount) return null;
   document.body.append(menu);
   const rect = menu.getBoundingClientRect();
@@ -89,9 +78,155 @@ export function showCttMenu({ items, event, point, menuClass } = {}) {
   return menu;
 }
 
+function renderLevel(menuEl, items, menuClass) {
+  menuEl.__submenus = [];
+  for (const item of items) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    if (item.sep) {
+      btn.classList.add("ctt-menu-sep", "ctt-conflict-menu-sep");
+    }
+    if (item.disabled) btn.disabled = true;
+    const hasChildren = Array.isArray(item.children) && item.children.length > 0;
+    const canOpen = hasChildren && !item.disabled;
+    if (canOpen) {
+      btn.innerHTML = `<i class="fas ${escapeHtml(item.icon ?? "")}"></i> ${escapeHtml(item.label ?? "")} <i class="fas fa-chevron-right" style="float:right;margin-left:8px;opacity:0.6"></i>`;
+    } else {
+      btn.innerHTML = `<i class="fas ${escapeHtml(item.icon ?? "")}"></i> ${escapeHtml(item.label ?? "")}`;
+    }
+    if (canOpen) {
+      let submenu = null;
+      const open = () => {
+        for (const sib of [...(menuEl.__submenus ?? [])]) {
+          if (sib !== submenu && sib.isConnected) closeSubmenu(sib);
+        }
+        if (submenu?.isConnected) {
+          positionSubmenu(submenu, btn);
+          return submenu;
+        }
+        submenu = document.createElement("div");
+        submenu.className = menuClass || "ctt-menu";
+        // ensure fixed positioning like root (css .ctt-menu already does)
+        submenu.classList.add("ctt-submenu");
+        renderLevel(submenu, item.children, menuClass);
+        document.body.append(submenu);
+        menuEl.__submenus.push(submenu);
+        activeSubmenus.push(submenu);
+        positionSubmenu(submenu, btn);
+        submenu.addEventListener("mouseenter", () => clearCloseTimer(submenu));
+        submenu.addEventListener("mouseleave", () => scheduleClose(submenu, btn));
+        return submenu;
+      };
+      btn.addEventListener("mouseenter", () => {
+        clearCloseTimer(submenu);
+        open();
+      });
+      btn.addEventListener("mouseleave", () => {
+        if (submenu?.isConnected) scheduleClose(submenu, btn);
+      });
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (submenu?.isConnected) {
+          closeSubmenu(submenu);
+          submenu = null;
+        } else {
+          open();
+        }
+      });
+    } else {
+      btn.addEventListener("click", () => {
+        closeCttMenu();
+        if (!item.disabled && typeof item.onClick === "function") {
+          Promise.resolve(item.onClick()).catch((err) =>
+            console.error("[fate-on-the-table] menu action failed:", err),
+          );
+        }
+      });
+    }
+    menuEl.append(btn);
+  }
+}
+
+function clearCloseTimer(submenu) {
+  if (!submenu) return;
+  const id = submenuCloseTimers.get(submenu);
+  if (id != null) {
+    clearTimeout(id);
+    submenuCloseTimers.delete(submenu);
+  }
+}
+
+function scheduleClose(submenu, anchorBtn) {
+  if (!submenu?.isConnected) return;
+  clearCloseTimer(submenu);
+  const id = setTimeout(() => {
+    submenuCloseTimers.delete(submenu);
+    closeSubmenu(submenu);
+  }, 250);
+  submenuCloseTimers.set(submenu, id);
+}
+
+function closeSubmenu(submenu) {
+  if (!submenu) return;
+  clearCloseTimer(submenu);
+  for (const child of [...(submenu.__submenus ?? [])]) {
+    closeSubmenu(child);
+  }
+  submenu.__submenus = [];
+  const idx = activeSubmenus.indexOf(submenu);
+  if (idx >= 0) activeSubmenus.splice(idx, 1);
+  // remove from parent __submenus if present
+  // parent tracking is via menuEl.__submenus; we already removed from activeSubmenus,
+  // but keep parent array clean for sibling logic
+  try {
+    submenu.remove();
+  } catch {
+    // ignore
+  }
+}
+
+function positionSubmenu(submenu, anchorBtn) {
+  const anchorRect = anchorBtn.getBoundingClientRect();
+  const subRect = submenu.getBoundingClientRect();
+  let x = anchorRect.right + 4;
+  if (x + subRect.width > window.innerWidth - 8) {
+    x = anchorRect.left - subRect.width - 4;
+  }
+  if (x < 8) x = 8;
+  if (x + subRect.width > window.innerWidth - 8) {
+    x = Math.max(8, window.innerWidth - subRect.width - 8);
+  }
+  let y = anchorRect.top;
+  if (y + subRect.height > window.innerHeight - 8) {
+    y = window.innerHeight - subRect.height - 8;
+  }
+  if (y < 8) y = 8;
+  submenu.style.left = `${x}px`;
+  submenu.style.top = `${y}px`;
+}
+
 export function closeCttMenu() {
+  for (const [sub, id] of submenuCloseTimers) clearTimeout(id);
+  submenuCloseTimers.clear();
+  for (const sub of [...activeSubmenus]) {
+    try {
+      sub.remove();
+    } catch {
+      // ignore
+    }
+  }
+  activeSubmenus.length = 0;
   if (!activeMenu) return;
-  activeMenu.remove();
+  // also clear any nested submenus referenced from root
+  for (const child of [...(activeMenu.__submenus ?? [])]) {
+    closeSubmenu(child);
+  }
+  try {
+    activeMenu.remove();
+  } catch {
+    // ignore
+  }
   activeMenu = null;
   window.removeEventListener("pointerdown", onPointerDown, true);
   window.removeEventListener("keydown", onKeyDown);
@@ -113,6 +248,7 @@ export function isCttMenuOpen() {
 function onPointerDown(event) {
   if (!activeMenu) return;
   if (activeMenu.contains(event.target)) return;
+  if (activeSubmenus.some((s) => s.contains(event.target))) return;
   closeCttMenu();
 }
 

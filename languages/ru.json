@@ -268,6 +268,8 @@
   "fate-on-the-table.conflict.zone.editorDone": "Зона нарисована — введите её название для сохранения.",
   "fate-on-the-table.conflict.card.passTurn": "Передать ход",
   "fate-on-the-table.conflict.card.returnTurn": "Вернуть ход",
+  "fate-on-the-table.conflict.card.roll": "Бросок",
+  "fate-on-the-table.conflict.card.leaveCombat": "Выйти из боя",
   "fate-on-the-table.conflict.card.openSheet": "Открыть чарник",
   "fate-on-the-table.conflict.card.passTitle": "Передать ход",
   "fate-on-the-table.conflict.card.passConfirm": "Отметить «{name}» как походившего и сделать его текущим участником хода? Предыдущий участник завершает свой ход.",

@@ -710,7 +710,7 @@ function zoneMenuDoc(widgetId) {
   };
 }
 
-test("zone context menu routes to Rename + Remove for the GM", () => {
+test("zone context menu routes to Rename + Remove for the GM", async () => {
   const dom = installMenuDomStub();
   const scene = placedBoardScene();
   globalThis.canvas = { scene };
@@ -719,7 +719,7 @@ test("zone context menu routes to Rename + Remove for the GM", () => {
     i18n: { localize: (key) => key },
   };
   try {
-    const handled = mod.handleConflictContextMenu(zoneMenuDoc("wZone1"), fakeMenuEvent());
+    const handled = await mod.handleConflictContextMenu(zoneMenuDoc("wZone1"), fakeMenuEvent());
     assert.equal(handled, true);
     assert.equal(dom.createdButtons.length, 2);
     assert.ok(dom.createdButtons[0].innerHTML.includes("fa-pen"));
@@ -736,7 +736,7 @@ test("zone context menu routes to Rename + Remove for the GM", () => {
   }
 });
 
-test("zone context menu is consumed without a menu for players", () => {
+test("zone context menu is consumed without a menu for players", async () => {
   const dom = installMenuDomStub();
   const scene = placedBoardScene();
   globalThis.canvas = { scene };
@@ -745,7 +745,7 @@ test("zone context menu is consumed without a menu for players", () => {
     i18n: { localize: (key) => key },
   };
   try {
-    const handled = mod.handleConflictContextMenu(zoneMenuDoc("wZone1"), fakeMenuEvent());
+    const handled = await mod.handleConflictContextMenu(zoneMenuDoc("wZone1"), fakeMenuEvent());
     assert.equal(handled, true);
     assert.equal(dom.createdButtons.length, 0);
     assert.equal(dom.body.children.length, 0);
@@ -775,7 +775,7 @@ test("zone remove action confirms through DialogV2 and clears the zone + its tok
     },
   };
   try {
-    const handled = mod.handleConflictContextMenu(zoneMenuDoc("wZone1"), fakeMenuEvent());
+    const handled = await mod.handleConflictContextMenu(zoneMenuDoc("wZone1"), fakeMenuEvent());
     assert.equal(handled, true);
     assert.equal(dom.createdButtons.length, 2);
     dom.createdButtons[1].click(); // "Remove zone"
@@ -808,7 +808,7 @@ test("zone remove action leaves the state untouched when the confirmation is can
     confirm: async () => false,
   };
   try {
-    mod.handleConflictContextMenu(zoneMenuDoc("wZone1"), fakeMenuEvent());
+    await mod.handleConflictContextMenu(zoneMenuDoc("wZone1"), fakeMenuEvent());
     dom.createdButtons[1].click();
     await new Promise((r) => setTimeout(r, 0));
     const state = sync.readConflictBoard(scene);
@@ -994,7 +994,7 @@ afterEach(() => {
   delete globalThis.foundry?.applications?.api?.DialogV2;
 });
 
-test("card context menu is never shown to players", () => {
+test("card context menu is never shown to players", async () => {
   const dom = installMenuDomStub();
   const combat = {
     id: "combat-abc",
@@ -1003,7 +1003,7 @@ test("card context menu is never shown to players", () => {
   };
   const scene = menuScene("combat-abc", ["c1", "c2"]);
   installMenuCombat({ user: { isGM: false } }, combat, scene);
-  const handled = mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  const handled = await mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
   assert.equal(handled, true);
   assert.equal(dom.body.children.length, 0);
   assert.equal(dom.createdButtons.length, 0);
@@ -1035,14 +1035,15 @@ test("card context menu pass path calls the manager passTurn directly without Di
     newRound: async () => ({ ok: true }),
   });
 
-  const handled = mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  const handled = await mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
   assert.equal(handled, true);
-  // exactly one action: "Pass turn" (fa-forward), no return action
-  assert.equal(dom.createdButtons.length, 1);
-  assert.ok(dom.createdButtons[0].innerHTML.includes("fa-forward"));
-  assert.ok(!dom.createdButtons[0].innerHTML.includes("fa-undo"));
+  // Pass turn must be present; Leave combat is also present (new feature) separated by sep
+  const passBtn = dom.createdButtons.find((b) => b.innerHTML.includes("fa-forward"));
+  assert.ok(passBtn, "Pass turn button must exist");
+  assert.ok(dom.createdButtons.some((b) => b.innerHTML.includes("fate-on-the-table.conflict.card.leaveCombat")), "Leave combat should also be present");
+  assert.ok(!dom.createdButtons.some((b) => b.innerHTML.includes("fa-undo") && b.innerHTML.includes("fate-on-the-table.conflict.card.returnTurn")));
 
-  dom.createdButtons[0].click();
+  passBtn.click();
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(confirmCalls.length, 0); // no confirmation dialog on the card path
   assert.equal(passCalls.length, 1);
@@ -1070,13 +1071,14 @@ test("card context menu shows Return turn for an acted card and calls the manage
     newRound: async () => ({ ok: true }),
   });
 
-  const handled = mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  const handled = await mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
   assert.equal(handled, true);
-  assert.equal(dom.createdButtons.length, 1);
-  assert.ok(dom.createdButtons[0].innerHTML.includes("fa-undo"));
-  assert.ok(!dom.createdButtons[0].innerHTML.includes("fa-forward"));
+  const returnBtn = dom.createdButtons.find((b) => b.innerHTML.includes("fa-undo"));
+  assert.ok(returnBtn, "Return turn button must exist");
+  assert.ok(dom.createdButtons.some((b) => b.innerHTML.includes("fate-on-the-table.conflict.card.leaveCombat")), "Leave combat should also be present");
+  assert.ok(!dom.createdButtons.some((b) => b.innerHTML.includes("fa-forward") && b.innerHTML.includes("fate-on-the-table.conflict.card.passTurn")));
 
-  dom.createdButtons[0].click();
+  returnBtn.click();
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(returnCalls.length, 1);
   assert.equal(returnCalls[0].id, "c2");
@@ -1102,19 +1104,20 @@ test("card context menu allows Return turn for a current acted card (flag only, 
     newRound: async () => ({ ok: true }),
   });
 
-  const handled = mod.handleConflictContextMenu(cardContextDoc("c1"), fakeMenuEvent());
+  const handled = await mod.handleConflictContextMenu(cardContextDoc("c1"), fakeMenuEvent());
   assert.equal(handled, true);
-  // current unacted -> no pass; current acted -> return only
-  assert.equal(dom.createdButtons.length, 1);
-  assert.ok(dom.createdButtons[0].innerHTML.includes("fa-undo"));
+  const returnBtn2 = dom.createdButtons.find((b) => b.innerHTML.includes("fa-undo"));
+  assert.ok(returnBtn2, "Return turn for current acted must exist");
+  // leave also present
+  assert.ok(dom.createdButtons.some((b) => b.innerHTML.includes("fate-on-the-table.conflict.card.leaveCombat")));
 
-  dom.createdButtons[0].click();
+  returnBtn2.click();
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(returnCalls.length, 1);
   assert.equal(returnCalls[0].id, "c1");
 });
 
-test("card context menu shows no actions for a defeated acted card", () => {
+test("card context menu shows no actions for a defeated acted card", async () => {
   const dom = installMenuDomStub();
   const combat = {
     id: "combat-abc",
@@ -1126,13 +1129,13 @@ test("card context menu shows no actions for a defeated acted card", () => {
   };
   const scene = menuScene("combat-abc", ["c1", "c2"]);
   installMenuCombat({}, combat, scene);
-  const handled = mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  const handled = await mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
   assert.equal(handled, true);
   assert.equal(dom.body.children.length, 0); // no empty menu
   assert.equal(dom.createdButtons.length, 0);
 });
 
-test("card context menu shows no actions for a defeated unacted card (no Pass turn either)", () => {
+test("card context menu shows no actions for a defeated unacted card (no Pass turn either)", async () => {
   const dom = installMenuDomStub();
   const combat = {
     id: "combat-abc",
@@ -1144,13 +1147,13 @@ test("card context menu shows no actions for a defeated unacted card (no Pass tu
   };
   const scene = menuScene("combat-abc", ["c1", "c2"]);
   installMenuCombat({}, combat, scene);
-  const handled = mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  const handled = await mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
   assert.equal(handled, true);
   assert.equal(dom.body.children.length, 0); // defeated cards get no menu at all
   assert.equal(dom.createdButtons.length, 0);
 });
 
-test("card context menu never offers Pass turn for a card in the eliminated pile", () => {
+test("card context menu never offers Pass turn for a card in the eliminated pile", async () => {
   const dom = installMenuDomStub();
   const combat = {
     id: "combat-abc",
@@ -1163,13 +1166,13 @@ test("card context menu never offers Pass turn for a card in the eliminated pile
   const scene = menuScene("combat-abc", ["c1", "c2"]);
   scene.flags[FLAG_SCOPE][CONFLICT_BOARD_FLAG].cards.c2.eliminated = true;
   installMenuCombat({}, combat, scene);
-  const handled = mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  const handled = await mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
   assert.equal(handled, true);
   assert.equal(dom.body.children.length, 0);
   assert.equal(dom.createdButtons.length, 0);
 });
 
-test("card context menu consumes the event without a menu for a current unacted card", () => {
+test("card context menu consumes the event without a menu for a current unacted card", async () => {
   const dom = installMenuDomStub();
   const combat = {
     id: "combat-abc",
@@ -1178,12 +1181,15 @@ test("card context menu consumes the event without a menu for a current unacted 
   };
   const scene = menuScene("combat-abc", ["c1"]);
   installMenuCombat({}, combat, scene);
-  const handled = mod.handleConflictContextMenu(cardContextDoc("c1"), fakeMenuEvent());
+  const handled = await mod.handleConflictContextMenu(cardContextDoc("c1"), fakeMenuEvent());
   assert.equal(handled, true);
-  assert.equal(dom.createdButtons.length, 0);
+  // Now Leave combat is the only action for a current unacted card (no Pass/Return/Roll)
+  assert.equal(dom.createdButtons.length, 1);
+  assert.ok(dom.createdButtons[0].innerHTML.includes("fate-on-the-table.conflict.card.leaveCombat"));
+  assert.ok(dom.createdButtons[0].innerHTML.includes("fa-skull"));
 });
 
-test("card context menu consumes the event without a menu for an orphan card", () => {
+test("card context menu consumes the event without a menu for an orphan card", async () => {
   const dom = installMenuDomStub();
   const combat = {
     id: "combat-abc",
@@ -1192,7 +1198,7 @@ test("card context menu consumes the event without a menu for an orphan card", (
   };
   const scene = menuScene("combat-abc", ["c1"]);
   installMenuCombat({}, combat, scene);
-  const handled = mod.handleConflictContextMenu(cardContextDoc("missing"), fakeMenuEvent());
+  const handled = await mod.handleConflictContextMenu(cardContextDoc("missing"), fakeMenuEvent());
   assert.equal(handled, true);
   assert.equal(dom.createdButtons.length, 0);
 });
@@ -1623,4 +1629,315 @@ test("turn marker double-click with no card underneath is consumed without sheet
   assert.equal(handled, true);
   assert.equal(rendered, 0);
   delete globalThis.PIXI;
+});
+
+/* ------------------------------------------------------------------ *
+ * Pure helpers: buildSkillMenuItems & markEliminatedInState
+ * ------------------------------------------------------------------ */
+
+test("buildSkillMenuItems filters rank>0 and sorts descending by rank", () => {
+  const actor = {
+    system: {
+      skills: {
+        a: { name: "Stealth", rank: 2 },
+        b: { name: "Athletics", rank: 4 },
+        c: { name: "Burglary", rank: 0 },
+        d: { name: "Fight", rank: 1 },
+        e: { name: "Shoot", rank: 3 },
+        f: { name: "", rank: 5 },
+        g: { name: "Notice", rank: "2" },
+      },
+    },
+    rollSkill: async () => {},
+  };
+  const items = mod.buildSkillMenuItems(actor);
+  // rank>0, non-empty name, sorted 4,3,2,2,1
+  assert.deepEqual(items.map((it) => it.label), [
+    "Athletics (+4)",
+    "Shoot (+3)",
+    "Stealth (+2)",
+    "Notice (+2)",
+    "Fight (+1)",
+  ]);
+  assert.ok(items.every((it) => it.icon === "fa-dice-d20"));
+  assert.ok(items.every((it) => typeof it.onClick === "function"));
+  // original actor not mutated
+  assert.equal(Object.keys(actor.system.skills).length, 7);
+});
+
+test("buildSkillMenuItems returns [] for missing/empty skills", () => {
+  assert.deepEqual(mod.buildSkillMenuItems(null), []);
+  assert.deepEqual(mod.buildSkillMenuItems({}), []);
+  assert.deepEqual(mod.buildSkillMenuItems({ system: {} }), []);
+  assert.deepEqual(mod.buildSkillMenuItems({ system: { skills: {} } }), []);
+  const actor = { system: { skills: { a: { name: "Foo", rank: 0 }, b: { name: "Bar", rank: -1 } } }, rollSkill: async () => {} };
+  assert.deepEqual(mod.buildSkillMenuItems(actor), []);
+});
+
+test("buildSkillMenuItems onClick calls actor.rollSkill and warns on throw", async () => {
+  let called = null;
+  const actor = {
+    system: { skills: { a: { name: "Athletics", rank: 2 } } },
+    rollSkill: async (name) => { called = name; if(name==="Athletics") throw new Error("boom"); },
+  };
+  const items = mod.buildSkillMenuItems(actor);
+  assert.equal(items.length, 1);
+  // should not throw, should warn
+  let warned = null;
+  const origWarn = console.warn;
+  console.warn = (...args) => { warned = args.join(" "); };
+  try {
+    await items[0].onClick();
+    assert.equal(called, "Athletics");
+    assert.ok(warned && warned.includes("skill roll failed"));
+  } finally {
+    console.warn = origWarn;
+  }
+  // success path
+  called = null;
+  const actor2 = { system: { skills: { a: { name: "Stealth", rank: 1 } } }, rollSkill: async (name) => { called = name; } };
+  const items2 = mod.buildSkillMenuItems(actor2);
+  await items2[0].onClick();
+  assert.equal(called, "Stealth");
+});
+
+test("markEliminatedInState clones correctly and is pure", () => {
+  const state = boardState({ cards: { c1: { side: "friendly", area: "side", order: 0 }, c2: { side: "hostile", area: "side", order: 1 } } });
+  const next = mod.markEliminatedInState(state, "c1");
+  assert.equal(next !== state, true);
+  assert.equal(next.cards.c1.eliminated, true);
+  assert.equal(next.cards.c1.side, "friendly");
+  assert.equal(next.cards.c2, state.cards.c2); // untouched ref not required but value equal
+  // original not mutated
+  assert.equal(state.cards.c1.eliminated, undefined);
+  // already eliminated -> same ref
+  const next2 = mod.markEliminatedInState(next, "c1");
+  assert.equal(next2, next);
+  // missing id -> same ref
+  assert.equal(mod.markEliminatedInState(state, "missing"), state);
+  assert.equal(mod.markEliminatedInState(null, "c1"), null);
+  assert.equal(mod.markEliminatedInState(state, ""), state);
+});
+
+test("card context menu shows Roll submenu when actor has skills (sorted, with icons)", async () => {
+  const dom = installMenuDomStub();
+  const actor = {
+    system: { skills: { a: { name: "Stealth", rank: 2 }, b: { name: "Athletics", rank: 4 }, c: { name: "Fight", rank: 0 } } },
+    rollSkill: async () => {},
+  };
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [
+      menuCombatant("c1"),
+      { id: "c2", name: "c2", defeated: false, token: { actor }, actor, getFlag: (scope,key) => { if(scope==="fate-core-official" && key==="hasActed") return false; return undefined; } },
+    ],
+  };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  // give combatant c2 a card with tokenUuid
+  installMenuCombat({}, combat, scene);
+  // card doc for c2 with tokenUuid that would resolve via sync path (combatant.token.actor)
+  const doc = {
+    id: "card-c2",
+    documentName: "Drawing",
+    x: 0, y: 0, shape: { width: 10, height: 10 },
+    getFlag(scope,key){
+      if(scope!==FLAG_SCOPE) return undefined;
+      if(key==="ownerType") return CONFLICT_CARD_OWNER_TYPE;
+      if(key==="combatantId") return "c2";
+      if(key==="tokenUuid") return "Scene.scene1.Token.t-c2";
+      return undefined;
+    },
+  };
+  const handled = await mod.handleConflictContextMenu(doc, fakeMenuEvent());
+  assert.equal(handled, true);
+  // should have at least pass turn + roll + leave combat (since not defeated, not eliminated)
+  // Order: Pass, sep, Roll, sep, Leave combat. Pass is available (c2 not current, not acted)
+  // Check roll button exists
+  const labels = dom.createdButtons.map((b) => b.innerHTML);
+  const hasRoll = labels.some((html) => html.includes("fate-on-the-table.conflict.card.roll"));
+  assert.equal(hasRoll, true, "Roll item must be present when actor has skills");
+  // verify roll is not shown as disabled sep etc - it should have chevron for submenu
+  const rollBtn = dom.createdButtons.find((b) => b.innerHTML.includes("fate-on-the-table.conflict.card.roll"));
+  assert.ok(rollBtn.innerHTML.includes("fa-chevron-right"), "Roll with children should show chevron");
+  // Check Leave combat present at bottom
+  const hasLeave = labels.some((html) => html.includes("fate-on-the-table.conflict.card.leaveCombat"));
+  assert.equal(hasLeave, true);
+  // Check ordering: Pass before Roll before Leave
+  const idxPass = labels.findIndex((h) => h.includes("fate-on-the-table.conflict.card.passTurn"));
+  const idxRoll = labels.findIndex((h) => h.includes("fate-on-the-table.conflict.card.roll"));
+  const idxLeave = labels.findIndex((h) => h.includes("fate-on-the-table.conflict.card.leaveCombat"));
+  assert.ok(idxPass >= 0 && idxRoll >= 0 && idxLeave >= 0);
+  assert.ok(idxPass < idxRoll && idxRoll < idxLeave, "Order must be Pass -> Roll -> Leave");
+});
+
+test("card context menu hides Roll when actor has no skills or no actor", async () => {
+  const dom = installMenuDomStub();
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [
+      menuCombatant("c1"),
+      menuCombatant("c2"),
+    ],
+  };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  installMenuCombat({}, combat, scene);
+  const doc = cardContextDoc("c2");
+  // ensure actor cannot be resolved (menuCombatant has no actor)
+  const handled = await mod.handleConflictContextMenu(doc, fakeMenuEvent());
+  assert.equal(handled, true);
+  const labels = dom.createdButtons.map((b) => b.innerHTML);
+  const hasRoll = labels.some((html) => html.includes("fate-on-the-table.conflict.card.roll"));
+  assert.equal(hasRoll, false, "Roll must be hidden when no actor/skills");
+});
+
+test("card context menu Roll hidden when fromUuid returns actor without skills (fallback path)", async () => {
+  const dom = installMenuDomStub();
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [
+      menuCombatant("c1"),
+      { id: "c2", name: "c2", defeated: false, token: null, actor: null, getFlag: () => false },
+    ],
+  };
+  const actorNoSkills = { system: { skills: { a: { name: "Foo", rank: 0 } } }, rollSkill: async () => {} };
+  globalThis.fromUuid = async () => ({ actor: actorNoSkills });
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  installMenuCombat({}, combat, scene);
+  const doc = {
+    id: "card-c2",
+    documentName: "Drawing",
+    x: 0, y: 0, shape: { width: 10, height: 10 },
+    getFlag(scope,key){
+      if(scope!==FLAG_SCOPE) return undefined;
+      if(key==="ownerType") return CONFLICT_CARD_OWNER_TYPE;
+      if(key==="combatantId") return "c2";
+      if(key==="tokenUuid") return "Scene.scene1.Token.t-c2";
+      return undefined;
+    },
+  };
+  try {
+    const handled = await mod.handleConflictContextMenu(doc, fakeMenuEvent());
+    assert.equal(handled, true);
+    const labels = dom.createdButtons.map((b) => b.innerHTML);
+    assert.equal(labels.some((h) => h.includes("fate-on-the-table.conflict.card.roll")), false);
+  } finally {
+    delete globalThis.fromUuid;
+  }
+});
+
+test("card context menu Leave combat is hidden when defeated or already eliminated", async () => {
+  const dom1 = installMenuDomStub();
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [menuCombatant("c1"), menuCombatant("c2", { defeated: true })],
+  };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  installMenuCombat({}, combat, scene);
+  let handled = await mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  assert.equal(handled, true);
+  let labels = dom1.createdButtons.map((b) => b.innerHTML);
+  assert.equal(labels.some((h) => h.includes("fate-on-the-table.conflict.card.leaveCombat")), false, "defeated should hide Leave");
+
+  // eliminated via state
+  uninstallMenuDomStub();
+  const dom2 = installMenuDomStub();
+  const combat2 = { id: "combat-abc", turn: 0, combatants: [menuCombatant("c1"), menuCombatant("c2")] };
+  const scene2 = menuScene("combat-abc", ["c1", "c2"]);
+  scene2.flags[FLAG_SCOPE][CONFLICT_BOARD_FLAG].cards.c2.eliminated = true;
+  installMenuCombat({}, combat2, scene2);
+  handled = await mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  assert.equal(handled, true);
+  labels = dom2.createdButtons.map((b) => b.innerHTML);
+  assert.equal(labels.some((h) => h.includes("fate-on-the-table.conflict.card.leaveCombat")), false, "eliminated should hide Leave");
+});
+
+test("card context menu Leave combat action marks defeated and eliminated", async () => {
+  const dom = installMenuDomStub();
+  let defeatedUpdate = null;
+  const combatant = {
+    id: "c2",
+    name: "c2",
+    defeated: false,
+    token: { actor: null },
+    actor: null,
+    getFlag: () => false,
+    update: async (data) => { defeatedUpdate = data; combatant.defeated = !!data.defeated; return combatant; },
+  };
+  const combat = { id: "combat-abc", turn: 0, combatants: [menuCombatant("c1"), combatant] };
+  // Build a full scene with update support via fullMockScene helper (reuse placedBoardScene style)
+  const baseState = createConflictBoard({ combatId: "combat-abc", sizePreset: "medium", origin: { x: 0, y: 0 } });
+  baseState.cards = { c1: { side: "friendly", area: "side", order: 0 }, c2: { side: "friendly", area: "side", order: 1 } };
+  const scene = {
+    id: "scene1",
+    flags: { [FLAG_SCOPE]: { [CONFLICT_BOARD_FLAG]: baseState, [sync.CONFLICT_BOARD_WIDGET_FLAG]: { widgetId: "wBoard", zoneWidgetIds: {}, cardWidgetIds: {} } } },
+    drawings: [],
+    tiles: [],
+    getFlag(scope,key){ return this.flags[scope]?.[key]; },
+    async update(data,options){
+      for(const [k,v] of Object.entries(data)){
+        const parts = k.split(".");
+        let t=this;
+        for(let i=0;i<parts.length-1;i++){ if(typeof t[parts[i]]!=="object"||t[parts[i]]===null) t[parts[i]]={}; t=t[parts[i]]; }
+        t[parts[parts.length-1]]=v;
+      }
+      return this;
+    },
+    async unsetFlag(scope,key){ if(this.flags[scope]) delete this.flags[scope][key]; return this; },
+    async deleteEmbeddedDocuments(){return [];},
+    async updateEmbeddedDocuments(){return [];},
+    async createEmbeddedDocuments(){return [];},
+  };
+  globalThis.canvas = { scene };
+  globalThis.game = { user: { isGM: true }, i18n: { localize: (k) => k }, combat, combats: { get: () => combat } };
+  globalThis.CONST = { DRAWING_TYPES: { RECTANGLE: "r" }, DRAWING_FILL_TYPES: { NONE: 0 } };
+  globalThis.foundry.applications.api.DialogV2 = { confirm: async () => true, input: async () => null };
+  const doc = {
+    id: "card-c2",
+    documentName: "Drawing",
+    x: 0, y: 0, shape: { width: 10, height: 10 },
+    getFlag(scope,key){
+      if(scope!==FLAG_SCOPE) return undefined;
+      if(key==="ownerType") return CONFLICT_CARD_OWNER_TYPE;
+      if(key==="combatantId") return "c2";
+      if(key==="tokenUuid") return "Scene.scene1.Token.t-c2";
+      return undefined;
+    },
+  };
+  const handled = await mod.handleConflictContextMenu(doc, fakeMenuEvent());
+  assert.equal(handled, true);
+  const leaveBtn = dom.createdButtons.find((b) => b.innerHTML.includes("fate-on-the-table.conflict.card.leaveCombat"));
+  assert.ok(leaveBtn, "Leave combat button must exist");
+  leaveBtn.click();
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(defeatedUpdate, { defeated: true });
+  const after = sync.readConflictBoard(scene);
+  assert.equal(after.cards.c2.eliminated, true);
+});
+
+test("card context menu with only Leave combat (no Pass/Return, no Roll) still shows menu", async () => {
+  const dom = installMenuDomStub();
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [menuCombatant("c1", { hasActed: true }), menuCombatant("c2")], // c2? actually we test c1 current acted: no pass, but return available -> would be return. Let's make solitary card that is current so no pass/return
+  };
+  // single combatant current => no pass, no return if not acted, but leave should still show
+  const singleCombat = { id: "combat-abc", turn: 0, combatants: [menuCombatant("c1")] };
+  const scene = menuScene("combat-abc", ["c1"]);
+  installMenuCombat({}, singleCombat, scene);
+  const doc = cardContextDoc("c1");
+  const handled = await mod.handleConflictContextMenu(doc, fakeMenuEvent());
+  assert.equal(handled, true);
+  const labels = dom.createdButtons.map((b) => b.innerHTML);
+  // No pass/return for current unacted, but leave should be there, and roll hidden (no actor)
+  assert.equal(labels.some((h) => h.includes("fate-on-the-table.conflict.card.passTurn")), false);
+  assert.equal(labels.some((h) => h.includes("fate-on-the-table.conflict.card.returnTurn")), false);
+  assert.equal(labels.some((h) => h.includes("fate-on-the-table.conflict.card.roll")), false);
+  assert.equal(labels.some((h) => h.includes("fate-on-the-table.conflict.card.leaveCombat")), true);
+  assert.equal(dom.body.children.length, 1);
 });

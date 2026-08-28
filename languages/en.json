@@ -268,6 +268,8 @@
   "fate-on-the-table.conflict.zone.editorDone": "Zone drawn — enter its name to save.",
   "fate-on-the-table.conflict.card.passTurn": "Pass turn",
   "fate-on-the-table.conflict.card.returnTurn": "Return turn",
+  "fate-on-the-table.conflict.card.roll": "Roll",
+  "fate-on-the-table.conflict.card.leaveCombat": "Leave combat",
   "fate-on-the-table.conflict.card.openSheet": "Open character sheet",
   "fate-on-the-table.conflict.card.passTitle": "Pass turn",
   "fate-on-the-table.conflict.card.passConfirm": "Mark \"{name}\" as having acted and make them the current turn? The previous combatant completes their turn.",

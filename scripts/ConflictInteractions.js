@@ -263,7 +263,9 @@ function onConflictCanvasPointerDown(event) {
     if (layerActive) return;
     event.preventDefault();
     event.stopPropagation();
-    handleConflictContextMenu(doc, event);
+    Promise.resolve(handleConflictContextMenu(doc, event)).catch((err) =>
+      console.error("[fate-on-the-table] context menu failed:", err),
+    );
     return;
   }
   const state = readConflictBoard(scene);
@@ -513,9 +515,9 @@ export async function handleConflictDocumentDoubleClick(document, event) {
  * event consumed without any menu.
  * @param {object} document  Drawing/Tile document.
  * @param {Event|null} event  DOM/MIM event (optional).
- * @returns {boolean}  True when the event was consumed.
+ * @returns {boolean|Promise<boolean>}  True when the event was consumed (Promise when card menu resolves actor).
  */
-export function handleConflictContextMenu(document, event) {
+export async function handleConflictContextMenu(document, event) {
   const doc = document?.document ?? document;
   if (!isConflictDocument(doc)) return false;
   event?.preventDefault?.();
@@ -525,7 +527,7 @@ export function handleConflictContextMenu(document, event) {
   const ownerType = doc.getFlag(FLAG_SCOPE, "ownerType");
 
   if (ownerType === CONFLICT_CARD_OWNER_TYPE) {
-    return showCardContextMenu(doc, state, event);
+    return await showCardContextMenu(doc, state, event);
   }
   if (ownerType === CONFLICT_ZONE_OWNER_TYPE) {
     return showZoneContextMenu(doc, state, event);
@@ -890,11 +892,61 @@ async function resolveCardActor(state, scene, combatantId, tokenUuid) {
   return null;
 }
 
+/**
+ * Pure: sorted skill menu items for an actor.
+ * Filters `actor.system.skills` entries with rank>0, sorts descending by rank,
+ * maps to menu items with label `${name} (+${rank})` and rollSkill onClick.
+ * @param {object|null} actor
+ * @returns {Array<{icon:string,label:string,onClick:Function}>}
+ */
+export function buildSkillMenuItems(actor) {
+  const skillsObj = actor?.system?.skills;
+  if (!skillsObj || typeof skillsObj !== "object") return [];
+  const entries = Object.values(skillsObj).filter(
+    (s) => s && typeof s.name === "string" && s.name.trim() !== "" && Number(s.rank) > 0,
+  );
+  entries.sort((a, b) => Number(b.rank) - Number(a.rank));
+  return entries.map((s) => ({
+    icon: "fa-dice-d20",
+    label: `${s.name} (+${s.rank})`,
+    onClick: async () => {
+      try {
+        await actor.rollSkill(s.name);
+      } catch (err) {
+        console.warn("[fate-on-the-table] skill roll failed:", err);
+      }
+    },
+  }));
+}
+
+/**
+ * Pure: next board state with `cards[combatantId].eliminated = true`.
+ * Never mutates input. Returns same reference when no change or missing record.
+ * @param {object|null} state
+ * @param {string} combatantId
+ * @returns {object|null}
+ */
+export function markEliminatedInState(state, combatantId) {
+  if (!state || !combatantId) return state;
+  const rec = state.cards?.[combatantId];
+  if (!rec) return state;
+  if (rec.eliminated === true) return state;
+  return {
+    ...state,
+    cards: {
+      ...state.cards,
+      [combatantId]: { ...rec, eliminated: true },
+    },
+  };
+}
+
+export { resolveCardActor };
+
 /* ------------------------------------------------------------------ *
  * Context menus
  * ------------------------------------------------------------------ */
 
-function showCardContextMenu(doc, state, event) {
+async function showCardContextMenu(doc, state, event) {
   if (!game?.user?.isGM) return true; // players never receive the menu
   if (!state) return true;
   const scene = canvas?.scene;
@@ -923,6 +975,53 @@ function showCardContextMenu(doc, state, event) {
       icon: "fa-undo",
       label: game.i18n.localize(`${MODULE_ID}.conflict.card.returnTurn`),
       onClick: () => runCardTurnAction("returnTurn", targetCombatantId),
+    });
+  }
+  // "Roll" submenu: skills of the actor behind the card (rank>0, sorted desc)
+  let skillChildren = [];
+  try {
+    const tokenUuid = doc.getFlag(FLAG_SCOPE, "tokenUuid");
+    const actor = await resolveCardActor(state, scene, targetCombatantId, tokenUuid);
+    if (actor) skillChildren = buildSkillMenuItems(actor);
+  } catch (err) {
+    skillChildren = [];
+  }
+  const hasSkills = skillChildren.length > 0;
+  if (hasSkills) {
+    if (items.length) items.push({ sep: true, label: "", icon: "" });
+    items.push({
+      icon: "fa-dice",
+      label: game.i18n.localize(`${MODULE_ID}.conflict.card.roll`),
+      children: skillChildren,
+    });
+  }
+  // "Leave combat": GM-only destructive action at the bottom (defeated + eliminated pile)
+  const canLeave = !combatant.defeated && state.cards?.[targetCombatantId]?.eliminated !== true;
+  if (canLeave) {
+    if (items.length) items.push({ sep: true, label: "", icon: "" });
+    items.push({
+      icon: "fa-skull",
+      label: game.i18n.localize(`${MODULE_ID}.conflict.card.leaveCombat`),
+      onClick: async () => {
+        try {
+          if (typeof combatant.update === "function") {
+            await combatant.update({ defeated: true });
+          }
+        } catch (err) {
+          console.warn("[fate-on-the-table] leave combat defeated update failed:", err);
+        }
+        try {
+          const current = readConflictBoard(scene);
+          if (!current) return;
+          const nextState = markEliminatedInState(current, targetCombatantId);
+          if (nextState !== current) {
+            const written = await writeConflictBoard(scene, nextState);
+            if (written?.ok !== false) await syncConflictBoard(scene);
+          }
+        } catch (err) {
+          console.warn("[fate-on-the-table] leave combat state update failed:", err);
+        }
+      },
     });
   }
   if (!items.length) return true; // no valid actions — consume without a menu
