@@ -264,17 +264,32 @@
 
 .situation-aspects .ctt-sa-form {
   display: flex;
+  flex-direction: column;
   gap: 6px;
-  flex: 1;
-}
-
-.situation-aspects .ctt-sa-form input[type="text"] {
   flex: 1;
   min-width: 0;
 }
 
-.situation-aspects .ctt-sa-form input[type="number"] {
+.situation-aspects .ctt-sa-form-main {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.situation-aspects .ctt-sa-form-main input[type="text"] {
+  flex: 1;
+  min-width: 120px;
+}
+
+.situation-aspects .ctt-sa-form-main input[type="number"] {
   width: 64px;
+  flex: 0 0 auto;
+}
+
+.situation-aspects .ctt-sa-form-main select {
+  flex: 1;
+  min-width: 0;
+  max-width: 180px;
 }
 
 .situation-aspects .ctt-sa-add-form {
@@ -320,8 +335,8 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 140px;
-  max-width: 200px;
+  width: 100%;
+  min-width: 0;
 }
 
 .situation-aspects .ctt-sa-zones-label {
@@ -333,9 +348,9 @@
 }
 
 .situation-aspects .ctt-sa-zones-options {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 12px;
   max-height: 88px;
   overflow-y: auto;
   border: 1px solid rgba(0,0,0,0.15);

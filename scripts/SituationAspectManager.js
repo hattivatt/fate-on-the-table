@@ -438,26 +438,28 @@ function renderContent(app) {
       listHtml += `
         <div class="ctt-sa-row ctt-sa-renaming">
           <div class="ctt-sa-form">
-            <input type="text" name="ctt-sa-name" value="${escapeHtml(
-              app.editName,
-            )}">
-            <input type="number" name="ctt-sa-invokes" value="${app.editInvokes}" min="0" title="${escapeHtml(
-              t("situationAspects.addInvokes"),
-            )}">
-            ${bindingSelectHtml(
-              "ctt-sa-character",
-              t("situationAspects.addCharacter"),
-              "—",
-              characterOptions(),
-              app.editCharacter,
-            )}
+            <div class="ctt-sa-form-main">
+              <input type="text" name="ctt-sa-name" value="${escapeHtml(
+                app.editName,
+              )}">
+              <input type="number" name="ctt-sa-invokes" value="${app.editInvokes}" min="0" title="${escapeHtml(
+                t("situationAspects.addInvokes"),
+              )}">
+              ${bindingSelectHtml(
+                "ctt-sa-character",
+                t("situationAspects.addCharacter"),
+                "—",
+                characterOptions(),
+                app.editCharacter,
+              )}
+              <button type="button" class="ctt-sa-btn" data-action="renameSubmit" title="${escapeHtml(
+                t("situationAspects.confirm"),
+              )}"><i class="fas fa-check"></i></button>
+              <button type="button" class="ctt-sa-btn" data-action="renameCancel" title="${escapeHtml(
+                t("situationAspects.cancel"),
+              )}"><i class="fas fa-times"></i></button>
+            </div>
             ${zoneCheckboxesHtml(app.editZoneIds)}
-            <button type="button" class="ctt-sa-btn" data-action="renameSubmit" title="${escapeHtml(
-              t("situationAspects.confirm"),
-            )}"><i class="fas fa-check"></i></button>
-            <button type="button" class="ctt-sa-btn" data-action="renameCancel" title="${escapeHtml(
-              t("situationAspects.cancel"),
-            )}"><i class="fas fa-times"></i></button>
           </div>
         </div>`;
       return;
@@ -508,7 +510,6 @@ function renderContent(app) {
               characterOptions(),
               app.addCharacter,
             )}
-            ${zoneCheckboxesHtml(app.addZoneIds)}
             <button type="button" class="ctt-sa-btn" data-action="addSubmit" title="${escapeHtml(
               t("situationAspects.confirm"),
             )}"><i class="fas fa-check"></i></button>
@@ -516,6 +517,7 @@ function renderContent(app) {
               t("situationAspects.cancel"),
             )}"><i class="fas fa-times"></i></button>
           </div>
+          ${zoneCheckboxesHtml(app.addZoneIds)}
         </div>
       </div>`
     : "";
