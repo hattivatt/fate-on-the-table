@@ -125,6 +125,10 @@ let conflictActorTimer = null;
 // Token ids moved while the debounce is pending (a multi-token drag must
 // reconcile every moved board token, not only the last update).
 const pendingConflictTokens = new Set();
+const saSyncTimers = new Map();
+const conflictTokenTimers = new Map();
+const conflictActorTimers = new Map();
+const pendingConflictTokensByScene = new Map();
 let sceneControlsRegistered = false;
 // True while a Combat document (and its combatants) is being deleted, so the
 // board is never auto-cleaned when a conflict/combat ends.
