@@ -1161,7 +1161,7 @@ test("card context menu never offers Pass turn for a card in the eliminated pile
     ],
   };
   const scene = menuScene("combat-abc", ["c1", "c2"]);
-  scene.flags[FLAG_SCOPE][CONFLICT_BOARD_FLAG].cards.c2.area = "eliminated";
+  scene.flags[FLAG_SCOPE][CONFLICT_BOARD_FLAG].cards.c2.eliminated = true;
   installMenuCombat({}, combat, scene);
   const handled = mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
   assert.equal(handled, true);

@@ -236,14 +236,17 @@ test("writeConflictBoard normalizes valid input and rejects invalid input", asyn
  * pure descriptor builders
  * ------------------------------------------------------------------ */
 
-test("buildBoardPartDescriptors emits background + 5 frames + 4 labels", () => {
+test("buildBoardPartDescriptors emits background + 5 frames + 2 labels + divider (field border stronger)", () => {
   const state = validState();
   const geometry = getConflictBoardGeometry({ sizePreset: "medium" });
   const parts = buildBoardPartDescriptors(state, geometry);
-  assert.equal(parts.length, 10);
+  // background 1 + frames 5 (friendly, hostile, bottomFriendly, bottomHostile, field) + labels 2 + divider 1 = 9 without round number
+  assert.equal(parts.length, 9);
   assert.equal(parts.filter((p) => p.part === CONFLICT_BOARD_BACKGROUND_PART).length, 1);
   assert.equal(parts.filter((p) => p.part === CONFLICT_AREA_PART).length, 5);
-  assert.equal(parts.filter((p) => p.part === CONFLICT_AREA_LABEL_PART).length, 4);
+  assert.equal(parts.filter((p) => p.part === CONFLICT_AREA_LABEL_PART).length, 2);
+  assert.equal(parts.filter((p) => p.part === "conflictRoundDivider").length, 1);
+  assert.equal(parts.filter((p) => p.part === "conflictRoundNumber").length, 0);
 
   const bg = parts.find((p) => p.part === CONFLICT_BOARD_BACKGROUND_PART);
   assert.equal(bg.fillType, 1);
@@ -259,6 +262,46 @@ test("buildBoardPartDescriptors emits background + 5 frames + 4 labels", () => {
     { x: field.x, y: field.y, w: field.w, h: field.h },
     { x: geometry.field.x, y: geometry.field.y, w: geometry.field.width, h: geometry.field.height },
   );
+  // field frame stronger: stroke 2, alpha 1
+  assert.equal(field.stroke, 2);
+  assert.equal(field.strokeAlpha, 1);
+  // side/bottom frames keep thin stroke
+  const friendly = parts.find((p) => p.part === CONFLICT_AREA_PART && p.index === 0);
+  assert.equal(friendly.stroke, 1);
+  assert.equal(friendly.strokeAlpha, 0.35);
+
+  // divider spans bottom strip vertically at center
+  const divider = parts.find((p) => p.part === "conflictRoundDivider");
+  assert.equal(divider.y, geometry.bottomFriendly.y);
+  assert.equal(divider.h, geometry.bottomFriendly.height);
+  assert.equal(divider.x + divider.w / 2, geometry.bottomFriendly.width);
+  assert.equal(divider.elevation, -3);
+});
+
+test("buildBoardPartDescriptors round number appears only with activeCombat round>=1 and scales with preset", () => {
+  const state = validState();
+  const geomMedium = getConflictBoardGeometry({ sizePreset: "medium" });
+  const geomSmall = getConflictBoardGeometry({ sizePreset: "small" });
+  const geomLarge = getConflictBoardGeometry({ sizePreset: "large" });
+  // no combat -> no number
+  assert.equal(buildBoardPartDescriptors(state, geomMedium).filter((p) => p.part === "conflictRoundNumber").length, 0);
+  assert.equal(buildBoardPartDescriptors(state, geomMedium, { round: 0 }).filter((p) => p.part === "conflictRoundNumber").length, 0);
+  assert.equal(buildBoardPartDescriptors(state, geomMedium, null).filter((p) => p.part === "conflictRoundNumber").length, 0);
+  // round 1 -> number present
+  const withRound = buildBoardPartDescriptors(state, geomMedium, { round: 3 });
+  const num = withRound.find((p) => p.part === "conflictRoundNumber");
+  assert.ok(num);
+  assert.equal(num.text, "3");
+  assert.equal(num.elevation, -2);
+  assert.equal(num.sort, -200);
+  // size scales with preset
+  const smallNum = buildBoardPartDescriptors(state, geomSmall, { round: 1 }).find((p) => p.part === "conflictRoundNumber");
+  const largeNum = buildBoardPartDescriptors(state, geomLarge, { round: 1 }).find((p) => p.part === "conflictRoundNumber");
+  assert.ok(smallNum.size < num.size);
+  assert.ok(largeNum.size > num.size);
+  assert.equal(smallNum.size, 48);
+  assert.equal(num.size, 56);
+  assert.equal(largeNum.size, 64);
 });
 
 test("board background uses texture/color/alpha from the state (never shifts origin)", () => {
@@ -465,7 +508,8 @@ test("buildConflictBoardDocuments projects board + zones deterministically", asy
   const scene = mockScene();
   const combat = null;
   const built = await buildConflictBoardDocuments(scene, state, combat, {});
-  assert.equal(built.board.length, 10);
+  // v2 board: background + 4 area frames + field frame + 2 labels + divider = 9
+  assert.equal(built.board.length, 9);
   assert.deepEqual(Object.keys(built.zones), ["zone-1"]);
   assert.equal(built.zones["zone-1"].length, 2);
   assert.deepEqual(built.cards, {});
@@ -1064,9 +1108,9 @@ test("placement commit flow keeps the registry and projects with forceProjection
     assert.equal(res.manuallyDeleted, undefined);
     assert.ok(boardRegistry(scene));
     assert.ok(readConflictBoard(scene));
-    // background + 5 frames + 4 labels + 1 named zone (body + label)
-    assert.equal(res.created, 12);
-    assert.ok(scene.drawings.length >= 12);
+    // v2 board: background + 5 frames (incl. field) +2 labels + divider + 1 named zone (body + label) = 11
+    assert.equal(res.created, 11);
+    assert.ok(scene.drawings.length >= 11);
 
     // A later ordinary sync (docs now exist) must NOT treat the board as
     // manually deleted.
@@ -1171,8 +1215,10 @@ test("reconcile projects hasActed into cards[].area through a scene.update write
   const res = await reconcileConflictBoardProjection(scene, { combat: turnCombat() });
   assert.ok(res.changed);
   const stored = readConflictBoard(scene);
-  assert.equal(stored.cards.c1.area, "side"); // not acted -> stays on the side
-  assert.equal(stored.cards.c2.area, "acted"); // hasActed -> acted pile
+  assert.equal(stored.cards.c1.acted, undefined); // not acted -> no flag
+  assert.equal(stored.cards.c1.area, "side");
+  assert.equal(stored.cards.c2.acted, true); // hasActed -> acted flag
+  assert.equal(stored.cards.c2.area, "side");
   assert.equal(stored.cards.c2.side, "hostile");
   assert.equal(stored.cards.c2.order, 1);
   // written only through the module-owned scene.update marked fateOnTheTableSync
@@ -1180,15 +1226,15 @@ test("reconcile projects hasActed into cards[].area through a scene.update write
     scene.updates.some(
       (u) =>
         u.options?.fateOnTheTableSync === true &&
-        u.data[`flags.${FLAG_SCOPE}.${CONFLICT_BOARD_FLAG}`]?.cards?.c2?.area === "acted",
+        u.data[`flags.${FLAG_SCOPE}.${CONFLICT_BOARD_FLAG}`]?.cards?.c2?.acted === true,
     ),
   );
 });
 
 test("reconcile returns everyone to the side after a new round (hasActed reset)", async () => {
   const state = validState();
-  state.cards.c1.area = "acted";
-  state.cards.c2.area = "acted";
+  state.cards.c1.acted = true;
+  state.cards.c2.acted = true;
   const scene = mockScene({
     flags: {
       [FLAG_SCOPE]: {
@@ -1212,7 +1258,9 @@ test("reconcile returns everyone to the side after a new round (hasActed reset)"
   const res = await reconcileConflictBoardProjection(scene, { combat });
   assert.ok(res.changed);
   const stored = readConflictBoard(scene);
+  assert.equal(stored.cards.c1.acted, undefined);
   assert.equal(stored.cards.c1.area, "side");
+  assert.equal(stored.cards.c2.acted, undefined);
   assert.equal(stored.cards.c2.area, "side");
   assert.equal(stored.cards.c1.side, "friendly");
   assert.equal(stored.cards.c2.side, "hostile");
@@ -1221,7 +1269,7 @@ test("reconcile returns everyone to the side after a new round (hasActed reset)"
 test("reconcile keeps the current combatant on the side and the previous current in the acted pile", async () => {
   // Fate Utilities popcorn state: c2 acted earlier (still hasActed), c1 is
   // the NEW current and is marked hasActed too — both are acted, only the
-  // current one stays on its side.
+  // current one stays on its side (v2: acted flag, not area).
   const state = validState(); // c1 side, c2 side
   const scene = mockScene({
     flags: {
@@ -1247,9 +1295,11 @@ test("reconcile keeps the current combatant on the side and the previous current
   const res = await reconcileConflictBoardProjection(scene, { combat });
   assert.ok(res.changed);
   const stored = readConflictBoard(scene);
-  assert.equal(stored.cards.c1.area, "side"); // current -> side, not acted pile
+  assert.equal(stored.cards.c1.acted, undefined); // current -> not acted
+  assert.equal(stored.cards.c1.area, "side");
   assert.equal(stored.cards.c1.side, "friendly");
-  assert.equal(stored.cards.c2.area, "acted"); // previous current -> acted pile
+  assert.equal(stored.cards.c2.acted, true); // previous current -> acted flag
+  assert.equal(stored.cards.c2.area, "side");
   assert.equal(stored.cards.c2.side, "hostile");
 });
 
@@ -1257,8 +1307,8 @@ test("return-turn projection: clearing hasActed moves a card back to its side, t
   // The GM returned c1's turn: c1 hasActed cleared, c2 is still the current
   // actor (hasActed true, popcorn — stays on its side), combat.turn unchanged.
   const state = validState();
-  state.cards.c1.area = "acted"; // c1 acted earlier
-  state.cards.c2.area = "side"; // c2 current, kept on the side
+  state.cards.c1.acted = true; // c1 acted earlier
+  state.cards.c2.acted = undefined; // c2 current, kept on the side
   const scene = mockScene({
     flags: {
       [FLAG_SCOPE]: {
@@ -1283,10 +1333,12 @@ test("return-turn projection: clearing hasActed moves a card back to its side, t
   const res = await reconcileConflictBoardProjection(scene, { combat });
   assert.ok(res.changed);
   const stored = readConflictBoard(scene);
-  assert.equal(stored.cards.c1.area, "side"); // back to its side area
+  assert.equal(stored.cards.c1.acted, undefined); // back to not acted
+  assert.equal(stored.cards.c1.area, "side");
   assert.equal(stored.cards.c1.side, "friendly"); // side preserved
   assert.equal(stored.cards.c1.order, 0); // order preserved
-  assert.equal(stored.cards.c2.area, "side"); // current stays on its side
+  assert.equal(stored.cards.c2.acted, undefined); // current stays not acted (popcorn)
+  assert.equal(stored.cards.c2.area, "side");
   assert.equal(stored.cards.c2.side, "hostile");
 });
 
@@ -1316,8 +1368,10 @@ test("reconcile resolves the current combatant through combat.turns (Fate Utilit
   const res = await reconcileConflictBoardProjection(scene, { combat });
   assert.ok(res.changed);
   const stored = readConflictBoard(scene);
-  assert.equal(stored.cards.c1.area, "side"); // current (turns[1]) -> side
-  assert.equal(stored.cards.c2.area, "acted");
+  assert.equal(stored.cards.c1.acted, undefined); // current (turns[1]) -> not acted
+  assert.equal(stored.cards.c1.area, "side");
+  assert.equal(stored.cards.c2.acted, true);
+  assert.equal(stored.cards.c2.area, "side");
 });
 
 test("reconcile falls back to combat.combatants[turn] when turns is absent", async () => {
@@ -1347,8 +1401,10 @@ test("reconcile falls back to combat.combatants[turn] when turns is absent", asy
   const res = await reconcileConflictBoardProjection(scene, { combat });
   assert.ok(res.changed);
   const stored = readConflictBoard(scene);
-  assert.equal(stored.cards.c2.area, "side"); // current (combatants[1]) -> side
-  assert.equal(stored.cards.c1.area, "acted");
+  assert.equal(stored.cards.c2.acted, undefined); // current (combatants[1]) -> not acted
+  assert.equal(stored.cards.c2.area, "side");
+  assert.equal(stored.cards.c1.acted, true);
+  assert.equal(stored.cards.c1.area, "side");
 });
 
 /* ------------------------------------------------------------------ *
@@ -1486,7 +1542,9 @@ test("a later sync removes the turn marker when the combat has no current turn",
       0,
     );
     const stored = readConflictBoard(scene);
+    assert.equal(stored.cards.c1.acted, undefined);
     assert.equal(stored.cards.c1.area, "side");
+    assert.equal(stored.cards.c2.acted, undefined);
     assert.equal(stored.cards.c2.area, "side");
   } finally {
     delete globalThis.CONST;
@@ -1542,8 +1600,10 @@ test("sync projects the popcorn turn state: current stays on the side with one a
     assert.equal(res.ok, true);
 
     const stored = readConflictBoard(scene);
-    assert.equal(stored.cards.c1.area, "side"); // current stays on the side
-    assert.equal(stored.cards.c2.area, "acted"); // previous current -> acted pile
+    assert.equal(stored.cards.c1.acted, undefined); // current stays not acted
+    assert.equal(stored.cards.c1.area, "side");
+    assert.equal(stored.cards.c2.acted, true); // previous current -> acted flag
+    assert.equal(stored.cards.c2.area, "side");
 
     // exactly ONE turn marker, always in the active style
     const markers = scene.drawings.filter(
@@ -1572,7 +1632,9 @@ test("sync projects the popcorn turn state: current stays on the side with one a
       0,
     );
     const afterExchange = readConflictBoard(scene);
+    assert.equal(afterExchange.cards.c1.acted, undefined);
     assert.equal(afterExchange.cards.c1.area, "side");
+    assert.equal(afterExchange.cards.c2.acted, undefined);
     assert.equal(afterExchange.cards.c2.area, "side");
   } finally {
     delete globalThis.CONST;
@@ -1703,15 +1765,18 @@ test("mid-conflict placement: the mandatory first forceProjection sync immediate
     const placed = await syncConflictBoard(scene, { combat, forceProjection: true });
     assert.equal(placed.ok, true);
 
-    // Live turn state projected into the state flag:
-    // - old current (c1, hasActed, no longer current) -> acted pile
-    // - current (c2) -> stays on its side despite hasActed (popcorn)
-    // - unacted (c3) -> side
+    // Live turn state projected into the state flag (v2: acted flag, not area):
+    // - old current (c1, hasActed, no longer current) -> acted:true
+    // - current (c2) -> stays not acted despite hasActed (popcorn)
+    // - unacted (c3) -> not acted
     const stored = readConflictBoard(scene);
-    assert.equal(stored.cards.c1.area, "acted");
+    assert.equal(stored.cards.c1.acted, true);
+    assert.equal(stored.cards.c1.area, "side");
     assert.equal(stored.cards.c1.side, "hostile");
+    assert.equal(stored.cards.c2.acted, undefined);
     assert.equal(stored.cards.c2.area, "side");
     assert.equal(stored.cards.c2.side, "friendly");
+    assert.equal(stored.cards.c3.acted, undefined);
     assert.equal(stored.cards.c3.area, "side");
     assert.equal(stored.cards.c3.side, "hostile");
 
@@ -1723,6 +1788,7 @@ test("mid-conflict placement: the mandatory first forceProjection sync immediate
     assert.equal(markers[0].strokeColor, "#c62828");
 
     // Card docs carry the module identity flags incl. the projected area.
+    // In v2 geometry all cards are in "side" (or "bottom") — acted flag is in state, not area.
     const cardAreasByCombatant = {};
     for (const d of scene.drawings) {
       if (d.getFlag(FLAG_SCOPE, "ownerType") !== CONFLICT_CARD_OWNER_TYPE) continue;
@@ -1732,9 +1798,9 @@ test("mid-conflict placement: the mandatory first forceProjection sync immediate
         d.getFlag(FLAG_SCOPE, "area"),
       );
     }
-    assert.deepEqual([...cardAreasByCombatant.c1], ["acted"]);
-    assert.deepEqual([...cardAreasByCombatant.c2], ["friendly"]);
-    assert.deepEqual([...cardAreasByCombatant.c3], ["hostile"]);
+    assert.deepEqual([...cardAreasByCombatant.c1], ["side"]);
+    assert.deepEqual([...cardAreasByCombatant.c2], ["side"]);
+    assert.deepEqual([...cardAreasByCombatant.c3], ["side"]);
     const t1Docs = scene.drawings.filter(
       (d) =>
         d.getFlag(FLAG_SCOPE, "ownerType") === CONFLICT_CARD_OWNER_TYPE &&
@@ -1751,7 +1817,7 @@ test("mid-conflict placement: the mandatory first forceProjection sync immediate
     assert.deepEqual(Object.keys(reg.cardWidgetIds).sort(), ["c1", "c2", "c3"]);
     assert.deepEqual(Object.keys(reg.zoneWidgetIds), ["zone-1"]);
 
-    // Re-sync (e.g. a follow-up combatant update) is idempotent: areas stay,
+    // Re-sync (e.g. a follow-up combatant update) is idempotent: acted flags stay,
     // still exactly one marker, registry preserved.
     const again = await syncConflictBoard(scene, { combat });
     assert.equal(again.ok, true);
@@ -1762,8 +1828,11 @@ test("mid-conflict placement: the mandatory first forceProjection sync immediate
       1,
     );
     const stored2 = readConflictBoard(scene);
-    assert.equal(stored2.cards.c1.area, "acted");
+    assert.equal(stored2.cards.c1.acted, true);
+    assert.equal(stored2.cards.c1.area, "side");
+    assert.equal(stored2.cards.c2.acted, undefined);
     assert.equal(stored2.cards.c2.area, "side");
+    assert.equal(stored2.cards.c3.acted, undefined);
     assert.equal(stored2.cards.c3.area, "side");
     assert.deepEqual(
       Object.keys(boardRegistry(scene).cardWidgetIds).sort(),
@@ -1871,9 +1940,8 @@ test("a new combatant entering an active board mid-conflict is admitted immediat
     // The newcomer card is admitted with the primary-placement rules.
     const stored = readConflictBoard(scene);
     assert.deepEqual(stored.cards.c3, { side: "friendly", area: "side", order: 2 });
-    // Existing cards keep their side/area/order (only the live turn state is
-    // projected onto the areas — old assignments are never rewritten).
-    assert.deepEqual(stored.cards.c1, { side: "hostile", area: "acted", order: 0 });
+    // Existing cards keep their side/order, turn state projected onto acted flag (not area).
+    assert.deepEqual(stored.cards.c1, { side: "hostile", area: "side", order: 0, acted: true });
     assert.deepEqual(stored.cards.c2, { side: "friendly", area: "side", order: 1 });
     // tokenZones untouched.
     assert.deepEqual(stored.tokenZones, {

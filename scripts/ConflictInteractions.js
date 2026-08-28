@@ -1351,7 +1351,7 @@ function canPassTurnTo(targetCombatantId, combat, state) {
  */
 function isCardDisqualified(state, combatant) {
   if (combatant?.defeated) return true;
-  return state?.cards?.[combatant?.id]?.area === "eliminated";
+  return state?.cards?.[combatant?.id]?.eliminated === true;
 }
 
 /**

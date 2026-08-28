@@ -17,7 +17,7 @@
  * ┌────────────┬──────────────────────┬────────────┐
  * │ friendly   │       field          │ hostile    │
  * ├────────────┴──────────┬───────────┴────────────┤
- * │        acted          │        eliminated      │
+ * │   bottomFriendly      │   bottomHostile        │
  * └───────────────────────┴────────────────────────┘
  * ```
  */
@@ -65,14 +65,17 @@ export const BOARD_PADDING = 12;
 export const SIDE_PADDING = 12;
 /** Vertical gap between stacked cards in a side area. */
 export const CARD_GAP = 10;
-/** Vertical overlap of pile cards in the acted/eliminated areas. */
+/** Vertical overlap of pile cards in the acted/eliminated areas.
+ * DEPRECATED: bottom areas now use CARD_GAP stacking; kept for backward
+ * compatibility with external callers that import the constant.
+ */
 export const PILE_OVERLAP = 26;
 
 export const AREA_NAMES = Object.freeze([
   "friendly",
   "hostile",
-  "acted",
-  "eliminated",
+  "bottomFriendly",
+  "bottomHostile",
 ]);
 
 /**
@@ -119,9 +122,10 @@ export function normalizeBoardSize(sizePreset, stored) {
  *   boardSize: {width, height},
  *   fieldSize: number,
  *   card: {width, height},
- *   friendly, hostile, acted, eliminated: AreaRect,
+ *   friendly, hostile, bottomFriendly, bottomHostile: AreaRect,
  *   field: Rect,
- *   bounds: Rect
+ *   bounds: Rect,
+ *   acted: AreaRect, eliminated: AreaRect  // deprecated aliases of bottomFriendly/bottomHostile
  * }} where AreaRect = `{ x, y, width, height, content: Rect, cardWidth, cardHeight }`.
  */
 export function getConflictBoardGeometry(options = {}) {
@@ -161,9 +165,9 @@ export function getConflictBoardGeometry(options = {}) {
   const friendly = area(0, 0, sideW, fieldSize);
   const field = { x: sideW + gap, y: 0, width: fieldSize, height: fieldSize };
   const hostile = area(sideW + gap + fieldSize + gap, 0, sideW, fieldSize);
-  const actedW = totalW / 2;
-  const acted = area(0, bottomY, actedW, bottomH);
-  const eliminated = area(actedW, bottomY, totalW - actedW, bottomH);
+  const bottomFriendlyW = totalW / 2;
+  const bottomFriendly = area(0, bottomY, bottomFriendlyW, bottomH);
+  const bottomHostile = area(bottomFriendlyW, bottomY, totalW - bottomFriendlyW, bottomH);
 
   return {
     sizePreset: normalizePreset(options.sizePreset),
@@ -173,8 +177,11 @@ export function getConflictBoardGeometry(options = {}) {
     friendly,
     hostile,
     field,
-    acted,
-    eliminated,
+    bottomFriendly,
+    bottomHostile,
+    // deprecated aliases for backward compatibility (parallel schema agent / old callers)
+    acted: bottomFriendly,
+    eliminated: bottomHostile,
     bounds: { x: -pad, y: -pad, width: totalW + 2 * pad, height: totalH + 2 * pad },
   };
 }
@@ -182,70 +189,79 @@ export function getConflictBoardGeometry(options = {}) {
 /**
  * Lays the cards of a conflict board state out deterministically.
  *
- * Side-area cards (area "side") stack vertically with a fixed `CARD_GAP`;
- * acted/eliminated cards form a pile that overlaps vertically by
- * `PILE_OVERLAP`. Cards are never silently clipped: every card receives a
+ * Cards are grouped ONLY by `side` (friendly|hostile), ignoring the stored
+ * `area` (compat with schema v2 where area is always "side" and acted state
+ * lives in flags). Each side fills its column top-down (stack with CARD_GAP);
+ * overflow spills into its bottom box (bottomFriendly / bottomHostile) with the
+ * same stacking. Cards are never silently clipped: every card receives a
  * position (even one that exceeds its area) and the overflow list reports
- * exactly which cards do not fit and why.
+ * exactly which cards do not fit and why. PILE_OVERLAP is no longer used.
  *
  * @param {object} geometry  Output of `getConflictBoardGeometry`.
  * @param {object} state     Conflict board state (`state.cards`).
  * @returns {{
- *   positions: { [combatantId]: { x, y, width, height, area, side, order } },
- *   overflow: Array<{ combatantId, area, side, order, index, reason: "height"|"width" }>,
+ *   positions: { [combatantId]: { x, y, width, height, area: "side"|"bottom", side, order } },
+ *   overflow: Array<{ combatantId, area: "side"|"bottom", side, order, index, reason: "height"|"width" }>,
  *   hasOverflow: boolean
  * }}
  */
 export function layoutConflictCards(geometry, state = {}) {
   const positions = {};
   const overflow = [];
-  const groups = { friendly: [], hostile: [], acted: [], eliminated: [] };
+  const groups = { friendly: [], hostile: [] };
 
   for (const [combatantId, record] of Object.entries(state.cards ?? {})) {
     if (!isObject(record)) continue;
-    const areaName = record.area === "acted" || record.area === "eliminated" ? record.area : "side";
-    const group =
-      areaName === "side"
-        ? record.side === "hostile"
-          ? "hostile"
-          : "friendly"
-        : areaName;
-    if (!groups[group]) continue;
-    groups[group].push({ combatantId, record, area: group });
+    const sideName = record.side === "hostile" ? "hostile" : "friendly";
+    if (!groups[sideName]) continue;
+    groups[sideName].push({ combatantId, record, side: sideName });
   }
 
-  for (const areaName of AREA_NAMES) {
-    const area = geometry?.[areaName];
-    if (!area?.content) continue;
-    const list = groups[areaName].sort(
+  const sides = ["friendly", "hostile"];
+  for (const sideName of sides) {
+    const sideArea = geometry?.[sideName];
+    const bottomName = sideName === "friendly" ? "bottomFriendly" : "bottomHostile";
+    // fallback to legacy aliases for robustness if caller still has old geometry
+    const bottomArea = geometry?.[bottomName] ?? (sideName === "friendly" ? geometry?.acted : geometry?.eliminated);
+    if (!sideArea?.content || !bottomArea?.content) continue;
+    const list = groups[sideName].sort(
       (a, b) => (a.record.order ?? 0) - (b.record.order ?? 0),
     );
-    const isPile = areaName === "acted" || areaName === "eliminated";
-    const step = Math.max(
-      isPile ? area.cardHeight - PILE_OVERLAP : area.cardHeight + CARD_GAP,
-      2,
-    );
-    list.forEach((item, i) => {
-      const homeSide =
-        item.record.side === "hostile" || item.record.side === "friendly"
-          ? item.record.side
-          : areaName === "hostile"
-            ? "hostile"
-            : "friendly";
-      const x = area.content.x;
-      const y = area.content.y + i * step;
-      const width = area.cardWidth;
-      const height = area.cardHeight;
+    const step = Math.max(sideArea.cardHeight + CARD_GAP, 2);
+    const bottomStep = Math.max(bottomArea.cardHeight + CARD_GAP, 2);
+    let sideCount = 0;
+    let bottomCount = 0;
+    for (const item of list) {
+      const homeSide = sideName;
+      const width = sideArea.cardWidth;
+      const height = sideArea.cardHeight;
       const order = item.record.order ?? 0;
-      positions[item.combatantId] = { x, y, width, height, area: areaName, side: homeSide, order };
-      const fitsHeight = y + height <= area.content.y + area.content.height;
-      const fitsWidth = width <= area.content.width;
-      if (!fitsHeight) {
-        overflow.push({ combatantId: item.combatantId, area: areaName, side: homeSide, order, index: i, reason: "height" });
-      } else if (!fitsWidth) {
-        overflow.push({ combatantId: item.combatantId, area: areaName, side: homeSide, order, index: i, reason: "width" });
+      // try to fit into side column
+      const sideY = sideArea.content.y + sideCount * step;
+      const fitsSideHeight = sideY + height <= sideArea.content.y + sideArea.content.height;
+      const fitsSideWidth = width <= sideArea.content.width;
+      if (fitsSideHeight && fitsSideWidth) {
+        const x = sideArea.content.x;
+        const y = sideY;
+        positions[item.combatantId] = { x, y, width, height, area: "side", side: homeSide, order };
+        // side fits — no overflow (width/height already checked)
+        sideCount++;
+      } else {
+        // overflow to bottom box
+        const x = bottomArea.content.x;
+        const y = bottomArea.content.y + bottomCount * bottomStep;
+        const area = "bottom";
+        positions[item.combatantId] = { x, y, width, height, area, side: homeSide, order };
+        const fitsHeight = y + height <= bottomArea.content.y + bottomArea.content.height;
+        const fitsWidth = width <= bottomArea.content.width;
+        if (!fitsHeight) {
+          overflow.push({ combatantId: item.combatantId, area, side: homeSide, order, index: bottomCount, reason: "height" });
+        } else if (!fitsWidth) {
+          overflow.push({ combatantId: item.combatantId, area, side: homeSide, order, index: bottomCount, reason: "width" });
+        }
+        bottomCount++;
       }
-    });
+    }
   }
 
   return { positions, overflow, hasOverflow: overflow.length > 0 };
@@ -380,13 +396,13 @@ export function hitTestZone(zones = [], point) {
 
 /**
  * Hit-tests a point against the board: custom zones first (they live inside
- * the central field), then the central field, then the four board areas.
+ * the central field), then the central field, then the board areas.
  * @param {object} geometry  Output of `getConflictBoardGeometry`.
  * @param {Array<{id: string, rect: Rect}>} zones
  * @param {{x: number, y: number}} point
  * @returns {{
  *   type: "zone"|"field"|"area"|null,
- *   area: "friendly"|"hostile"|"central"|"acted"|"eliminated"|null,
+ *   area: "friendly"|"hostile"|"central"|"bottomFriendly"|"bottomHostile"|null,
  *   zone: object|null,
  *   zoneId: string|null
  * }}

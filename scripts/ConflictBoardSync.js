@@ -102,6 +102,10 @@ import {
   SITUATION_ASPECTS_KEY,
 } from "./constants.js";
 import {
+  CONFLICT_ROUND_DIVIDER_PART as CONST_ROUND_DIVIDER,
+  CONFLICT_ROUND_NUMBER_PART as CONST_ROUND_NUMBER,
+} from "./constants.js";
+import {
   normalizeConflictBoard,
   reconcileConflictBoard,
   applyCombatTurnStateToCards,
@@ -133,16 +137,17 @@ export const CONFLICT_BOARD_WIDGET_FLAG = "conflictBoardWidget";
 // Part name of the area name labels (kept out of constants.js: local to the
 // sync module, next agents may import it from here).
 export const CONFLICT_AREA_LABEL_PART = "conflictAreaLabel";
+// Round divider / number parts (canonical in constants.js, re-exported here).
+export const CONFLICT_ROUND_DIVIDER_PART = CONST_ROUND_DIVIDER;
+export const CONFLICT_ROUND_NUMBER_PART = CONST_ROUND_NUMBER;
 // Re-export of the pure turn-state -> cards projection (live hasActed is the
 // only source of truth; the board flag only caches the derived area).
 export { applyCombatTurnStateToCards } from "./conflictBoardSchema.js";
 
-/** Canonical labels drawn into the four board areas. */
+/** Canonical labels drawn into the side board areas (bottom boxes have no labels). */
 const AREA_LABELS = Object.freeze({
   friendly: "Friendly",
   hostile: "Hostile",
-  acted: "Acted",
-  eliminated: "Eliminated",
 });
 
 const DRAWING_FIELDS = [
@@ -462,13 +467,19 @@ export function combatantDescriptors(combatants) {
  * ------------------------------------------------------------------ */
 
 /**
- * Board-level descriptors: background + area frames + area labels. All
- * coordinates are BOARD-LOCAL; the runtime adds `state.board.origin`.
+ * Board-level descriptors: background + area frames + area labels + round
+ * divider/number. All coordinates are BOARD-LOCAL; the runtime adds
+ * `state.board.origin`.
  * @param {object} state  Normalized conflict board state.
  * @param {object} geometry  Output of `getConflictBoardGeometry`.
+ * @param {object|null} [activeCombat]  Combat driving the round number (round>=1).
  * @returns {object[]}
  */
-export function buildBoardPartDescriptors(state, geometry) {
+export function buildBoardPartDescriptors(state, geometry, activeCombat = null) {
+  // Support legacy call shape buildBoardPartDescriptors(state, geometry, {activeCombat})
+  if (activeCombat && typeof activeCombat === "object" && !("round" in activeCombat) && "activeCombat" in activeCombat) {
+    activeCombat = activeCombat.activeCombat ?? null;
+  }
   const bg = state?.board?.background ?? {};
   const bounds = geometry?.bounds ?? { x: 0, y: 0, width: 0, height: 0 };
   const parts = [];
@@ -495,23 +506,30 @@ export function buildBoardPartDescriptors(state, geometry) {
     sort: -1000,
   });
 
+  const bottomFriendly = geometry?.bottomFriendly ?? geometry?.acted ?? null;
+  const bottomHostile = geometry?.bottomHostile ?? geometry?.eliminated ?? null;
   const areas = [
     ["friendly", geometry?.friendly],
     ["hostile", geometry?.hostile],
-    ["acted", geometry?.acted],
-    ["eliminated", geometry?.eliminated],
+    ["bottomFriendly", bottomFriendly],
+    ["bottomHostile", bottomHostile],
   ];
-  const frameIndex = { friendly: 0, hostile: 1, acted: 2, eliminated: 3, field: 4 };
+  const frameIndex = { friendly: 0, hostile: 1, bottomFriendly: 2, bottomHostile: 3, field: 4 };
 
   for (const [name, rect] of areas) {
     if (!rect) continue;
-    parts.push(framePart(CONFLICT_AREA_PART, frameIndex[name], rect, -3, -300, 0.35));
+    parts.push(framePart(CONFLICT_AREA_PART, frameIndex[name], rect, -3, -300, 0.35, 1));
   }
   if (geometry?.field) {
-    parts.push(framePart(CONFLICT_AREA_PART, frameIndex.field, geometry.field, -3, -300, 0.35));
+    // stronger contrast border for the central field
+    parts.push(framePart(CONFLICT_AREA_PART, frameIndex.field, geometry.field, -3, -300, 1, 2));
   }
 
-  for (const [name, rect] of areas) {
+  const labelAreas = [
+    ["friendly", geometry?.friendly],
+    ["hostile", geometry?.hostile],
+  ];
+  for (const [name, rect] of labelAreas) {
     if (!rect?.content) continue;
     parts.push({
       kind: "drawing",
@@ -536,10 +554,73 @@ export function buildBoardPartDescriptors(state, geometry) {
     });
   }
 
+  // vertical divider in the middle of the bottom strip (always)
+  if (bottomFriendly && bottomHostile) {
+    const bottomY = bottomFriendly.y;
+    const bottomH = bottomFriendly.height;
+    const centerX = bottomFriendly.width; // totalW/2 since x=0
+    // divider as a thin filled rectangle 2px wide centered on the split
+    parts.push({
+      kind: "drawing",
+      part: CONFLICT_ROUND_DIVIDER_PART,
+      index: -1,
+      x: centerX - 1,
+      y: bottomY,
+      w: 2,
+      h: bottomH,
+      font: "Montserrat",
+      size: 8,
+      color: "#000000",
+      align: "left",
+      stroke: 0,
+      strokeColor: "#000000",
+      strokeAlpha: 1,
+      fillType: 1,
+      fillColor: "#000000",
+      fillAlpha: 0.6,
+      texture: null,
+      elevation: -3,
+      sort: -290,
+      text: "",
+    });
+
+    // large round number centered on the bottom strip, under cards
+    const roundNum = Number(activeCombat?.round);
+    if (Number.isFinite(roundNum) && Number.isInteger(roundNum) && roundNum >= 1) {
+      const preset = geometry?.sizePreset ?? state?.sizePreset ?? "medium";
+      const fontSize = preset === "small" ? 48 : preset === "large" ? 64 : 56;
+      const boxW = 100;
+      const boxH = fontSize;
+      const boxX = centerX - boxW / 2;
+      const boxY = bottomY + (bottomH - boxH) / 2;
+      parts.push({
+        kind: "drawing",
+        part: CONFLICT_ROUND_NUMBER_PART,
+        index: -1,
+        x: boxX,
+        y: boxY,
+        w: boxW,
+        h: boxH,
+        font: "Montserrat",
+        size: fontSize,
+        color: "#000000",
+        align: "center",
+        stroke: 0,
+        text: String(roundNum),
+        fillType: 0,
+        fillColor: "#ffffff",
+        fillAlpha: 0,
+        texture: null,
+        elevation: -2,
+        sort: -200,
+      });
+    }
+  }
+
   return parts;
 }
 
-function framePart(part, index, rect, elevation, sort, strokeAlpha) {
+function framePart(part, index, rect, elevation, sort, strokeAlpha, strokeWidth = 1) {
   return {
     kind: "drawing",
     part,
@@ -552,7 +633,7 @@ function framePart(part, index, rect, elevation, sort, strokeAlpha) {
     size: 8,
     color: "#000000",
     align: "left",
-    stroke: 1,
+    stroke: strokeWidth,
     strokeColor: "#000000",
     strokeAlpha,
     fillType: 0,
@@ -977,12 +1058,13 @@ export async function buildConflictBoardDocuments(scene, state, combat, options 
   });
   const { positions, overflow } = layoutConflictCards(geometry, state);
 
-  const board = buildBoardPartDescriptors(state, geometry);
+  const activeCombat = options.activeCombat ?? combat;
+  const board = buildBoardPartDescriptors(state, geometry, activeCombat);
   const marker = buildTurnMarkerDescriptor(
     state,
     geometry,
     positions,
-    options.activeCombat ?? combat,
+    activeCombat,
   );
   if (marker) board.push(marker);
 

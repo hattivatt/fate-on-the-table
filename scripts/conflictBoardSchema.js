@@ -7,11 +7,11 @@
  * dependency. It is covered by the Node test suite, exactly like
  * `layoutSchema.js` / `layoutGeometry.js`.
  *
- * Canonical normalized state (schema v1):
+ * Canonical normalized state (schema v2):
  *
  * ```js
  * {
- *   version: 1,
+ *   version: 2,
  *   combatId: "<combatId>",
  *   sizePreset: "small" | "medium" | "large",
  *   board: {
@@ -31,8 +31,10 @@
  *   cards: {
  *     "<combatantId>": {
  *       side: "friendly" | "hostile",                  // home side area
- *       area: "side" | "acted" | "eliminated",         // current area
- *       order: <integer >= 0>                          // stable order
+ *       area: "side",                                  // always "side" in v2
+ *       order: <integer >= 0>,                         // stable order
+ *       acted?: boolean,                               // true when hasActed
+ *       eliminated?: boolean                           // true when defeated
  *     }
  *   },
  *   tokenZones: {
@@ -55,10 +57,12 @@
  *     (`normalized` stays `null` when any error is present).
  */
 
-export const CONFLICT_BOARD_VERSION = 1;
+export const CONFLICT_BOARD_VERSION = 2;
 export const SIZE_PRESETS = Object.freeze(["small", "medium", "large"]);
 export const CARD_SIDES = Object.freeze(["friendly", "hostile"]);
-export const CARD_AREAS = Object.freeze(["side", "acted", "eliminated"]);
+export const CARD_AREAS = Object.freeze(["side"]);
+/** Legacy areas for migration (v1). */
+export const CARD_AREAS_V1 = Object.freeze(["side", "acted", "eliminated"]);
 export const DEFAULT_SIZE_PRESET = "medium";
 
 export const DEFAULT_BACKGROUND = Object.freeze({
@@ -177,6 +181,46 @@ export function normalizeConflictBoard(input) {
   return analyzeConflictBoard(input);
 }
 
+/**
+ * Migrates a conflict board document to the latest schema version (v2).
+ * Pure: never mutates `doc`, returns a cloned migrated copy or the original
+ * reference when no migration is needed.
+ * - doc.version===1 -> clone, for each cards entry: area==="acted" => {area:"side", acted:true},
+ *   area==="eliminated" => {area:"side", eliminated:true}, other areas => "side"; version=2.
+ * - doc.version===2 -> returned as-is (no clone).
+ * - other versions / non-objects -> returned as-is (analyze will error).
+ * Unknown fields are preserved.
+ * @param {*} doc
+ * @returns {*}
+ */
+export function migrateConflictBoard(doc) {
+  if (!isObject(doc)) return doc;
+  if (doc.version === 2) return doc;
+  if (doc.version !== 1) return doc;
+  const cloned = clone(doc);
+  cloned.version = 2;
+  if (isObject(cloned.cards)) {
+    for (const [combatantId, record] of Object.entries(cloned.cards)) {
+      if (!isObject(record)) continue;
+      const area = record.area;
+      if (area === "acted") {
+        cloned.cards[combatantId] = { ...record, area: "side", acted: true };
+        // eliminated flag should not be set for acted cards
+        if (cloned.cards[combatantId].eliminated !== true) delete cloned.cards[combatantId].eliminated;
+      } else if (area === "eliminated") {
+        cloned.cards[combatantId] = { ...record, area: "side", eliminated: true };
+        if (cloned.cards[combatantId].acted !== true) delete cloned.cards[combatantId].acted;
+      } else {
+        // normalization: area always "side" (including already "side" or missing/invalid)
+        cloned.cards[combatantId] = { ...record, area: "side" };
+        if (cloned.cards[combatantId].acted !== true) delete cloned.cards[combatantId].acted;
+        if (cloned.cards[combatantId].eliminated !== true) delete cloned.cards[combatantId].eliminated;
+      }
+    }
+  }
+  return cloned;
+}
+
 /** Alias of `normalizeConflictBoard` keeping the `analyzeLayout`-style name. */
 export const analyzeConflictBoard = function analyzeConflictBoard(input) {
   const errors = [];
@@ -195,27 +239,33 @@ export const analyzeConflictBoard = function analyzeConflictBoard(input) {
     };
   }
 
-  // ---- top level ----------------------------------------------------
-  if (typeof input.version !== "number" || !Number.isInteger(input.version)) {
-    err("$.version", "Expected an integer version.");
-  } else if (input.version !== CONFLICT_BOARD_VERSION) {
-    err("$.version", `Unsupported version ${input.version}; latest is ${CONFLICT_BOARD_VERSION}.`);
+  // ---- migration: v1 -> v2 before validation ----
+  let doc = input;
+  if (doc.version === 1) {
+    doc = migrateConflictBoard(doc);
   }
-  if (!isNonEmptyString(input.combatId)) {
+
+  // ---- top level ----------------------------------------------------
+  if (typeof doc.version !== "number" || !Number.isInteger(doc.version)) {
+    err("$.version", "Expected an integer version.");
+  } else if (doc.version !== CONFLICT_BOARD_VERSION) {
+    err("$.version", `Unsupported version ${doc.version}; latest is ${CONFLICT_BOARD_VERSION}.`);
+  }
+  if (!isNonEmptyString(doc.combatId)) {
     err("$.combatId", "Expected a non-empty string.");
   }
-  if (input.sizePreset !== undefined && !SIZE_PRESETS.includes(input.sizePreset)) {
+  if (doc.sizePreset !== undefined && !SIZE_PRESETS.includes(doc.sizePreset)) {
     err("$.sizePreset", `Expected one of: ${SIZE_PRESETS.join(", ")}.`);
   }
-  for (const key of Object.keys(input)) {
+  for (const key of Object.keys(doc)) {
     if (!TOP_LEVEL_KEYS.has(key)) warn(`$.${key}`, "Unknown field (kept as-is).");
   }
 
   // ---- board --------------------------------------------------------
-  if (!isObject(input.board)) {
+  if (!isObject(doc.board)) {
     err("$.board", "Expected an object.");
   } else {
-    const board = input.board;
+    const board = doc.board;
     for (const key of Object.keys(board)) {
       if (!BOARD_KEYS.has(key)) warn(`$.board.${key}`, "Unknown field (kept as-is).");
     }
@@ -251,7 +301,7 @@ export const analyzeConflictBoard = function analyzeConflictBoard(input) {
 
   // ---- zones --------------------------------------------------------
   const zoneIds = new Set();
-  const zones = input.zones;
+  const zones = doc.zones;
   if (zones !== undefined && !Array.isArray(zones)) {
     err("$.zones", "Expected an array.");
   } else if (Array.isArray(zones)) {
@@ -300,10 +350,10 @@ export const analyzeConflictBoard = function analyzeConflictBoard(input) {
   }
 
   // ---- cards --------------------------------------------------------
-  if (input.cards !== undefined && !isObject(input.cards)) {
+  if (doc.cards !== undefined && !isObject(doc.cards)) {
     err("$.cards", "Expected an object.");
   } else {
-    for (const [combatantId, record] of Object.entries(input.cards ?? {})) {
+    for (const [combatantId, record] of Object.entries(doc.cards ?? {})) {
       const p = `$.cards.${combatantId}`;
       if (!isNonEmptyString(combatantId)) {
         err("$.cards", "Combatant ids must be non-empty strings.");
@@ -319,22 +369,28 @@ export const analyzeConflictBoard = function analyzeConflictBoard(input) {
       if (record.side !== undefined && !CARD_SIDES.includes(record.side)) {
         err(`${p}.side`, `Expected one of: ${CARD_SIDES.join(", ")}.`);
       }
-      if (record.area !== undefined && !CARD_AREAS.includes(record.area)) {
-        err(`${p}.area`, `Expected one of: ${CARD_AREAS.join(", ")}.`);
+      if (record.area !== undefined && record.area !== "side") {
+        warn(`${p}.area`, `Expected "side" (v2) — normalized to "side".`);
       }
       if (record.order !== undefined) {
         if (typeof record.order !== "number" || !Number.isInteger(record.order) || record.order < 0) {
           err(`${p}.order`, "Expected an integer >= 0.");
         }
       }
+      if (record.acted !== undefined && typeof record.acted !== "boolean") {
+        warn(`${p}.acted`, "Expected a boolean.");
+      }
+      if (record.eliminated !== undefined && typeof record.eliminated !== "boolean") {
+        warn(`${p}.eliminated`, "Expected a boolean.");
+      }
     }
   }
 
   // ---- tokenZones ---------------------------------------------------
-  if (input.tokenZones !== undefined && !isObject(input.tokenZones)) {
+  if (doc.tokenZones !== undefined && !isObject(doc.tokenZones)) {
     err("$.tokenZones", "Expected an object.");
   } else {
-    for (const [tokenUuid, zoneId] of Object.entries(input.tokenZones ?? {})) {
+    for (const [tokenUuid, zoneId] of Object.entries(doc.tokenZones ?? {})) {
       if (!isNonEmptyString(tokenUuid)) {
         err("$.tokenZones", "Token UUIDs must be non-empty strings.");
         continue;
@@ -348,7 +404,7 @@ export const analyzeConflictBoard = function analyzeConflictBoard(input) {
   }
 
   const ok = errors.length === 0;
-  return { ok, errors, warnings, normalized: ok ? normalizeDocument(input) : null };
+  return { ok, errors, warnings, normalized: ok ? normalizeDocument(doc) : null };
 };
 
 /* ------------------------------------------------------------------ *
@@ -366,7 +422,7 @@ const TOP_LEVEL_KEYS = new Set([
 ]);
 const BOARD_KEYS = new Set(["origin", "boardSize", "background"]);
 const ZONE_KEYS = new Set(["id", "name", "rect", "style", "sort"]);
-const CARD_RECORD_KEYS = new Set(["side", "area", "order"]);
+const CARD_RECORD_KEYS = new Set(["side", "area", "order", "acted", "eliminated"]);
 
 function isObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -432,15 +488,28 @@ function normalizeDocument(input) {
   const cards = {};
   for (const [combatantId, record] of Object.entries(doc.cards)) {
     if (!isObject(record)) continue;
-    cards[combatantId] = {
-      side: CARD_SIDES.includes(record.side) ? record.side : "friendly",
-      area: CARD_AREAS.includes(record.area) ? record.area : "side",
-      order:
-        typeof record.order === "number" && Number.isInteger(record.order) && record.order >= 0
-          ? record.order
-          : 0,
+    const side = CARD_SIDES.includes(record.side) ? record.side : "friendly";
+    const order =
+      typeof record.order === "number" && Number.isInteger(record.order) && record.order >= 0
+        ? record.order
+        : 0;
+    const next = {
+      side,
+      area: "side",
+      order,
       ...record,
     };
+    // v2 normalization: area always "side", acted/eliminated booleans (false omitted)
+    next.area = "side";
+    // preserve only true flags, drop false/non-boolean (soft normalization)
+    if (next.acted === true) next.acted = true;
+    else delete next.acted;
+    if (next.eliminated === true) next.eliminated = true;
+    else delete next.eliminated;
+    // ensure side/order are coerced even if ...record overwrote with invalid
+    next.side = side;
+    next.order = order;
+    cards[combatantId] = next;
   }
   doc.cards = cards;
 
@@ -603,32 +672,24 @@ function toSet(values) {
  * the board state's cards. Pure: never mutates `state`, never touches
  * `game`/combat documents — pass a plain `combatantStates` map instead.
  *
- * This is a cached projection only: the combatants' `hasActed` flags (written
- * exclusively through the standard `fate-core-official` API) remain the
- * source of truth. The board flag is never used to derive them.
+ * v2 semantics: cards stay in place (`area` always "side"); `acted` and
+ * `eliminated` are boolean flags on the card record.
  *
  * Rules (priority order):
- * - a card whose combatant id is NOT listed in `combatantStates` is left
+ * - (1) a card whose combatant id is NOT listed in `combatantStates` is left
  *   untouched (orphan removal is `reconcileConflictBoard`'s job);
- * - an "eliminated" card is never overwritten;
- * - the combatant matching `options.currentCombatantId` (the id at
- *   `combat.turns[combat.turn]`, i.e. the current actor) ALWAYS stays in its
- *   side area (`area: "side"`) even when `hasActed === true` — the
- *   `fate-core-official` popcorn semantics mark the acting combatant as both
- *   current and `hasActed` at the same time;
- * - non-current + `hasActed === true`  -> `area` becomes "acted";
- * - non-current + `hasActed === false` -> `area` returns to "side" (its
- *   friendly/hostile `side` and `order` are preserved);
- * - when no current is given (`options.currentCombatantId` missing/null, i.e.
- *   `combat.turn === null`) the legacy mapping is kept: true -> "acted",
- *   false -> "side".
+ * - (2) `eliminated:true` is NEVER overwritten by turn-state;
+ * - (3) isCurrent -> `acted:false` (current actor always appears un-greyed);
+ * - (4) hasActed:true -> `acted:true`;
+ * - (5) hasActed:false -> `acted:false`.
+ * `changed` lists ids whose `acted` flag actually changed (area is ignored).
  *
  * @param {object} state  Normalized conflict board state.
  * @param {Record<string, boolean>} combatantStates  `{ [combatantId]: hasActed }`.
  * @param {object} [options]  `{ currentCombatantId: string|null }` — the id of
  *   the current combatant (`combat.turns[combat.turn]`, Fate Utilities order).
- * @returns {{state: object, changed: string[]}}  New state + ids whose `area`
- *   actually changed.
+ * @returns {{state: object, changed: string[]}}  New state + ids whose `acted`
+ *   flag actually changed.
  */
 export function applyCombatTurnStateToCards(state, combatantStates = {}, options = {}) {
   const cards = {};
@@ -641,18 +702,33 @@ export function applyCombatTurnStateToCards(state, combatantStates = {}, options
     }
     const hasActed = combatantStates[combatantId];
     if (typeof hasActed !== "boolean") {
-      cards[combatantId] = record;
+      // still ensure area is normalized to "side" without marking changed
+      if (record.area !== "side") {
+        cards[combatantId] = { ...record, area: "side" };
+      } else {
+        cards[combatantId] = record;
+      }
       continue;
     }
-    if (record.area === "eliminated") {
-      cards[combatantId] = record;
+    if (record.eliminated === true) {
+      // never mutate eliminated cards
+      if (record.area !== "side") {
+        cards[combatantId] = { ...record, area: "side" };
+      } else {
+        cards[combatantId] = record;
+      }
       continue;
     }
     const isCurrent = currentId !== null && combatantId === currentId;
-    const nextArea = isCurrent ? "side" : hasActed ? "acted" : "side";
-    if (record.area !== nextArea) {
-      cards[combatantId] = { ...record, area: nextArea };
-      changed.push(combatantId);
+    const nextActed = isCurrent ? false : hasActed === true;
+    const oldActed = record.acted === true;
+    if (oldActed !== nextActed || record.area !== "side") {
+      const nextRecord = { ...record, area: "side" };
+      if (nextActed) nextRecord.acted = true;
+      else delete nextRecord.acted;
+      // preserve eliminated if true (though already handled)
+      if (oldActed !== nextActed) changed.push(combatantId);
+      cards[combatantId] = nextRecord;
     } else {
       cards[combatantId] = record;
     }
@@ -661,7 +737,7 @@ export function applyCombatTurnStateToCards(state, combatantStates = {}, options
 }
 
 /**
- * Creates a fresh empty conflict board document (schema v1) with safe
+ * Creates a fresh empty conflict board document (schema v2) with safe
  * defaults. Useful for initial placement before zones/cards are assigned.
  * @param {{combatId?: string, sizePreset?: string, origin?: {x, y}}} [options]
  * @returns {object}
