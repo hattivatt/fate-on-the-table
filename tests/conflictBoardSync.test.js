@@ -30,6 +30,8 @@ import {
   buildBoardPartDescriptors,
   buildZoneDescriptors,
   buildTurnMarkerDescriptor,
+  buildCardActedOverlayDescriptor,
+  buildCardEliminatedStrikeDescriptors,
   plainTokenActor,
   docsBounds,
   currentCombatantIdOf,
@@ -48,6 +50,8 @@ import {
   CONFLICT_ZONE_BODY_PART,
   CONFLICT_ZONE_LABEL_PART,
   CONFLICT_TURN_MARKER_PART,
+  CONFLICT_CARD_ACTED_OVERLAY_PART,
+  CONFLICT_CARD_ELIMINATED_STRIKE_PART,
 } from "../scripts/constants.js";
 
 /* ------------------------------------------------------------------ *
@@ -2243,4 +2247,298 @@ test("removeConflictBoard queued first keeps a later sync from resurrecting the 
   assert.equal(boardRegistry(scene), null);
   assert.equal(scene.drawings.length, 0);
   assert.ok(readConflictBoard(scene));
+});
+
+/* ------------------------------------------------------------------ *
+ * Card state markers — acted fade overlay & eliminated strike-through
+ * ------------------------------------------------------------------ */
+
+test("buildCardActedOverlayDescriptor matches card rect and style", () => {
+  const pos = { x: 10, y: 20, width: 220, height: 150, area: "side", side: "friendly", order: 0 };
+  const d = buildCardActedOverlayDescriptor(pos);
+  assert.equal(d.part, CONFLICT_CARD_ACTED_OVERLAY_PART);
+  assert.equal(d.index, -1);
+  assert.equal(d.kind, "drawing");
+  assert.deepEqual({ x: d.x, y: d.y, w: d.w, h: d.h }, { x: 10, y: 20, w: 220, h: 150 });
+  assert.equal(d.fillType, 1);
+  assert.equal(d.fillColor, "#808080");
+  assert.equal(d.fillAlpha, 0.45);
+  assert.equal(d.stroke, 0);
+  assert.equal(d.elevation, 0);
+  assert.equal(d.sort, 5);
+  assert.equal(d.text, "");
+});
+
+test("buildCardEliminatedStrikeDescriptors are two diagonal red bars through card centre (rotation ±45)", () => {
+  const pos = { x: 10, y: 20, width: 220, height: 150, area: "side", side: "friendly", order: 0 };
+  const strikes = buildCardEliminatedStrikeDescriptors(pos);
+  assert.equal(strikes.length, 2);
+  const [a, b] = strikes;
+  for (const s of strikes) {
+    assert.equal(s.kind, "drawing");
+    assert.equal(s.part, CONFLICT_CARD_ELIMINATED_STRIKE_PART);
+    assert.equal(s.fillType, 1);
+    assert.equal(s.fillColor, "#b71c1c");
+    assert.equal(s.fillAlpha, 0.95);
+    assert.equal(s.stroke, 0);
+    assert.equal(s.elevation, 0);
+    assert.equal(s.sort, 6);
+    assert.equal(s.h, 6);
+    const cx = pos.x + pos.width / 2;
+    const cy = pos.y + pos.height / 2;
+    assert.ok(Math.abs(s.x + s.w / 2 - cx) < 1e-6, "strike centred on card X");
+    assert.ok(Math.abs(s.y + s.h / 2 - cy) < 1e-6, "strike centred on card Y");
+    assert.equal(s.w, Math.round(Math.hypot(pos.width, pos.height)));
+  }
+  assert.deepEqual([a.index, b.index].sort(), [0, 1]);
+  assert.ok((a.rotation === 45 && b.rotation === -45) || (a.rotation === -45 && b.rotation === 45));
+});
+
+test("buildConflictBoardDocuments: acted card adds grey overlay, ordinary card adds nothing", async () => {
+  installProjectionGlobals();
+  const raw = JSON.parse(readFileSync(new URL("../layouts/minimal.json", import.meta.url), "utf8"));
+  addLayout(analyzeLayout(raw).normalized);
+  try {
+    const state = validState({
+      cards: {
+        c1: { side: "friendly", area: "side", order: 0, acted: true },
+        c2: { side: "hostile", area: "side", order: 1 },
+      },
+      tokenZones: {},
+    });
+    const geometry = getConflictBoardGeometry({ sizePreset: "medium" });
+    const { positions } = layoutConflictCards(geometry, state);
+    const scene = mockScene({
+      tokens: {
+        t1: { uuid: "Scene.scene1.Token.t1" },
+        t2: { uuid: "Scene.scene1.Token.t2" },
+      },
+    });
+    const combat = {
+      id: "combat-abc",
+      combatants: [
+        { id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 } },
+        { id: "c2", tokenId: "t2", sceneId: "scene1", token: { name: "B", texture: { src: "b.png" }, disposition: -1 } },
+      ],
+    };
+    const built = await buildConflictBoardDocuments(scene, state, combat, {});
+    const c1 = built.cards.c1;
+    const c2 = built.cards.c2;
+    assert.ok(c1 && c1.length > 0);
+    assert.ok(c2 && c2.length > 0);
+    const overlay = c1.filter((d) => d.part === CONFLICT_CARD_ACTED_OVERLAY_PART);
+    assert.equal(overlay.length, 1);
+    assert.equal(overlay[0].index, -1);
+    assert.deepEqual({ x: overlay[0].x, y: overlay[0].y, w: overlay[0].w, h: overlay[0].h }, { x: positions.c1.x, y: positions.c1.y, w: positions.c1.width, h: positions.c1.height });
+    assert.equal(overlay[0].fillColor, "#808080");
+    assert.equal(overlay[0].fillAlpha, 0.45);
+    assert.equal(overlay[0].elevation, 0);
+    assert.equal(overlay[0].sort, 5);
+    assert.equal(overlay[0].flags.combatId, "combat-abc");
+    assert.equal(overlay[0].flags.combatantId, "c1");
+    assert.equal(overlay[0].flags.tokenUuid, "Scene.scene1.Token.t1");
+    assert.equal(overlay[0].flags.area, positions.c1.area);
+    assert.equal(c1.filter((d) => d.part === CONFLICT_CARD_ELIMINATED_STRIKE_PART).length, 0);
+    assert.equal(c2.filter((d) => d.part === CONFLICT_CARD_ACTED_OVERLAY_PART).length, 0);
+    assert.equal(c2.filter((d) => d.part === CONFLICT_CARD_ELIMINATED_STRIKE_PART).length, 0);
+  } finally {
+    uninstallProjectionGlobals();
+  }
+});
+
+test("buildConflictBoardDocuments: eliminated card adds two diagonal strikes", async () => {
+  installProjectionGlobals();
+  const raw = JSON.parse(readFileSync(new URL("../layouts/minimal.json", import.meta.url), "utf8"));
+  addLayout(analyzeLayout(raw).normalized);
+  try {
+    const state = validState({
+      cards: {
+        c1: { side: "friendly", area: "side", order: 0, eliminated: true },
+      },
+      tokenZones: {},
+    });
+    const geometry = getConflictBoardGeometry({ sizePreset: "medium" });
+    const { positions } = layoutConflictCards(geometry, state);
+    const scene = mockScene({ tokens: { t1: { uuid: "Scene.scene1.Token.t1" } } });
+    const combat = {
+      id: "combat-abc",
+      combatants: [{ id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 } }],
+    };
+    const built = await buildConflictBoardDocuments(scene, state, combat, {});
+    const c1 = built.cards.c1;
+    const strikes = c1.filter((d) => d.part === CONFLICT_CARD_ELIMINATED_STRIKE_PART);
+    assert.equal(strikes.length, 2);
+    assert.deepEqual(strikes.map((d) => d.index).sort(), [0, 1]);
+    for (const s of strikes) {
+      assert.equal(s.fillColor, "#b71c1c");
+      assert.equal(s.elevation, 0);
+      assert.equal(s.sort, 6);
+      assert.ok(Number.isFinite(s.rotation));
+      assert.equal(s.flags.combatantId, "c1");
+      assert.equal(s.flags.tokenUuid, "Scene.scene1.Token.t1");
+      const cx = positions.c1.x + positions.c1.width / 2;
+      const cy = positions.c1.y + positions.c1.height / 2;
+      assert.ok(Math.abs(s.x + s.w / 2 - cx) < 1e-6);
+      assert.ok(Math.abs(s.y + s.h / 2 - cy) < 1e-6);
+    }
+    assert.equal(c1.filter((d) => d.part === CONFLICT_CARD_ACTED_OVERLAY_PART).length, 0);
+  } finally {
+    uninstallProjectionGlobals();
+  }
+});
+
+test("buildConflictBoardDocuments: eliminated+acted only strike (eliminated priority)", async () => {
+  installProjectionGlobals();
+  const raw = JSON.parse(readFileSync(new URL("../layouts/minimal.json", import.meta.url), "utf8"));
+  addLayout(analyzeLayout(raw).normalized);
+  try {
+    const state = validState({
+      cards: {
+        c1: { side: "friendly", area: "side", order: 0, acted: true, eliminated: true },
+      },
+      tokenZones: {},
+    });
+    const scene = mockScene({ tokens: { t1: { uuid: "Scene.scene1.Token.t1" } } });
+    const combat = {
+      id: "combat-abc",
+      combatants: [{ id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 } }],
+    };
+    const built = await buildConflictBoardDocuments(scene, state, combat, {});
+    const c1 = built.cards.c1;
+    assert.equal(c1.filter((d) => d.part === CONFLICT_CARD_ACTED_OVERLAY_PART).length, 0, "acted overlay omitted when eliminated");
+    assert.equal(c1.filter((d) => d.part === CONFLICT_CARD_ELIMINATED_STRIKE_PART).length, 2);
+  } finally {
+    uninstallProjectionGlobals();
+  }
+});
+
+test("syncConflictBoard: acted overlay created and removed via upsertParts batch (diff/flags/ownerType)", async () => {
+  installProjectionGlobals();
+  const raw = JSON.parse(readFileSync(new URL("../layouts/minimal.json", import.meta.url), "utf8"));
+  addLayout(analyzeLayout(raw).normalized);
+  try {
+    const stateActed = validState({
+      cards: {
+        c1: { side: "friendly", area: "side", order: 0, acted: true },
+      },
+      tokenZones: {},
+    });
+    const stateClear = validState({
+      cards: {
+        c1: { side: "friendly", area: "side", order: 0 },
+      },
+      tokenZones: {},
+    });
+    const geometry = getConflictBoardGeometry({ sizePreset: "medium" });
+    const { positions } = layoutConflictCards(geometry, stateActed);
+    const expectedOverlay = buildCardActedOverlayDescriptor(positions.c1);
+    const scene = mockScene({
+      tokens: { t1: { uuid: "Scene.scene1.Token.t1" } },
+    });
+    await writeConflictBoard(scene, stateActed);
+    await scene.update(
+      { [`flags.${FLAG_SCOPE}.${CONFLICT_BOARD_WIDGET_FLAG}`]: { widgetId: "wBoard", zoneWidgetIds: {}, cardWidgetIds: { c1: "wCard1" } } },
+      { fateOnTheTableSync: true },
+    );
+    const combatActed = {
+      id: "combat-abc",
+      turn: null,
+      combatants: [{ id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 }, getFlag(scope, key) { return scope === "fate-core-official" && key === "hasActed" ? true : undefined; } }],
+    };
+    const combatClear = {
+      id: "combat-abc",
+      turn: null,
+      combatants: [{ id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 }, getFlag(scope, key) { return scope === "fate-core-official" && key === "hasActed" ? false : undefined; } }],
+    };
+    const first = await syncConflictBoard(scene, { combat: combatActed, forceProjection: true });
+    assert.equal(first.ok, true);
+    let overlays = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ACTED_OVERLAY_PART);
+    assert.equal(overlays.length, 1);
+    const doc = overlays[0];
+    assert.equal(doc.getFlag(FLAG_SCOPE, "ownerType"), CONFLICT_CARD_OWNER_TYPE);
+    assert.equal(doc.getFlag(FLAG_SCOPE, "widgetId"), "wCard1");
+    assert.equal(doc.getFlag(FLAG_SCOPE, "combatantId"), "c1");
+    assert.equal(doc.getFlag(FLAG_SCOPE, "tokenUuid"), "Scene.scene1.Token.t1");
+    const ox = stateActed.board.origin.x;
+    const oy = stateActed.board.origin.y;
+    assert.equal(doc.x, Math.round(expectedOverlay.x + ox));
+    assert.equal(doc.y, Math.round(expectedOverlay.y + oy));
+    assert.deepEqual(doc.shape, { width: Math.round(expectedOverlay.w), height: Math.round(expectedOverlay.h) });
+    assert.equal(doc.fillColor, "#808080");
+    assert.equal(doc.fillAlpha, 0.45);
+    assert.equal(doc.elevation, 0);
+    assert.equal(doc.sort, 5);
+    await writeConflictBoard(scene, stateClear);
+    const second = await syncConflictBoard(scene, { combat: combatClear });
+    assert.equal(second.ok, true);
+    overlays = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ACTED_OVERLAY_PART);
+    assert.equal(overlays.length, 0, "acted overlay removed when flag cleared");
+    const cardDocsNow = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "ownerType") === CONFLICT_CARD_OWNER_TYPE && d.getFlag(FLAG_SCOPE, "combatantId") === "c1");
+    assert.ok(cardDocsNow.length > 0);
+    await writeConflictBoard(scene, stateActed);
+    const third = await syncConflictBoard(scene, { combat: combatActed });
+    assert.equal(third.ok, true);
+    assert.equal(scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ACTED_OVERLAY_PART).length, 1);
+  } finally {
+    uninstallProjectionGlobals();
+  }
+});
+
+test("syncConflictBoard: eliminated strikes created and respect acted+eliminated priority, rotation field diff", async () => {
+  installProjectionGlobals();
+  const raw = JSON.parse(readFileSync(new URL("../layouts/minimal.json", import.meta.url), "utf8"));
+  addLayout(analyzeLayout(raw).normalized);
+  try {
+    const stateElim = validState({
+      cards: {
+        c1: { side: "friendly", area: "side", order: 0, eliminated: true },
+      },
+      tokenZones: {},
+    });
+    const scene = mockScene({ tokens: { t1: { uuid: "Scene.scene1.Token.t1" } } });
+    await writeConflictBoard(scene, stateElim);
+    await scene.update(
+      { [`flags.${FLAG_SCOPE}.${CONFLICT_BOARD_WIDGET_FLAG}`]: { widgetId: "wBoard", zoneWidgetIds: {}, cardWidgetIds: { c1: "wCard1" } } },
+      { fateOnTheTableSync: true },
+    );
+    const combat = {
+      id: "combat-abc",
+      combatants: [{ id: "c1", tokenId: "t1", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 } }],
+    };
+    const first = await syncConflictBoard(scene, { combat, forceProjection: true });
+    assert.equal(first.ok, true);
+    let strikes = scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ELIMINATED_STRIKE_PART);
+    assert.equal(strikes.length, 2);
+    for (const s of strikes) {
+      assert.equal(s.getFlag(FLAG_SCOPE, "ownerType"), CONFLICT_CARD_OWNER_TYPE);
+      assert.equal(s.getFlag(FLAG_SCOPE, "widgetId"), "wCard1");
+      assert.equal(s.strokeWidth, 0);
+      assert.equal(s.fillColor, "#b71c1c");
+      assert.equal(s.elevation, 0);
+      assert.equal(s.sort, 6);
+      assert.ok(Number.isFinite(s.rotation));
+    }
+    const byIndex = [...strikes].sort((a, b) => (a.getFlag(FLAG_SCOPE, "index") ?? -1) - (b.getFlag(FLAG_SCOPE, "index") ?? -1));
+    assert.equal(byIndex[0].getFlag(FLAG_SCOPE, "index"), 0);
+    assert.equal(byIndex[1].getFlag(FLAG_SCOPE, "index"), 1);
+    assert.ok((byIndex[0].rotation === 45 && byIndex[1].rotation === -45) || (byIndex[0].rotation === -45 && byIndex[1].rotation === 45));
+    const stateBoth = validState({
+      cards: {
+        c1: { side: "friendly", area: "side", order: 0, acted: true, eliminated: true },
+      },
+      tokenZones: {},
+    });
+    await writeConflictBoard(scene, stateBoth);
+    const second = await syncConflictBoard(scene, { combat });
+    assert.equal(second.ok, true);
+    assert.equal(scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ACTED_OVERLAY_PART).length, 0);
+    assert.equal(scene.drawings.filter((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_CARD_ELIMINATED_STRIKE_PART).length, 2);
+    const beforeUpdates = scene.embeddedUpdates.Drawing.length;
+    const third = await syncConflictBoard(scene, { combat });
+    assert.equal(third.ok, true);
+    assert.equal(third.updated, 0);
+    assert.equal(scene.embeddedUpdates.Drawing.length, beforeUpdates);
+  } finally {
+    uninstallProjectionGlobals();
+  }
 });

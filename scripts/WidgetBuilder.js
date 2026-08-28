@@ -699,7 +699,7 @@ export function toDocumentData(doc, flags) {
   widgetFlags["advanced-drawing-tools"] = { textStyle };
   widgetFlags.adt = { dropShadow: false };
   if (doc.weight) widgetFlags.adt.fontWeight = doc.weight;
-  return {
+  const payload = {
     type: getRectangleType(),
     author: game.user.id,
     x: Math.round(doc.x),
@@ -722,4 +722,6 @@ export function toDocumentData(doc, flags) {
     points: [],
     flags: widgetFlags,
   };
+  if (Number.isFinite(doc.rotation)) payload.rotation = Number(doc.rotation);
+  return payload;
 }

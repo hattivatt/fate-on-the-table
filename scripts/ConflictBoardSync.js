@@ -98,6 +98,8 @@ import {
   CONFLICT_ZONE_LABEL_PART,
   CONFLICT_ZONE_ASPECTS_PART,
   CONFLICT_TURN_MARKER_PART,
+  CONFLICT_CARD_ACTED_OVERLAY_PART,
+  CONFLICT_CARD_ELIMINATED_STRIKE_PART,
   SITUATION_ASPECTS_SCOPE,
   SITUATION_ASPECTS_KEY,
 } from "./constants.js";
@@ -169,6 +171,7 @@ const DRAWING_FIELDS = [
   "sort",
   "shape.width",
   "shape.height",
+  "rotation",
   "flags.advanced-drawing-tools.textStyle.align",
   "flags.advanced-drawing-tools.textStyle.fontWeight",
 ];
@@ -1020,6 +1023,90 @@ export async function buildCardDescriptors(plainActor, layout, position, cardOpt
 }
 
 /* ------------------------------------------------------------------ *
+ * Card state markers (acted fade, eliminated strike)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Acted (grey-out) overlay covering the whole card.
+ * @param {object} position  Card slot from layoutConflictCards (board-local).
+ * @returns {object|null}
+ */
+export function buildCardActedOverlayDescriptor(position) {
+  if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return null;
+  return {
+    kind: "drawing",
+    part: CONFLICT_CARD_ACTED_OVERLAY_PART,
+    index: -1,
+    x: position.x,
+    y: position.y,
+    w: position.width,
+    h: position.height,
+    font: "Montserrat",
+    size: 8,
+    color: "#000000",
+    align: "left",
+    stroke: 0,
+    strokeColor: "#000000",
+    strokeAlpha: 0,
+    fillType: 1,
+    fillColor: "#808080",
+    fillAlpha: 0.45,
+    texture: null,
+    text: "",
+    elevation: 0,
+    sort: 5,
+  };
+}
+
+/**
+ * Eliminated strike-through descriptors: two diagonal red bars.
+ * Variant (b): two thin rectangles rotated ±45° through the card centre.
+ * Requires DrawingDocument.rotation support (Foundry v9+, verified in v14 API).
+ * Falls back gracefully to horizontal bars if rotation is ignored by the
+ * runtime — the bars remain visible and still signal elimination, just without
+ * the diagonal cross. Polygon/points (variant a) would need a custom ShapeData
+ * type and is more invasive (toDocumentData hardcodes RECTANGLE); the rotation
+ * approach needs only the `rotation` field.
+ * @param {object} position  Card slot from layoutConflictCards (board-local).
+ * @returns {object[]}
+ */
+export function buildCardEliminatedStrikeDescriptors(position) {
+  if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return [];
+  const cx = position.x + position.width / 2;
+  const cy = position.y + position.height / 2;
+  const diag = Math.hypot(position.width, position.height);
+  const w = Math.round(diag);
+  const h = 6;
+  const x = cx - w / 2;
+  const y = cy - h / 2;
+  const base = {
+    kind: "drawing",
+    w,
+    h,
+    x,
+    y,
+    font: "Montserrat",
+    size: 8,
+    color: "#000000",
+    align: "left",
+    stroke: 0,
+    strokeColor: "#000000",
+    strokeAlpha: 0,
+    fillType: 1,
+    fillColor: "#b71c1c",
+    fillAlpha: 0.95,
+    texture: null,
+    text: "",
+    elevation: 0,
+    sort: 6,
+  };
+  return [
+    { ...base, part: CONFLICT_CARD_ELIMINATED_STRIKE_PART, index: 0, rotation: 45 },
+    { ...base, part: CONFLICT_CARD_ELIMINATED_STRIKE_PART, index: 1, rotation: -45 },
+  ];
+}
+
+/* ------------------------------------------------------------------ *
  * buildConflictBoardDocuments
  * ------------------------------------------------------------------ */
 
@@ -1123,6 +1210,33 @@ export async function buildConflictBoardDocuments(scene, state, combat, options 
       }
       return { ...d, flags };
     });
+    // Card state markers: eliminated (strike) takes priority over acted (grey fade).
+    const cardRecord = state.cards[combatantId];
+    if (cardRecord?.eliminated === true) {
+      const strikes = buildCardEliminatedStrikeDescriptors(position);
+      for (const s of strikes) {
+        const flags = {
+          combatId: state.combatId,
+          combatantId,
+          tokenUuid,
+          area: position.area,
+        };
+        if (actorUuid) flags.actorUuid = actorUuid;
+        cards[combatantId].push({ ...s, flags });
+      }
+    } else if (cardRecord?.acted === true) {
+      const overlay = buildCardActedOverlayDescriptor(position);
+      if (overlay) {
+        const flags = {
+          combatId: state.combatId,
+          combatantId,
+          tokenUuid,
+          area: position.area,
+        };
+        if (actorUuid) flags.actorUuid = actorUuid;
+        cards[combatantId].push({ ...overlay, flags });
+      }
+    }
   }
 
   return { geometry, positions, overflow, board, zones, cards };
