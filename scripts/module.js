@@ -158,6 +158,11 @@ Hooks.once("ready", () => {
   // ordinary actor-widget sync and the fateOnTheTableSync recursion guard are
   // never touched.
   Hooks.on("updateActor", onConflictBoardActorUpdate);
+  // Consequence → situation-aspect reconciliation: any actor track edit may
+  // have renamed/cleared a consequence; if the actor has a token on the
+  // active scene its linked aspect (suffix " (ActorName)") must be reconciled.
+  // Cheap single-scene scan, debounced by scheduleSituationAspectSync (400 ms).
+  Hooks.on("updateActor", onActorConsequenceSync);
   Hooks.on("deleteActor", cleanupActor);
   Hooks.on("updateUser", onUpdateUser);
   Hooks.on("updateSetting", onUpdateSetting);
@@ -396,6 +401,56 @@ function scheduleSituationAspectSync(scene = canvas?.scene) {
   }, 400);
 }
 
+/**
+ * Actor consequence track changed: if the actor is represented by a token on
+ * the active scene, the per-scene situation aspects (linked consequence
+ * aspects with " (ActorName)" suffix) may need rename/remove. The actual
+ * reconcile is in SituationAspectSync (migrateAndClean + consequence pass);
+ * here we only decide which scene to sync — for `updateActor` the flag is
+ * per-scene, so the single active `canvas.scene` is relevant. Presence is
+ * checked by `actorId` against the scene's token collection (various collection
+ * shapes). No `fateOnTheTableSync` guard: the recon only writes
+ * `flags.fate-core-official.situation_aspects`, whose loop
+ * `sync → onUpdateScene → schedule → sync` is idempotent and self-extinguishing.
+ */
+function onActorConsequenceSync(actor, changed, options) {
+  const scene = canvas?.scene;
+  if (!scene || !actor?.id) return;
+  const actorId = actor.id;
+  let hasToken = false;
+  try {
+    const col = scene.tokens;
+    let docs = [];
+    if (Array.isArray(col)) docs = col;
+    else if (Array.isArray(col?.contents)) docs = col.contents;
+    else if (typeof col?.values === "function") docs = [...col.values()];
+    else if (col instanceof Map) docs = [...col.values()];
+    else {
+      try {
+        docs = [...col];
+      } catch {
+        docs = [];
+      }
+    }
+    for (const t of docs) {
+      if (!t) continue;
+      const tid = t.actorId ?? t.document?.actorId ?? t.actor?.id ?? null;
+      if (tid === actorId) {
+        hasToken = true;
+        break;
+      }
+      if (!tid && t.actor?.id === actorId) {
+        hasToken = true;
+        break;
+      }
+    }
+  } catch {
+    return;
+  }
+  if (!hasToken) return;
+  scheduleSituationAspectSync(scene);
+}
+
 /* ------------------------------------------------------------------ *
  * Feature 5 — conflict board hooks (combat / combatant / token)
  * ------------------------------------------------------------------ */
@@ -539,6 +594,25 @@ function onDeleteCombatant(combatant, options) {
  * are accumulated and every moved board token is reconciled on the fire.
  */
 function onUpdateToken(token, changed, options) {
+  // Situation aspects: unlinked token consequence edit (delta) — synthetic
+  // tokens store actor data in `token.delta` (token.update({ delta: { system:
+  // { tracks: {...} } } })), not via updateActor. When delta.system.tracks
+  // changes a consequence may have been renamed/cleared, so the per-scene
+  // situation aspect with suffix " (ActorName)" must be reconciled. Debounced
+  // (400 ms) and idempotent; not gated by fateOnTheTableSync — it only writes
+  // situation_aspects and loops via onUpdateScene as a self-extinguishing no-op.
+  try {
+    const hasTrackDelta = foundry?.utils?.hasProperty
+      ? foundry.utils.hasProperty(changed, "delta.system.tracks")
+      : !!(changed?.delta?.system?.tracks);
+    if (hasTrackDelta) {
+      const saScene = token?.parent ?? token?.scene ?? canvas?.scene;
+      if (saScene) scheduleSituationAspectSync(saScene);
+    }
+  } catch (err) {
+    // best-effort; never block conflict path
+  }
+
   if (options?.fateOnTheTableSync) return;
   const scene = canvas?.scene;
   const tokenSceneId = token?.scene?.id ?? token?.parent?.id ?? null;
@@ -637,6 +711,57 @@ function onConflictBoardActorUpdate(actor, changed, options) {
 
 /** Token deleted: safely clean up orphan card/tokenZone projections. */
 function onDeleteToken(token, options) {
+  // Situation aspects: last token of its actor removed from its scene — a
+  // consequence aspect is linked by suffix " (ActorName)" and recon resolves
+  // actors via tokens on the same scene. When the last token of an actor
+  // leaves scene S, all its consequence aspects must be removed from S. The
+  // document may be half-deleted, so actorId is read from the document fields
+  // themselves (token.actorId), not a fetched Actor. Cheap scan of S's
+  // remaining tokens (excluding the deleted id); if none remain, schedule the
+  // debounced, idempotent situation-aspect sync. Not gated by
+  // fateOnTheTableSync — it only writes situation_aspects and the loop
+  // sync → onUpdateScene → schedule → sync is self-extinguishing.
+  try {
+    const saScene = token?.parent ?? token?.scene ?? canvas?.scene;
+    const actorId = token?.actorId ?? token?.document?.actorId ?? token?.actor?.id ?? null;
+    if (saScene && actorId) {
+      let remaining = false;
+      try {
+        const col = saScene.tokens;
+        let docs = [];
+        if (Array.isArray(col)) docs = col;
+        else if (Array.isArray(col?.contents)) docs = col.contents;
+        else if (typeof col?.values === "function") docs = [...col.values()];
+        else if (col instanceof Map) docs = [...col.values()];
+        else {
+          try {
+            docs = [...col];
+          } catch {
+            docs = [];
+          }
+        }
+        for (const t of docs) {
+          if (!t) continue;
+          if (t.id === token.id) continue;
+          const tid = t.actorId ?? t.document?.actorId ?? t.actor?.id ?? null;
+          if (tid === actorId) {
+            remaining = true;
+            break;
+          }
+          if (!tid && t.actor?.id === actorId) {
+            remaining = true;
+            break;
+          }
+        }
+      } catch {}
+      if (!remaining) {
+        scheduleSituationAspectSync(saScene);
+      }
+    }
+  } catch (err) {
+    // best-effort; never block conflict path
+  }
+
   if (options?.fateOnTheTableSync) return;
   const scene = canvas?.scene;
   if (!scene || !token) return;

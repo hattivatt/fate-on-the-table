@@ -27,6 +27,7 @@ import {
 } from "./constants.js";
 import { consequenceCostTarget } from "./WidgetBuilder.js";
 import { syncConflictBoard } from "./ConflictBoardSync.js";
+import { buildConsequenceMeta } from "./situationAspectConsequences.js";
 
 export const CONSEQUENCE_COST_ROWS_PART = "consequenceCostRows";
 
@@ -94,7 +95,8 @@ export async function handleConsequenceCostDoubleClick(document, event) {
   const scene = canvas?.scene;
   const actorName = String(actor.name ?? "");
   if (scene && actorName && (consequenceText || currentName)) {
-    await upsertSituationAspect(scene, actorName, consequenceText, currentName);
+    const meta = buildConsequenceMeta(trackKey, actor.system?.tracks?.[trackKey]?.harm_can_absorb, actorName);
+    await upsertSituationAspect(scene, actorName, consequenceText, currentName, meta);
   }
 
   // Re-project the board. The actor/token update already fires the module's
@@ -222,6 +224,7 @@ export async function upsertSituationAspect(
   actorName,
   consequenceText,
   oldText,
+  meta,
 ) {
   if (!scene) return;
   const list = foundry.utils.duplicate(
@@ -236,10 +239,16 @@ export async function upsertSituationAspect(
   if (newText) {
     if (oldIndex >= 0) {
       // Rename in place: keep free_invokes and any other fields.
-      list[oldIndex] = { ...list[oldIndex], name: newText, linked: true };
+      const prev = list[oldIndex];
+      const nextMeta = meta !== undefined ? meta : prev.consequence;
+      const updated = { ...prev, name: newText, linked: true };
+      if (nextMeta !== undefined) updated.consequence = nextMeta;
+      list[oldIndex] = updated;
     } else if (!list.some((a) => a?.name === newText)) {
       // New consequence: dedupe by name, then add the linked record.
-      list.push({ name: newText, free_invokes: 1, linked: true });
+      const entry = { name: newText, free_invokes: 1, linked: true };
+      if (meta !== undefined) entry.consequence = meta;
+      list.push(entry);
     }
   } else if (oldIndex >= 0) {
     // Slot cleared: remove the previous linked record.

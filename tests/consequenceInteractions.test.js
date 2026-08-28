@@ -206,9 +206,9 @@ test("save on a linked actor writes the aspect name with box_values normalized t
   assert.equal(mild.aspect.name, "Broken leg");
   assert.equal(mild.aspect.when_marked, true);
   assert.ok(!("harm_can_absorb" in mild), "custom harm cost is never overwritten");
-  // The linked situation aspect is created with the actor name suffix.
+  // The linked situation aspect is created with the actor name suffix and structural meta.
   const aspects = scene.getFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY);
-  assert.deepEqual(aspects, [{ name: "Broken leg (Grom)", free_invokes: 1, linked: true }]);
+  assert.deepEqual(aspects, [{ name: "Broken leg (Grom)", free_invokes: 1, linked: true, consequence: { trackKey: "mild", cost: 2, actorName: "Grom" } }]);
 });
 
 test("save writes a token delta for an unlinked synthetic token actor (text only, no consequence box)", async () => {

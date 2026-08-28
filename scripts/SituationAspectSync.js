@@ -39,6 +39,10 @@ import {
   migrateZoneSuffixes,
   SA_ZONE_MARKER,
 } from "./situationAspectZones.js";
+import {
+  consequenceMarker,
+  reconcileConsequences,
+} from "./situationAspectConsequences.js";
 
 const SA_PARTS = [SA_TEXT_PART, SA_FRAME_PART, SA_BACKGROUND_PART];
 
@@ -142,8 +146,11 @@ const SA_LINE_HEIGHT_FACTOR = 1.25;
 /** Rendered line of one aspect — same format as one `aspectsText()` row. */
 export function saAspectLine(aspect) {
   const line = `${aspect.name} (${aspect.free_invokes})`;
+  const prefixes = [];
   const ids = aspectZoneIds(aspect);
-  return ids.length ? `${SA_ZONE_MARKER} ${line}` : line;
+  if (ids.length) prefixes.push(SA_ZONE_MARKER);
+  if (aspect?.consequence) prefixes.push(consequenceMarker(aspect.consequence.cost));
+  return prefixes.length ? `${prefixes.join(" ")} ${line}` : line;
 }
 
 /** Pixel line height of one widget text row for the given font size. */
@@ -333,6 +340,24 @@ export async function syncSituationAspects(scene = canvas?.scene) {
     console.warn("[fate-on-the-table] situation aspect zone migration failed:", err);
   }
 
+  // Structural consequence reconciliation (idempotent, no-op when nothing to do).
+  // Must run after zone migration and before drawing so the widget reflects the
+  // renamed/cleaned consequence list. Collects live scene actors from tokens
+  // (guards mirror sceneCharacterNames) and reconciles the aspect list via the
+  // pure `reconcileConsequences` helper.
+  try {
+    const actors = collectSceneActors(scene);
+    const raw = scene?.getFlag?.(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY);
+    if (Array.isArray(raw)) {
+      const { list, changed } = reconcileConsequences(raw, actors);
+      if (changed) {
+        await scene.setFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY, list);
+      }
+    }
+  } catch (err) {
+    console.warn("[fate-on-the-table] situation aspect consequence reconciliation failed:", err);
+  }
+
   const registry = saRegistry(scene);
   if (!registry?.widgetId) return false;
 
@@ -502,6 +527,39 @@ function sceneCharacterNames(scene) {
     return new Set(names);
   } catch {
     return new Set();
+  }
+}
+
+function collectSceneActors(scene) {
+  try {
+    const tokens = scene?.tokens;
+    if (!tokens) return [];
+    let arr = [];
+    if (Array.isArray(tokens)) arr = tokens;
+    else if (Array.isArray(tokens?.contents)) arr = tokens.contents;
+    else if (typeof tokens?.values === "function") arr = [...tokens.values()];
+    else if (tokens instanceof Map) arr = [...tokens.values()];
+    else {
+      try {
+        arr = [...tokens];
+      } catch {
+        return [];
+      }
+    }
+    const seen = new Set();
+    const out = [];
+    for (const token of arr) {
+      const actor = token?.actor;
+      if (!actor) continue;
+      const name = String(actor.name ?? "").trim();
+      if (!name) continue;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      out.push({ name, tracks: actor.system?.tracks ?? {} });
+    }
+    return out;
+  } catch {
+    return [];
   }
 }
 
