@@ -383,6 +383,9 @@ function onNewScene({ scene } = {}) {
 }
 
 function scheduleGmSync() {
+  // Global debounce: GM fate points are a single per-user flag (active GM),
+  // the row lives on the ephemeral `canvas.scene` at fire time. No cross-scene
+  // queue exists, so a single timer is correct.
   if (!canvas?.scene) return;
   clearTimeout(gmSyncTimer);
   gmSyncTimer = setTimeout(() => {
@@ -393,13 +396,22 @@ function scheduleGmSync() {
 }
 
 function scheduleSituationAspectSync(scene = canvas?.scene) {
-  if (!scene) return;
-  clearTimeout(saSyncTimer);
-  saSyncTimer = setTimeout(() => {
-    syncSituationAspects(scene).catch((err) =>
-      console.error("[fate-on-the-table] situation aspects sync failed:", err),
-    );
-  }, 400);
+  // Per-scene debounced: each scene has its own 400 ms window so
+  // schedule(sceneA) + schedule(sceneB) both fire (last per-scene wins).
+  // This prevents the real bug where a global timer cleared scene A's pending
+  // sync when scene B was scheduled — situation_aspects is a per-scene flag.
+  // Signature and default (`canvas?.scene`) are preserved for callers.
+  if (!scene?.id) return;
+  clearTimeout(saSyncTimers.get(scene.id));
+  saSyncTimers.set(
+    scene.id,
+    setTimeout(() => {
+      saSyncTimers.delete(scene.id);
+      syncSituationAspects(scene).catch((err) =>
+        console.error("[fate-on-the-table] situation aspects sync failed:", err),
+      );
+    }, 400),
+  );
 }
 
 /**
@@ -606,37 +618,48 @@ function onUpdateToken(token, changed, options) {
   if (!scene || !token || tokenSceneId !== scene.id) return;
   const state = readConflictBoard(scene);
   if (!state || !state.combatId || !boardRegistry(scene)?.widgetId) return;
-  // Position change: reconcile the token-zones membership (debounced).
+  // Per-scene pending so tokens from different boards never mix (cross-scene loss fix).
   if (changed?.x !== undefined || changed?.y !== undefined) {
-    pendingConflictTokens.add(token.id);
+    let set = pendingConflictTokensByScene.get(scene.id);
+    if (!set) {
+      set = new Set();
+      pendingConflictTokensByScene.set(scene.id, set);
+    }
+    set.add(token.id);
   }
-  clearTimeout(conflictTokenTimer);
+  clearTimeout(conflictTokenTimers.get(scene.id));
   // A synthetic (unlinked token) actor data change arrives as a `delta`
   // update to the TokenDocument (e.g. a stress/consequence row edited on a
   // conflict card). Re-project the board so the card reflects it, the same
   // way a linked actor's `updateActor` hook does. The serialized, idempotent
   // sync handles both position and actor-data paths without a hook loop.
-  conflictTokenTimer = setTimeout(() => {
-    const pending = [...pendingConflictTokens];
-    pendingConflictTokens.clear();
-    const done = Promise.all(
-      pending.map((id) => {
-        const doc = scene.tokens?.get?.(id);
-        if (!doc) return Promise.resolve({ changed: false, zoneId: null });
-        return reconcileTokenZoneMembership(scene, doc);
-      }),
-    );
-    done.catch((err) =>
-      console.error(
-        "[fate-on-the-table] conflict token zone reconcile failed:",
-        err,
-      ),
-    ).then(() =>
-      syncConflictBoard(scene).catch((err) =>
-        console.error("[fate-on-the-table] conflict board sync failed:", err),
-      ),
-    );
-  }, 150);
+  // Debounced per scene (150 ms) — A and B both fire, last per-scene wins.
+  conflictTokenTimers.set(
+    scene.id,
+    setTimeout(() => {
+      conflictTokenTimers.delete(scene.id);
+      const pendingSet = pendingConflictTokensByScene.get(scene.id);
+      const pending = pendingSet ? [...pendingSet] : [];
+      if (pendingSet) pendingSet.clear();
+      const done = Promise.all(
+        pending.map((id) => {
+          const doc = scene.tokens?.get?.(id);
+          if (!doc) return Promise.resolve({ changed: false, zoneId: null });
+          return reconcileTokenZoneMembership(scene, doc);
+        }),
+      );
+      done.catch((err) =>
+        console.error(
+          "[fate-on-the-table] conflict token zone reconcile failed:",
+          err,
+        ),
+      ).then(() =>
+        syncConflictBoard(scene).catch((err) =>
+          console.error("[fate-on-the-table] conflict board sync failed:", err),
+        ),
+      );
+    }, 150),
+  );
 }
 
 /**
@@ -686,12 +709,20 @@ function onConflictBoardActorUpdate(actor, changed, options) {
   const combat = resolveSceneConflictCombat(scene, state);
   if (!combat) return;
   if (!actorDrivesBoardCard(scene, combat, actor)) return;
-  clearTimeout(conflictActorTimer);
-  conflictActorTimer = setTimeout(() => {
-    syncConflictBoard(scene, { combat }).catch((err) =>
-      console.error("[fate-on-the-table] conflict board sync failed:", err),
-    );
-  }, 400);
+  // Per-scene debounce (400 ms): actor sheet edits for different scenes' boards
+  // do not cancel each other; last per-scene wins. `combat` and `scene` are
+  // captured at schedule time so the pending sync always targets the correct board.
+  if (!scene?.id) return;
+  clearTimeout(conflictActorTimers.get(scene.id));
+  conflictActorTimers.set(
+    scene.id,
+    setTimeout(() => {
+      conflictActorTimers.delete(scene.id);
+      syncConflictBoard(scene, { combat }).catch((err) =>
+        console.error("[fate-on-the-table] conflict board sync failed:", err),
+      );
+    }, 400),
+  );
 }
 
 /** Token deleted: safely clean up orphan card/tokenZone projections. */
