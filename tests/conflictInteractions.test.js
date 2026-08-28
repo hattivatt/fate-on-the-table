@@ -1461,3 +1461,166 @@ test("zone and board double-clicks are consumed without opening any sheet", asyn
   assert.equal(await mod.handleConflictDocumentDoubleClick(boardDoc(), fakeMenuEvent()), true);
   assert.equal(rendered, 0, "zone/board double-clicks must not open the sheet");
 });
+
+/* ------------------------------------------------------------------ *
+ * Turn marker double-click transparency (marker should open underlying card)
+ * ------------------------------------------------------------------ */
+
+test("findConflictCardAtPoint pure helper picks highest z and handles nulls", () => {
+  const rects = [
+    { x: 0, y: 0, width: 100, height: 100, z: 0, combatantId: "c1" },
+    { x: 0, y: 0, width: 100, height: 100, z: 10, combatantId: "c2" },
+    { x: 200, y: 200, width: 50, height: 50, z: 5, combatantId: "c3" },
+  ];
+  assert.equal(mod.findConflictCardAtPoint(rects, { x: 10, y: 10 }).combatantId, "c2");
+  assert.equal(mod.findConflictCardAtPoint(rects, { x: 210, y: 210 }).combatantId, "c3");
+  assert.equal(mod.findConflictCardAtPoint(rects, { x: 500, y: 500 }), null);
+  assert.equal(mod.findConflictCardAtPoint([], { x: 10, y: 10 }), null);
+  assert.equal(mod.findConflictCardAtPoint(rects, null), null);
+  assert.equal(mod.findConflictCardAtPoint(null, { x: 10, y: 10 }), null);
+});
+
+test("findConflictCardAtPoint respects exact bounds inclusive", () => {
+  const rects = [{ x: 10, y: 10, width: 20, height: 20, z: 0, combatantId: "c1" }];
+  assert.equal(mod.findConflictCardAtPoint(rects, { x: 10, y: 10 }).combatantId, "c1");
+  assert.equal(mod.findConflictCardAtPoint(rects, { x: 30, y: 30 }).combatantId, "c1");
+  assert.equal(mod.findConflictCardAtPoint(rects, { x: 30.1, y: 30 }), null);
+});
+
+test("isTurnMarkerDocument recognizes only the turn marker overlay", () => {
+  const marker = {
+    getFlag: (scope, key) => {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "ownerType") return "conflictBoard";
+      if (key === "part") return "conflictTurnMarker";
+      return undefined;
+    },
+  };
+  const board = {
+    getFlag: (scope, key) => {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "ownerType") return "conflictBoard";
+      if (key === "part") return "conflictBoardBackground";
+      return undefined;
+    },
+  };
+  const card = {
+    getFlag: (scope, key) => {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "ownerType") return CONFLICT_CARD_OWNER_TYPE;
+      return undefined;
+    },
+  };
+  assert.equal(mod.isTurnMarkerDocument(marker), true);
+  assert.equal(mod.isTurnMarkerDocument(board), false);
+  assert.equal(mod.isTurnMarkerDocument(card), false);
+  assert.equal(mod.isTurnMarkerDocument(null), false);
+});
+
+test("findTopConflictCardDocAtPoint picks the topmost card doc at a world point", () => {
+  const card1 = mockConflictDoc("c1", "Drawing", CONFLICT_CARD_OWNER_TYPE, { x: 0, y: 0, width: 100, height: 100 }, { elevation: 0, sort: 0 });
+  card1.getFlag = (scope, key) => {
+    if (scope !== FLAG_SCOPE) return undefined;
+    if (key === "ownerType") return CONFLICT_CARD_OWNER_TYPE;
+    if (key === "widgetId") return "w1";
+    if (key === "combatantId") return "c1";
+    return undefined;
+  };
+  const card2 = mockConflictDoc("c2", "Drawing", CONFLICT_CARD_OWNER_TYPE, { x: 0, y: 0, width: 100, height: 100 }, { elevation: 10, sort: 0 });
+  card2.getFlag = (scope, key) => {
+    if (scope !== FLAG_SCOPE) return undefined;
+    if (key === "ownerType") return CONFLICT_CARD_OWNER_TYPE;
+    if (key === "widgetId") return "w2";
+    if (key === "combatantId") return "c2";
+    return undefined;
+  };
+  const scene = mockScene([card1, card2]);
+  const hit = mod.findTopConflictCardDocAtPoint(scene, { x: 10, y: 10 });
+  assert.equal(hit.id, "c2");
+  assert.equal(mod.findTopConflictCardDocAtPoint(scene, { x: 200, y: 200 }), null);
+  assert.equal(mod.findTopConflictCardDocAtPoint(null, { x: 10, y: 10 }), null);
+});
+
+test("turn marker double-click opens the underlying card sheet (PIXI path)", async () => {
+  let rendered = 0;
+  const actor = {
+    name: "Grom",
+    testUserPermission: () => true,
+    sheet: { render: () => { rendered += 1; } },
+  };
+  globalThis.CONST = { DOCUMENT_OWNERSHIP_LEVELS: { LIMITED: 1 }, DRAWING_TYPES: { RECTANGLE: "r" } };
+  globalThis.PIXI = { Point: class { constructor(x, y) { this.x = x; this.y = y; } } };
+  const combat = { id: "combat-abc", combatants: [{ id: "c1", token: { actor }, actor }] };
+  const scene = menuScene("combat-abc", ["c1"]);
+  // card doc at world (100,100) size 100x100
+  const cardDoc = {
+    id: "card-c1",
+    documentName: "Drawing",
+    x: 100, y: 100, elevation: 0, sort: 0, shape: { width: 100, height: 100 },
+    getFlag(scope, key) {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "ownerType") return CONFLICT_CARD_OWNER_TYPE;
+      if (key === "combatantId") return "c1";
+      if (key === "tokenUuid") return "Scene.scene1.Token.t-c1";
+      if (key === "widgetId") return "wCard1";
+      return undefined;
+    },
+  };
+  const markerDoc = {
+    id: "marker",
+    documentName: "Drawing",
+    x: 96, y: 96, elevation: 12, sort: 1200, shape: { width: 108, height: 108 },
+    getFlag(scope, key) {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "ownerType") return "conflictBoard";
+      if (key === "part") return "conflictTurnMarker";
+      if (key === "widgetId") return "wBoard";
+      return undefined;
+    },
+  };
+  // Provide both docs on scene so findTop can locate the card.
+  scene.drawings = [cardDoc, markerDoc];
+  scene.tiles = [];
+  installMenuCombat({}, combat, scene);
+  // Preserve the canvas app/stage needed for world point resolution (installMenuCombat overwrites canvas)
+  globalThis.canvas.app = { view: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 1000 }), width: 1000, height: 1000 } };
+  globalThis.canvas.stage = { worldTransform: { applyInverse: (pt) => ({ x: pt.x, y: pt.y }) } };
+  // Event at world point inside both marker and card
+  const evt = { clientX: 150, clientY: 150, preventDefault() {}, stopPropagation() {} };
+  const handled = await mod.handleConflictDocumentDoubleClick(markerDoc, evt);
+  assert.equal(handled, true);
+  assert.equal(rendered, 1, "marker double-click must open underlying card sheet");
+  delete globalThis.PIXI;
+});
+
+test("turn marker double-click with no card underneath is consumed without sheet", async () => {
+  let rendered = 0;
+  const actor = { name: "Grom", testUserPermission: () => true, sheet: { render: () => { rendered += 1; } } };
+  globalThis.CONST = { DOCUMENT_OWNERSHIP_LEVELS: { LIMITED: 1 }, DRAWING_TYPES: { RECTANGLE: "r" } };
+  globalThis.PIXI = { Point: class { constructor(x, y) { this.x = x; this.y = y; } } };
+  const combat = { id: "combat-abc", combatants: [{ id: "c1", token: { actor }, actor }] };
+  const scene = menuScene("combat-abc", ["c1"]);
+  const markerDoc = {
+    id: "marker",
+    documentName: "Drawing",
+    x: 500, y: 500, elevation: 12, sort: 1200, shape: { width: 108, height: 108 },
+    getFlag(scope, key) {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "ownerType") return "conflictBoard";
+      if (key === "part") return "conflictTurnMarker";
+      if (key === "widgetId") return "wBoard";
+      return undefined;
+    },
+  };
+  scene.drawings = [markerDoc];
+  scene.tiles = [];
+  installMenuCombat({}, combat, scene);
+  globalThis.canvas.app = { view: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 1000 }), width: 1000, height: 1000 } };
+  globalThis.canvas.stage = { worldTransform: { applyInverse: (pt) => ({ x: pt.x, y: pt.y }) } };
+  const evt = { clientX: 550, clientY: 550, preventDefault() {}, stopPropagation() {} };
+  // No card doc at that point, so no sheet
+  const handled = await mod.handleConflictDocumentDoubleClick(markerDoc, evt);
+  assert.equal(handled, true);
+  assert.equal(rendered, 0);
+  delete globalThis.PIXI;
+});

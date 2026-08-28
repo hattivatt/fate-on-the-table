@@ -47,9 +47,11 @@ import {
 } from "./constants.js";
 import {
   isConflictDocument,
+  isTurnMarkerDocument,
   handleConflictDocumentDoubleClick,
   handleConflictContextMenu,
   hitTestConflictPart,
+  findTopConflictCardDocAtPoint,
   CONFLICT_OWNER_PRIORITY,
 } from "./ConflictInteractions.js";
 import { isStressBoxDrawing, handleStressBoxClick } from "./StressBoxes.js";
@@ -1217,7 +1219,7 @@ function onCanvasPointerDown(event) {
     lastWidgetClick?.id === part.id && now - lastWidgetClick.time <= 300;
   lastWidgetClick = { id: part.id, time: now };
   if (isDouble) {
-    handleWidgetDoubleClick(part);
+    handleWidgetDoubleClick(part, event);
     return;
   }
   // Interactive stress boxes toggle on a single owner click through the same
@@ -1395,7 +1397,21 @@ function selectWidgetPart(part) {
 }
 
 /** Double click on a widget part: actor sheet or the GM managers. */
-function handleWidgetDoubleClick(part) {
+function handleWidgetDoubleClick(part, event = null) {
+  // Turn marker overlay is board-level but visually sits on the active card.
+  // For the DOM fallback the hit is the marker Drawing; resolve to the
+  // underlying card at the cursor point so the sheet (or consequence editor)
+  // opens as if the card itself was double-clicked.
+  if (isTurnMarkerDocument(part)) {
+    const p = event ? canvasWorldPosition(event) : null;
+    const cardDoc = p ? findTopConflictCardDocAtPoint(canvas?.scene, p) : null;
+    if (cardDoc) {
+      handleConflictDocumentDoubleClick(cardDoc, event);
+      return;
+    }
+    handleConflictDocumentDoubleClick(part, event);
+    return;
+  }
   const ownerType = part.getFlag?.(FLAG_SCOPE, "ownerType");
   if (ownerType === GM_OWNER_TYPE) {
     FatePointManager.open();
@@ -1406,11 +1422,11 @@ function handleWidgetDoubleClick(part) {
     return;
   }
   if (isConsequenceCostPart(part)) {
-    handleConsequenceCostDoubleClick(part, null);
+    handleConsequenceCostDoubleClick(part, event);
     return;
   }
   if (isConflictDocument(part)) {
-    handleConflictDocumentDoubleClick(part, null);
+    handleConflictDocumentDoubleClick(part, event);
     return;
   }
   const actorUuid = part.getFlag?.(FLAG_SCOPE, "actorUuid");

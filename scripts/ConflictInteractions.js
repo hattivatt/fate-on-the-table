@@ -74,6 +74,7 @@ import {
   GM_FP_SCOPE,
   CONFLICT_ZONE_OWNER_TYPE,
   CONFLICT_CARD_OWNER_TYPE,
+  CONFLICT_TURN_MARKER_PART,
 } from "./constants.js";
 import {
   CONFLICT_BOARD_OWNER_TYPE,
@@ -121,6 +122,73 @@ const OWNER_PRIORITY = {
   [CONFLICT_BOARD_OWNER_TYPE]: 1,
 };
 export { OWNER_PRIORITY as CONFLICT_OWNER_PRIORITY };
+
+/**
+ * True when the document is the current-turn marker overlay.
+ * The marker is a board-level Drawing with part `conflictTurnMarker`
+ * (elevation 12 / sort 1200) that visually frames the active card.
+ */
+export function isTurnMarkerDocument(doc) {
+  const d = doc?.document ?? doc;
+  if (!d?.getFlag) return false;
+  return (
+    d.getFlag(FLAG_SCOPE, "ownerType") === CONFLICT_BOARD_OWNER_TYPE &&
+    d.getFlag(FLAG_SCOPE, "part") === CONFLICT_TURN_MARKER_PART
+  );
+}
+
+/**
+ * Pure geometric hit-test for conflict cards: returns the topmost card
+ * rect containing the world point. No Foundry runtime access.
+ * @param {Array<{x:number,y:number,width:number,height:number,z?:number,combatantId?:string,widgetId?:string,id?:string}>} rects
+ * @param {{x:number,y:number}} point World point.
+ * @returns {object|null} Best matching rect or null.
+ */
+export function findConflictCardAtPoint(rects, point) {
+  if (!Array.isArray(rects) || !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
+  let best = null;
+  let bestZ = -Infinity;
+  for (const r of rects) {
+    if (!r || !Number.isFinite(r.x) || !Number.isFinite(r.y) || !Number.isFinite(r.width) || !Number.isFinite(r.height)) continue;
+    if (r.width < 0 || r.height < 0) continue;
+    if (point.x < r.x || point.x > r.x + r.width || point.y < r.y || point.y > r.y + r.height) continue;
+    const z = Number.isFinite(r.z) ? r.z : 0;
+    if (!best || z > bestZ) {
+      best = r;
+      bestZ = z;
+    }
+  }
+  return best;
+}
+
+/**
+ * Finds the topmost conflict card document under a world point.
+ * Collects card docs via `widgetDocsByOwnerType` and delegates to the
+ * pure `findConflictCardAtPoint` for z-aware selection.
+ * @param {object|null} scene Scene document.
+ * @param {{x:number,y:number}|null} point World point.
+ * @returns {object|null} Card document or null.
+ */
+export function findTopConflictCardDocAtPoint(scene, point) {
+  if (!scene || !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
+  const docs = widgetDocsByOwnerType(scene, CONFLICT_CARD_OWNER_TYPE);
+  if (!docs.length) return null;
+  const rects = docs.map((doc) => {
+    const isDrawing = doc.documentName === "Drawing";
+    const w = isDrawing ? (doc.shape?.width ?? 0) : (doc.width ?? 0);
+    const h = isDrawing ? (doc.shape?.height ?? 0) : (doc.height ?? 0);
+    return {
+      x: Number(doc.x) || 0,
+      y: Number(doc.y) || 0,
+      width: Number(w) || 0,
+      height: Number(h) || 0,
+      z: (Number(doc.elevation) || 0) * 1000 + (Number(doc.sort) || 0),
+      doc,
+    };
+  });
+  const hit = findConflictCardAtPoint(rects, point);
+  return hit?.doc ?? null;
+}
 
 let registered = false;
 let conflictManager = null;
@@ -389,7 +457,7 @@ export function hitTestConflictPart(point, scene) {
  * @returns {Promise<boolean>}  True when the event was consumed.
  */
 export async function handleConflictDocumentDoubleClick(document, event) {
-  const doc = document?.document ?? document;
+  let doc = document?.document ?? document;
   if (!isConflictDocument(doc)) return false;
   event?.preventDefault?.();
   event?.stopPropagation?.();
@@ -399,6 +467,22 @@ export async function handleConflictDocumentDoubleClick(document, event) {
   if (isConsequenceCostPart(doc)) {
     await handleConsequenceCostDoubleClick(doc, event);
     return true;
+  }
+  // Turn marker is a board-level overlay (elevation 12 / sort 1200) that sits
+  // visually on top of the active card. Double-clicking it should behave as
+  // if the underlying card was clicked: find the card whose rect contains the
+  // cursor world point and open its sheet (or the consequence editor when the
+  // card's topmost part at that point is a consequenceCostRows row).
+  if (isTurnMarkerDocument(doc)) {
+    const point = worldPointFromEvent(event) ?? canvasWorldPosition(event);
+    const sceneForHit = canvas?.scene ?? doc?.parent ?? null;
+    const cardDoc = point ? findTopConflictCardDocAtPoint(sceneForHit, point) : null;
+    if (!cardDoc) return true;
+    if (isConsequenceCostPart(cardDoc)) {
+      await handleConsequenceCostDoubleClick(cardDoc, event);
+      return true;
+    }
+    doc = cardDoc;
   }
   if (doc.getFlag(FLAG_SCOPE, "ownerType") !== CONFLICT_CARD_OWNER_TYPE) {
     return true;
