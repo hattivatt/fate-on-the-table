@@ -42,3 +42,6 @@ export const CONFLICT_ZONE_LABEL_PART = "conflictZoneLabel";
 export const CONFLICT_ZONE_ASPECTS_PART = "conflictZoneAspects";
 export const CONFLICT_CARD_PART = "conflictCard";
 export const CONFLICT_TURN_MARKER_PART = "conflictTurnMarker";
+
+// QoL — auto-enable of TokenDocument.turnMarker for combat on an active board.
+export const TURN_MARKER_SETTING = "autoTurnMarker";

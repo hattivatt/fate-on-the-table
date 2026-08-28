@@ -94,7 +94,12 @@ import {
   MODULE_ID,
   FLAG_SCOPE,
   GM_FP_SCOPE,
+  TURN_MARKER_SETTING,
 } from "./constants.js";
+import {
+  turnMarkerPatchFor,
+  collectTurnMarkerPatches,
+} from "./turnMarkerQol.js";
 import {
   createConflictBoard,
   assignInitialCardAreas,
@@ -969,7 +974,90 @@ async function commitBoardPlacement(
   );
 
   await syncConflictBoard(scene, { combat, forceProjection: true });
+
+  // QoL — auto-enable turn markers for every combatant already on the scene.
+  // GM-only, setting-gated, one batch write when the token field is mode 0.
+  try {
+    const isGm = typeof game === "undefined" || typeof game?.user === "undefined" ? true : game.user.isGM === true;
+    let enabled = true;
+    try {
+      if (typeof game !== "undefined" && typeof game?.settings?.get === "function") {
+        const v = game.settings.get(MODULE_ID, TURN_MARKER_SETTING);
+        if (v !== undefined) enabled = !!v;
+      }
+    } catch {
+      enabled = true;
+    }
+    if (isGm && enabled) {
+      const allOnScene = combatantsOnScene(combat, scene);
+      const tokenDocs = [];
+      for (const c of allOnScene) {
+        const doc = scene.tokens?.get?.(c.tokenId);
+        if (doc) tokenDocs.push(doc);
+      }
+      const patches = collectTurnMarkerPatches(tokenDocs);
+      if (patches.length) {
+        if (typeof scene.updateEmbeddedDocuments === "function") {
+          const updates = patches.map((p) => ({ _id: p._id, turnMarker: p.turnMarker }));
+          try {
+            await scene.updateEmbeddedDocuments("Token", updates);
+          } catch (err) {
+            console.warn("[fate-on-the-table] turn marker batch update failed, falling back to per-token:", err);
+            for (const p of patches) {
+              const d = scene.tokens.get(p._id);
+              if (!d) continue;
+              try {
+                await d.update({ turnMarker: p.turnMarker });
+              } catch (e) {
+                console.warn("[fate-on-the-table] turn marker auto-enable failed:", e);
+              }
+            }
+          }
+        } else {
+          for (const p of patches) {
+            const d = scene.tokens.get(p._id);
+            if (!d) continue;
+            try {
+              await d.update({ turnMarker: p.turnMarker });
+            } catch (e) {
+              console.warn("[fate-on-the-table] turn marker auto-enable failed:", e);
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[fate-on-the-table] turn marker auto-enable failed:", err);
+  }
+
   return { ok: true, scene, state: written.state };
+}
+
+/**
+ * Exported for tests: the pure batch helper used by the placement path above.
+ * Kept thin so the projection writer above stays readable.
+ * @param {object} scene
+ * @param {object} combat
+ * @returns {Promise<void>}
+ */
+export async function maybeEnableTurnMarkersForPlacement(scene, combat) {
+  const allOnScene = combatantsOnScene(combat, scene);
+  const tokenDocs = [];
+  for (const c of allOnScene) {
+    const doc = scene.tokens?.get?.(c.tokenId);
+    if (doc) tokenDocs.push(doc);
+  }
+  const patches = collectTurnMarkerPatches(tokenDocs);
+  if (!patches.length) return;
+  if (typeof scene.updateEmbeddedDocuments === "function") {
+    const updates = patches.map((p) => ({ _id: p._id, turnMarker: p.turnMarker }));
+    await scene.updateEmbeddedDocuments("Token", updates);
+  } else {
+    for (const p of patches) {
+      const d = scene.tokens.get(p._id);
+      if (d) await d.update({ turnMarker: p.turnMarker });
+    }
+  }
 }
 
 /** Prompts for a board size preset; resolves the preset name or null. */

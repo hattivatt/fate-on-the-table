@@ -291,5 +291,7 @@
   "fate-on-the-table.conflict.placement.repositionConfirm": "A conflict board already exists on this scene. Remove it and place a new one?",
   "fate-on-the-table.conflict.placement.fromFateUtils": "Place conflict board",
   "fate-on-the-table.conflict.placement.fromCombatTracker": "Place on the table",
-  "fate-on-the-table.conflict.manageFromCombatTracker": "Conflict Manager"
+  "fate-on-the-table.conflict.manageFromCombatTracker": "Conflict Manager",
+  "fate-on-the-table.settings.autoTurnMarker": "Auto-enable turn markers",
+  "fate-on-the-table.settings.autoTurnMarkerHint": "When a character joins a combat on a scene with an active conflict board, automatically enable its token's turn marker (the ring highlighting the active combatant)."
 }

@@ -492,6 +492,16 @@ export function registerSettings() {
     ),
   });
 
+  game.settings.register(MODULE_ID, "autoTurnMarker", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.autoTurnMarker`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.autoTurnMarkerHint`),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true,
+    requiresReload: false,
+  });
+
   Hooks.on("renderSettingsConfig", onRenderSettingsConfig);
   Hooks.on("closeSettingsConfig", () => {
     openSettingsConfig = null;

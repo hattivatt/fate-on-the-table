@@ -33,7 +33,12 @@ import {
   SITUATION_ASPECTS_SCOPE,
   SITUATION_ASPECTS_KEY,
   CONFLICT_BOARD_FLAG,
+  TURN_MARKER_SETTING,
 } from "./constants.js";
+import {
+  turnMarkerPatchFor,
+  collectTurnMarkerPatches,
+} from "./turnMarkerQol.js";
 import {
   syncConflictBoard,
   reconcileConflictBoardProjection,
@@ -574,6 +579,120 @@ function onCreateCombatant(combatant, options) {
   syncConflictBoard(canvas.scene, { combat }).catch((err) =>
     console.error("[fate-on-the-table] conflict board sync failed:", err),
   );
+  // QoL — auto-enable turn marker for the new combatant's token (GM only, setting-gated).
+  maybeEnableTurnMarkerForCombatant(combatant, combatId).catch((err) =>
+    console.warn("[fate-on-the-table] turn marker auto-enable failed:", err),
+  );
+}
+
+/**
+ * GM-only, setting-gated auto-enable of a single newly created combatant's token turnMarker.
+ * No-op for players, when the setting is off, when the combat is not on an active board,
+ * when the combatant lacks a tokenId, when the token is not on the board scene, or when
+ * the turnMarker is already enabled / not an object.
+ * @param {object} combatant
+ * @param {string} combatId
+ * @returns {Promise<void>}
+ */
+async function maybeEnableTurnMarkerForCombatant(combatant, combatId) {
+  try {
+    if (typeof game !== "undefined" && game?.user?.isGM === false) return;
+    if (!isAutoTurnMarkerEnabled()) return;
+    if (!combatant?.tokenId) return;
+    if (!hasActiveBoardForCombat(combatId)) return;
+    const scene = canvas?.scene;
+    if (!scene) return;
+    let tokenDoc = null;
+    try {
+      tokenDoc =
+        combatant.token?.document ??
+        combatant.token ??
+        scene.tokens?.get?.(combatant.tokenId) ??
+        null;
+      // Some mocks expose the token directly on `combatant.token` being the doc itself.
+      if (!tokenDoc && combatant.tokenId) tokenDoc = scene.tokens?.get?.(combatant.tokenId) ?? null;
+    } catch {
+      tokenDoc = scene.tokens?.get?.(combatant.tokenId) ?? null;
+    }
+    if (!tokenDoc) return;
+    const tm = tokenDoc.turnMarker ?? tokenDoc.document?.turnMarker ?? null;
+    const patch = turnMarkerPatchFor(tm);
+    if (!patch) return;
+    try {
+      await tokenDoc.update({ turnMarker: patch });
+    } catch (err) {
+      console.warn("[fate-on-the-table] turn marker auto-enable failed:", err);
+    }
+  } catch (err) {
+    console.warn("[fate-on-the-table] turn marker auto-enable failed:", err);
+  }
+}
+
+/**
+ * Reads the world `autoTurnMarker` setting. Safe outside Foundry (tests)
+ * -> enabled by default. Returns `false` only when explicitly disabled.
+ * @returns {boolean}
+ */
+function isAutoTurnMarkerEnabled() {
+  try {
+    if (typeof game === "undefined" || typeof game?.settings?.get !== "function") return true;
+    const v = game.settings.get(MODULE_ID, TURN_MARKER_SETTING);
+    // Foundry returns `undefined` before the setting is registered (init not yet);
+    // treat that as enabled to keep QoL on for existing tokens.
+    if (v === undefined) return true;
+    return !!v;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Batch helper for the placement flow: enables turn markers for all combatants
+ * of a combat whose tokens are on the scene and currently have mode 0.
+ * Exported for testing (pure-ish, Foundry-tolerant) but also used from
+ * ConflictManager.commitBoardPlacement.
+ * @param {object} scene
+ * @param {object} combat
+ * @returns {Promise<void>}
+ */
+export async function maybeEnableTurnMarkersForCombat(scene, combat) {
+  try {
+    if (typeof game !== "undefined" && game?.user?.isGM === false) return;
+    if (!isAutoTurnMarkerEnabled()) return;
+    if (!scene || !combat) return;
+    if (!hasActiveBoardForCombat(combat.id)) return;
+    const list = toArray(combat.combatants ?? combat.turns);
+    const tokenDocs = [];
+    for (const c of list) {
+      if (!c?.tokenId) continue;
+      const doc = scene.tokens?.get?.(c.tokenId);
+      if (doc) tokenDocs.push(doc);
+    }
+    const patches = collectTurnMarkerPatches(tokenDocs);
+    if (!patches.length) return;
+    // Batch update when available: one embedded-document write.
+    if (typeof scene.updateEmbeddedDocuments === "function") {
+      const updates = patches.map((p) => ({ _id: p._id, turnMarker: p.turnMarker }));
+      try {
+        await scene.updateEmbeddedDocuments("Token", updates);
+        return;
+      } catch (err) {
+        console.warn("[fate-on-the-table] turn marker batch update failed, falling back to per-token:", err);
+      }
+    }
+    // Fallback per-token updates.
+    for (const p of patches) {
+      const doc = scene.tokens.get(p._id);
+      if (!doc) continue;
+      try {
+        await doc.update({ turnMarker: p.turnMarker });
+      } catch (err) {
+        console.warn("[fate-on-the-table] turn marker auto-enable failed:", err);
+      }
+    }
+  } catch (err) {
+    console.warn("[fate-on-the-table] turn marker batch auto-enable failed:", err);
+  }
 }
 
 /** Combatant removed: prune its orphan card/zone projections (module-owned). */

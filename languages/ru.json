@@ -291,5 +291,7 @@
   "fate-on-the-table.conflict.placement.repositionConfirm": "Поле конфликта уже есть на этой сцене. Удалить его и разместить новое?",
   "fate-on-the-table.conflict.placement.fromFateUtils": "Разместить поле конфликта",
   "fate-on-the-table.conflict.placement.fromCombatTracker": "Разместить на столе",
-  "fate-on-the-table.conflict.manageFromCombatTracker": "Менеджер конфликта"
+  "fate-on-the-table.conflict.manageFromCombatTracker": "Менеджер конфликта",
+  "fate-on-the-table.settings.autoTurnMarker": "Автовключение маркера хода",
+  "fate-on-the-table.settings.autoTurnMarkerHint": "Когда персонаж попадает в бой на сцене с активным полем конфликта, автоматически включать маркер хода его токена (кольцо-подсветку активного участника)."
 }
