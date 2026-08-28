@@ -153,9 +153,11 @@
   margin: 0;
 }
 
-/* --- Widget context menu (right-click on a character widget) --- */
+/* --- Context menus (объединённые: .ctt-menu база + алиасы .ctt-widget-menu / .ctt-conflict-menu) --- */
 
-.ctt-widget-menu {
+.ctt-menu,
+.ctt-widget-menu,
+.ctt-conflict-menu {
   position: fixed;
   z-index: 2000;
   display: flex;
@@ -169,7 +171,9 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
-.ctt-widget-menu button {
+.ctt-menu button,
+.ctt-widget-menu button,
+.ctt-conflict-menu button {
   text-align: left;
   padding: 4px 10px;
   margin: 0;
@@ -178,19 +182,30 @@
   cursor: pointer;
 }
 
-.ctt-widget-menu button:hover {
+.ctt-menu button:hover,
+.ctt-widget-menu button:hover,
+.ctt-conflict-menu button:hover {
   background: rgba(0, 0, 0, 0.15);
 }
 
-.ctt-widget-menu button.ctt-menu-sep {
+.ctt-menu button.ctt-menu-sep,
+.ctt-widget-menu button.ctt-menu-sep,
+.ctt-conflict-menu button.ctt-menu-sep,
+.ctt-menu button.ctt-conflict-menu-sep,
+.ctt-widget-menu button.ctt-conflict-menu-sep,
+.ctt-conflict-menu button.ctt-conflict-menu-sep {
   border-top: 1px solid rgba(0, 0, 0, 0.25);
   margin-top: 4px;
   padding-top: 5px;
   border-radius: 0;
 }
 
+.ctt-menu button:disabled,
+.ctt-menu button:disabled:hover,
 .ctt-widget-menu button:disabled,
-.ctt-widget-menu button:disabled:hover {
+.ctt-widget-menu button:disabled:hover,
+.ctt-conflict-menu button:disabled,
+.ctt-conflict-menu button:disabled:hover {
   opacity: 0.45;
   cursor: default;
   background: transparent;
@@ -707,41 +722,8 @@
   white-space: nowrap;
 }
 
-/* --- Conflict card, turn marker and context menu (feature 5) --- */
-
-.ctt-conflict-menu {
-  position: fixed;
-  z-index: 2000;
-  display: flex;
-  flex-direction: column;
-  min-width: 180px;
-  padding: 4px;
-  background: var(--fco-sheet-background-colour, #ffffff);
-  color: var(--fco-sheet-text-colour, #000000);
-  border: 1px solid rgba(0, 0, 0, 0.5);
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-}
-
-.ctt-conflict-menu button {
-  text-align: left;
-  padding: 4px 10px;
-  margin: 0;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-}
-
-.ctt-conflict-menu button:hover {
-  background: rgba(0, 0, 0, 0.15);
-}
-
-.ctt-conflict-menu button.ctt-conflict-menu-sep {
-  border-top: 1px solid rgba(0, 0, 0, 0.25);
-  margin-top: 4px;
-  padding-top: 5px;
-  border-radius: 0;
-}
+/* --- Conflict card, turn marker (feature 5) --- */
+/* (контекстное меню объединено с .ctt-menu выше — оба класса алиасы) */
 
 .ctt-conflict-card {
   position: absolute;

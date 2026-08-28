@@ -104,6 +104,7 @@ import {
   handleConsequenceCostDoubleClick,
 } from "./ConsequenceInteractions.js";
 import { escapeHtml, dialogField, canvasWorldPosition, toArray } from "./utils.js";
+import { showCttMenu, closeCttMenu, getActiveMenu } from "./menu.js";
 
 /** System flag scope + key carrying `hasActed` on Combatants. */
 const SYSTEM_FLAG_SCOPE = GM_FP_SCOPE;
@@ -193,7 +194,6 @@ export function findTopConflictCardDocAtPoint(scene, point) {
 
 let registered = false;
 let conflictManager = null;
-let menuEl = null;
 
 /* ------------------------------------------------------------------ *
  * Lifecycle (idempotent)
@@ -279,7 +279,7 @@ function onConflictCanvasPointerDown(event) {
 
 /** Prevents the native browser menu over handled conflict areas. */
 function onConflictCanvasContextMenu(event) {
-  if (menuEl) {
+  if (getActiveMenu()) {
     event.preventDefault();
     return;
   }
@@ -1447,69 +1447,18 @@ function tokenAtPoint(scene, point) {
   }
 }
 
-function menuPosition(event, point) {
-  if (Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY)) {
-    return { clientX: event.clientX, clientY: event.clientY };
-  }
-  if (point && canvas?.app?.view) {
-    try {
-      const p = canvas.stage.worldTransform.apply(new PIXI.Point(point.x, point.y));
-      const rect = canvas.app.view.getBoundingClientRect();
-      return { clientX: rect.left + p.x, clientY: rect.top + p.y };
-    } catch (err) {
-      /* fall through */
-    }
-  }
-  return { clientX: 0, clientY: 0 };
-}
-
+/**
+ * Тонкая обёртка над общим меню (ConflictInteractions.js:1397 / menu.js:showCttMenu).
+ * Позиционирование: point имеет приоритет (world→client), иначе event.clientX/Y с флипом;
+ * закрытие по Escape/outside/scroll/resize — надмножество обеих реализаций — делегировано в menu.js.
+ * Сигнатура showMenu(items, event, point) сохранена для всех вызовов (зоны/карточки/поле/борда).
+ */
 function showMenu(items, event, point) {
-  closeMenu();
-  const menu = document.createElement("div");
-  menu.className = "ctt-conflict-menu";
-  for (const item of items) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    if (item.sep) btn.classList.add("ctt-conflict-menu-sep");
-    if (item.disabled) btn.disabled = true;
-    btn.innerHTML = `<i class="fas ${escapeHtml(item.icon)}"></i> ${escapeHtml(item.label)}`;
-    btn.addEventListener("click", () => {
-      closeMenu();
-      if (!item.disabled && typeof item.onClick === "function") {
-        Promise.resolve(item.onClick()).catch((err) =>
-          console.error("[fate-on-the-table] conflict menu action failed:", err),
-        );
-      }
-    });
-    menu.append(btn);
-  }
-  if (!menu.childElementCount) return;
-  document.body.append(menu);
-  const rect = menu.getBoundingClientRect();
-  const pos = menuPosition(event, point);
-  menu.style.left = `${Math.min(pos.clientX, window.innerWidth - rect.width - 8)}px`;
-  menu.style.top = `${Math.min(pos.clientY, window.innerHeight - rect.height - 8)}px`;
-  menuEl = menu;
-  window.addEventListener("pointerdown", onMenuPointerDown, true);
-  window.addEventListener("keydown", onMenuKeyDown);
+  return showCttMenu({ items, event, point, menuClass: "ctt-conflict-menu" });
 }
 
 function closeMenu() {
-  if (!menuEl) return;
-  menuEl.remove();
-  menuEl = null;
-  window.removeEventListener("pointerdown", onMenuPointerDown, true);
-  window.removeEventListener("keydown", onMenuKeyDown);
-}
-
-function onMenuPointerDown(event) {
-  if (!menuEl) return;
-  if (menuEl.contains(event.target)) return;
-  closeMenu();
-}
-
-function onMenuKeyDown(event) {
-  if (event.key === "Escape") closeMenu();
+  closeCttMenu();
 }
 
 function notifyReason(reason) {

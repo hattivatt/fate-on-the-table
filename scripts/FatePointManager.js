@@ -60,6 +60,7 @@ import {
   handleConsequenceCostDoubleClick,
 } from "./ConsequenceInteractions.js";
 import { escapeHtml, canvasWorldPosition } from "./utils.js";
+import { showCttMenu, closeCttMenu, getActiveMenu } from "./menu.js";
 
 const OWNER = CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
 const LIMITED = CONST.DOCUMENT_OWNERSHIP_LEVELS.LIMITED;
@@ -160,8 +161,7 @@ export function initWidgetInteractions() {
   patchRightClick(Tile.prototype);
   patchControlPermissions(Drawing.prototype);
   patchControlPermissions(Tile.prototype);
-  window.addEventListener("pointerdown", onWindowPointerDown);
-  window.addEventListener("keydown", onWindowKeyDown);
+  // Закрытие меню (Escape/outside/scroll/resize) теперь делегировано общему модулю menu.js
 }
 
 function patchDoubleClick(proto) {
@@ -340,9 +340,7 @@ function patchControlPermissions(proto) {
   };
 }
 
-/* --- Own widget context menus (GM) --- */
-
-let widgetMenu = null;
+/* --- Own widget context menus (GM) — тонкие обёртки над общим menu.js --- */
 
 /**
  * Relative-key helper for the actor widget menu (`context.*` keys).
@@ -357,41 +355,12 @@ const saT = (key) =>
   game.i18n.localize(`${MODULE_ID}.situationAspects.menu.${key}`);
 
 /**
- * Renders one of the module's own canvas context menus from showMenu-style
- * items `{icon, label, disabled?, sep?, onClick}` — labels must arrive ALREADY
- * localized. Shared by the actor-widget menu, the per-aspect menu and the
- * situation aspects widget menu; styling lives in `.ctt-widget-menu`.
+ * Тонкая обёртка над общим меню (FatePointManager.js:357 / menu.js:showCttMenu).
+ * Рендер, позиционирование (event clientX/Y с флипом) и закрытие (Escape/outside/scroll/resize)
+ * делегированы в scripts/menu.js — сохранена сигнатура openModuleMenu(items, event).
  */
 function openModuleMenu(items, event) {
-  closeWidgetMenu();
-  const menu = document.createElement("div");
-  menu.className = "ctt-widget-menu";
-  for (const item of items ?? []) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    if (item.sep) btn.classList.add("ctt-menu-sep");
-    if (item.disabled) btn.disabled = true;
-    btn.innerHTML = `<i class="fas ${escapeHtml(item.icon ?? "")}"></i> ${escapeHtml(
-      item.label ?? "",
-    )}`;
-    btn.addEventListener("click", () => {
-      closeWidgetMenu();
-      if (!item.disabled && typeof item.onClick === "function") {
-        Promise.resolve(item.onClick()).catch((err) =>
-          console.error("[fate-on-the-table] widget menu action failed:", err),
-        );
-      }
-    });
-    menu.append(btn);
-  }
-  if (!menu.childElementCount) return;
-  document.body.append(menu);
-  const rect = menu.getBoundingClientRect();
-  const x = event?.clientX ?? 0;
-  const y = event?.clientY ?? 0;
-  menu.style.left = `${Math.min(x, window.innerWidth - rect.width - 8)}px`;
-  menu.style.top = `${Math.min(y, window.innerHeight - rect.height - 8)}px`;
-  widgetMenu = menu;
+  showCttMenu({ items, event, menuClass: "ctt-widget-menu" });
 }
 
 /** Actor widget menu: give/take fate points, remove widget. */
@@ -604,21 +573,7 @@ async function removeWidgetFromMenu(actor, widgetId) {
 }
 
 function closeWidgetMenu() {
-  widgetMenu?.remove();
-  widgetMenu = null;
-}
-
-function onWindowPointerDown(event) {
-  if (!widgetMenu) return;
-  if (event.button !== 0) return;
-  // Clicks inside the menu must reach the buttons (the click event fires
-  // after pointerdown — removing the menu here would swallow it).
-  if (widgetMenu.contains(event.target)) return;
-  closeWidgetMenu();
-}
-
-function onWindowKeyDown(event) {
-  if (event.key === "Escape") closeWidgetMenu();
+  closeCttMenu();
 }
 
 /**
@@ -1264,7 +1219,7 @@ function onCanvasRightPointerDown(event) {
  * prevents default on its own).
  */
 function onCanvasContextMenu(event) {
-  if (widgetMenu) {
+  if (getActiveMenu()) {
     event.preventDefault();
     return;
   }
