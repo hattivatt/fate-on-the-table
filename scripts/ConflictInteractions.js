@@ -894,8 +894,9 @@ async function resolveCardActor(state, scene, combatantId, tokenUuid) {
 
 /**
  * Pure: sorted skill menu items for an actor.
- * Filters `actor.system.skills` entries with rank>0, sorts descending by rank,
- * maps to menu items with label `${name} (+${rank})` and rollSkill onClick.
+ * Shows ALL skills with a non-empty name. Sort: rank>0 descending first,
+ * then rank<=0 descending (0 before negatives); tie by name alphabetically.
+ * Label `${name} (+${rank})` and rollSkill onClick (0 is valid 4dF+0).
  * @param {object|null} actor
  * @returns {Array<{icon:string,label:string,onClick:Function}>}
  */
@@ -903,9 +904,19 @@ export function buildSkillMenuItems(actor) {
   const skillsObj = actor?.system?.skills;
   if (!skillsObj || typeof skillsObj !== "object") return [];
   const entries = Object.values(skillsObj).filter(
-    (s) => s && typeof s.name === "string" && s.name.trim() !== "" && Number(s.rank) > 0,
+    (s) => s && typeof s.name === "string" && s.name.trim() !== "",
   );
-  entries.sort((a, b) => Number(b.rank) - Number(a.rank));
+  entries.sort((a, b) => {
+    const ra = Number(a.rank);
+    const rb = Number(b.rank);
+    const aNum = Number.isFinite(ra) ? ra : 0;
+    const bNum = Number.isFinite(rb) ? rb : 0;
+    const aPos = aNum > 0;
+    const bPos = bNum > 0;
+    if (aPos !== bPos) return aPos ? -1 : 1;
+    if (bNum !== aNum) return bNum - aNum;
+    return String(a.name).localeCompare(String(b.name));
+  });
   return entries.map((s) => ({
     icon: "fa-dice-d20",
     label: `${s.name} (+${s.rank})`,
@@ -977,7 +988,7 @@ async function showCardContextMenu(doc, state, event) {
       onClick: () => runCardTurnAction("returnTurn", targetCombatantId),
     });
   }
-  // "Roll" submenu: skills of the actor behind the card (rank>0, sorted desc)
+  // "Roll" submenu: all skills of the actor behind the card (ranked first, then zero/negatives)
   let skillChildren = [];
   try {
     const tokenUuid = doc.getFlag(FLAG_SCOPE, "tokenUuid");

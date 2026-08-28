@@ -1635,7 +1635,7 @@ test("turn marker double-click with no card underneath is consumed without sheet
  * Pure helpers: buildSkillMenuItems & markEliminatedInState
  * ------------------------------------------------------------------ */
 
-test("buildSkillMenuItems filters rank>0 and sorts descending by rank", () => {
+test("buildSkillMenuItems shows all skills with name, positives first then zero/negatives", () => {
   const actor = {
     system: {
       skills: {
@@ -1646,23 +1646,32 @@ test("buildSkillMenuItems filters rank>0 and sorts descending by rank", () => {
         e: { name: "Shoot", rank: 3 },
         f: { name: "", rank: 5 },
         g: { name: "Notice", rank: "2" },
+        h: { name: "Lore", rank: -1 },
+        i: { name: "Crafts", rank: 0 },
+        j: { name: "Will", rank: -2 },
       },
     },
     rollSkill: async () => {},
   };
   const items = mod.buildSkillMenuItems(actor);
-  // rank>0, non-empty name, sorted 4,3,2,2,1
+  // positives descending: 4,3,2,2,1 then zero/negatives descending: 0,0,-1,-2; ties alphabetically
   assert.deepEqual(items.map((it) => it.label), [
     "Athletics (+4)",
     "Shoot (+3)",
-    "Stealth (+2)",
     "Notice (+2)",
+    "Stealth (+2)",
     "Fight (+1)",
+    "Burglary (+0)",
+    "Crafts (+0)",
+    "Lore (+-1)",
+    "Will (+-2)",
   ]);
   assert.ok(items.every((it) => it.icon === "fa-dice-d20"));
   assert.ok(items.every((it) => typeof it.onClick === "function"));
+  // empty name filtered
+  assert.equal(items.some((it) => it.label.includes("(+5)")), false);
   // original actor not mutated
-  assert.equal(Object.keys(actor.system.skills).length, 7);
+  assert.equal(Object.keys(actor.system.skills).length, 10);
 });
 
 test("buildSkillMenuItems returns [] for missing/empty skills", () => {
@@ -1670,8 +1679,12 @@ test("buildSkillMenuItems returns [] for missing/empty skills", () => {
   assert.deepEqual(mod.buildSkillMenuItems({}), []);
   assert.deepEqual(mod.buildSkillMenuItems({ system: {} }), []);
   assert.deepEqual(mod.buildSkillMenuItems({ system: { skills: {} } }), []);
-  const actor = { system: { skills: { a: { name: "Foo", rank: 0 }, b: { name: "Bar", rank: -1 } } }, rollSkill: async () => {} };
-  assert.deepEqual(mod.buildSkillMenuItems(actor), []);
+  // only empty names -> []
+  const actorEmpty = { system: { skills: { a: { name: "", rank: 0 }, b: { name: "  ", rank: 2 } } }, rollSkill: async () => {} };
+  assert.deepEqual(mod.buildSkillMenuItems(actorEmpty), []);
+  // sanity: rank 0 and negative are NOT filtered when name present
+  const actorWithZero = { system: { skills: { a: { name: "Foo", rank: 0 }, b: { name: "Bar", rank: -1 } } }, rollSkill: async () => {} };
+  assert.deepEqual(mod.buildSkillMenuItems(actorWithZero).map((it) => it.label), ["Foo (+0)", "Bar (+-1)"]);
 });
 
 test("buildSkillMenuItems onClick calls actor.rollSkill and warns on throw", async () => {
@@ -1699,6 +1712,20 @@ test("buildSkillMenuItems onClick calls actor.rollSkill and warns on throw", asy
   const items2 = mod.buildSkillMenuItems(actor2);
   await items2[0].onClick();
   assert.equal(called, "Stealth");
+});
+
+test("buildSkillMenuItems onClick for zero-rank skill calls rollSkill with its name", async () => {
+  let called = null;
+  const actor = {
+    system: { skills: { a: { name: "Burglary", rank: 0 }, b: { name: "Lore", rank: -1 } } },
+    rollSkill: async (name) => { called = name; },
+  };
+  const items = mod.buildSkillMenuItems(actor);
+  assert.deepEqual(items.map((it) => it.label), ["Burglary (+0)", "Lore (+-1)"]);
+  await items[0].onClick();
+  assert.equal(called, "Burglary");
+  await items[1].onClick();
+  assert.equal(called, "Lore");
 });
 
 test("markEliminatedInState clones correctly and is pure", () => {
@@ -1802,7 +1829,7 @@ test("card context menu Roll hidden when fromUuid returns actor without skills (
       { id: "c2", name: "c2", defeated: false, token: null, actor: null, getFlag: () => false },
     ],
   };
-  const actorNoSkills = { system: { skills: { a: { name: "Foo", rank: 0 } } }, rollSkill: async () => {} };
+  const actorNoSkills = { system: { skills: { a: { name: "", rank: 0 } } }, rollSkill: async () => {} };
   globalThis.fromUuid = async () => ({ actor: actorNoSkills });
   const scene = menuScene("combat-abc", ["c1", "c2"]);
   installMenuCombat({}, combat, scene);
