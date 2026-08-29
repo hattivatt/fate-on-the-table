@@ -84,6 +84,7 @@ import {
   isNameGenEnabled,
   getNameGenOptions,
 } from "./settings.js";
+import { correctedAlias } from "./chatSpeaker.js";
 
 // Canvas interaction patches must be applied on every module load (page
 // reloads included), so this runs at top level — not inside a one-shot hook.
@@ -145,6 +146,97 @@ Hooks.on("preCreateToken", async (tokenDoc, data) => {
     }
   } catch (err) {
     console.warn("[fate-on-the-table] preCreateToken name generation failed:", err);
+  }
+});
+
+// Restore core semantics: messages spoken from a token use the token's name as alias.
+// fate-core-official rollSkill() does `msg.alias = actor.name` which for unlinked
+// synthetic actors resolves to the prototype ("New Character") instead of the
+// token name. This global preCreateChatMessage hook corrects any token-speaker
+// message (not only skill rolls) to use the token's actual name — intentionally
+// global to restore core behavior.
+Hooks.on("preCreateChatMessage", (message, data, options, userId) => {
+  try {
+    // v14 signature: (message, data, options, userId) where message is a
+    // ChatMessage document and data is the creation data. Speaker may live on
+    // either; read from message first, fall back to data.
+    const speaker = message?.speaker ?? data?.speaker;
+    if (!speaker) return;
+    const tokenId = speaker.token;
+    if (!tokenId) return;
+
+    // Resolve token document: prefer current scene, then speaker.scene, then global scan.
+    let tokenDoc = null;
+    try {
+      tokenDoc = canvas?.scene?.tokens?.get?.(tokenId) ?? null;
+    } catch {}
+    if (!tokenDoc && speaker.scene) {
+      try {
+        tokenDoc = game?.scenes?.get?.(speaker.scene)?.tokens?.get?.(tokenId) ?? null;
+      } catch {}
+    }
+    if (!tokenDoc && typeof game !== "undefined" && game?.scenes) {
+      try {
+        // game.scenes may be Collection/Map-like; try iterator fallback
+        const iter = typeof game.scenes.values === "function" ? game.scenes.values() : game.scenes[Symbol.iterator]?.call(game.scenes);
+        if (iter) {
+          for (const sc of iter) {
+            const t = sc?.tokens?.get?.(tokenId);
+            if (t) {
+              tokenDoc = t;
+              break;
+            }
+            // some collections yield [id, doc]
+            if (Array.isArray(sc) && sc[1]?.tokens?.get) {
+              const t2 = sc[1].tokens.get(tokenId);
+              if (t2) {
+                tokenDoc = t2;
+                break;
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+
+    const tokenName = tokenDoc?.name;
+    const alias = correctedAlias(speaker, tokenName);
+    if (!alias) return;
+
+    const newSpeaker = { ...speaker, alias };
+
+    // v14 mutation: prefer document.updateSource (updates _source correctly). Fallback to
+    // direct _source mutation and creation data mutation so the created message inevitably
+    // carries the corrected alias regardless of which object Foundry persists.
+    let updated = false;
+    if (message && typeof message.updateSource === "function") {
+      try {
+        message.updateSource({ speaker: newSpeaker });
+        updated = true;
+      } catch {}
+    }
+    if (!updated && message?._source) {
+      try {
+        if (message._source.speaker) message._source.speaker.alias = alias;
+        else message._source.speaker = { ...newSpeaker };
+        updated = true;
+      } catch {}
+    }
+    // Ensure creation data stays in sync when present.
+    if (data) {
+      try {
+        if (data.speaker) data.speaker.alias = alias;
+        else if (typeof data === "object") data.speaker = { ...newSpeaker };
+      } catch {}
+    }
+    // If we used updateSource but data was a separate object, ensure it also reflects alias.
+    if (updated && data?.speaker && data.speaker.alias !== alias) {
+      try {
+        data.speaker.alias = alias;
+      } catch {}
+    }
+  } catch (err) {
+    console.warn("[fate-on-the-table] preCreateChatMessage alias correction failed:", err);
   }
 });
 
