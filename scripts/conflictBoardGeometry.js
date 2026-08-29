@@ -208,11 +208,33 @@ export function getConflictBoardGeometry(options = {}) {
  *
  * Cards are grouped ONLY by `side` (friendly|hostile), ignoring the stored
  * `area` (compat with schema v2 where area is always "side" and acted state
- * lives in flags). Each side fills its column top-down (stack with CARD_GAP);
- * overflow spills into its bottom box (bottomFriendly / bottomHostile) with the
- * same stacking. Cards are never silently clipped: every card receives a
- * position (even one that exceeds its area) and the overflow list reports
- * exactly which cards do not fit and why. PILE_OVERLAP is no longer used.
+ * lives in flags).
+ *
+ * - Each side fills its column top-down (stack with `CARD_GAP` = 10, step
+ *   `cardHeight + CARD_GAP` = 160). Threshold is inclusive:
+ *   `sideY + cardH <= content.y + content.height`. Capacity per preset:
+ *   small 500→476/160→3 cards, medium 800→776/160→4 cards, large
+ *   1200→1176/160→7 cards. No off-by-one: remaining gap after last card
+ *   is < cardHeight.
+ * - Overflow spills into its bottom box (`bottomFriendly`/`bottomHostile`)
+ *   as a **horizontal row** with `y = bottomContent.y` and
+ *   `x = bottomContent.x + i*(cardWidth+CARD_GAP)` (card 220×150, step 230).
+ *   Bottom content height = bottomH-24 = 150 == cardHeight, so exactly one row.
+ *   Bottom content widths per preset: small 434 (capacity 1), medium 576
+ *   (capacity 2), large 768 (capacity 3).
+ * - **Horizontal overflow (pile tail)**: when `x+cardWidth > content.x+content.width`
+ *   (`n > capacity`) remaining cards are stacked on the last fitting slot
+ *   with a reduced overlap step. Desired pile step is `PILE_OVERLAP` (26px)
+ *   to show a dense stack; if that would exceed the right edge the step is
+ *   shrunk to `availableTail / tailCount` (minimum 0 — all tail cards collapse
+ *   onto the last slot). All bottom cards therefore stay inside
+ *   `bottomContent` (`x+width <= right`, `y+height <= bottom`). No overflow
+ *   entry is reported for this horizontal pile (cards remain visible, only
+ *   overlapped). Width-degenerate case (`cardWidth > contentWidth`) still
+ *   reports `reason:"width"`.
+ * Cards are never silently clipped: every card receives a position. The
+ * overflow list now only reports genuine degenerate cases; the horizontal pile
+ * is intentional and not considered an error.
  *
  * @param {object} geometry  Output of `getConflictBoardGeometry`.
  * @param {object} state     Conflict board state (`state.cards`).
@@ -245,15 +267,14 @@ export function layoutConflictCards(geometry, state = {}) {
       (a, b) => (a.record.order ?? 0) - (b.record.order ?? 0),
     );
     const step = Math.max(sideArea.cardHeight + CARD_GAP, 2);
-    const bottomStep = Math.max(bottomArea.cardHeight + CARD_GAP, 2);
     let sideCount = 0;
-    let bottomCount = 0;
+    const bottomItems = [];
     for (const item of list) {
       const homeSide = sideName;
       const width = sideArea.cardWidth;
       const height = sideArea.cardHeight;
       const order = item.record.order ?? 0;
-      // try to fit into side column
+      // try to fit into side column (inclusive threshold — no off-by-one)
       const sideY = sideArea.content.y + sideCount * step;
       const fitsSideHeight = sideY + height <= sideArea.content.y + sideArea.content.height;
       const fitsSideWidth = width <= sideArea.content.width;
@@ -261,22 +282,58 @@ export function layoutConflictCards(geometry, state = {}) {
         const x = sideArea.content.x;
         const y = sideY;
         positions[item.combatantId] = { x, y, width, height, area: "side", side: homeSide, order };
-        // side fits — no overflow (width/height already checked)
         sideCount++;
       } else {
-        // overflow to bottom box
-        const x = bottomArea.content.x;
-        const y = bottomArea.content.y + bottomCount * bottomStep;
-        const area = "bottom";
-        positions[item.combatantId] = { x, y, width, height, area, side: homeSide, order };
-        const fitsHeight = y + height <= bottomArea.content.y + bottomArea.content.height;
-        const fitsWidth = width <= bottomArea.content.width;
-        if (!fitsHeight) {
-          overflow.push({ combatantId: item.combatantId, area, side: homeSide, order, index: bottomCount, reason: "height" });
-        } else if (!fitsWidth) {
-          overflow.push({ combatantId: item.combatantId, area, side: homeSide, order, index: bottomCount, reason: "width" });
+        bottomItems.push(item);
+      }
+    }
+
+    // Horizontal bottom row with pile tail for overflow
+    if (bottomItems.length > 0) {
+      const wc = sideArea.cardWidth;
+      const hc = sideArea.cardHeight;
+      const contentX = bottomArea.content.x;
+      const contentY = bottomArea.content.y;
+      const W = bottomArea.content.width;
+      const stepX = wc + CARD_GAP;
+      const n = bottomItems.length;
+
+      let capacity = 0;
+      if (wc <= W) capacity = Math.floor((W - wc) / stepX) + 1;
+      else capacity = 0;
+
+      if (capacity <= 0) {
+        for (let i = 0; i < n; i++) {
+          const item = bottomItems[i];
+          const order = item.record.order ?? 0;
+          positions[item.combatantId] = { x: contentX, y: contentY, width: wc, height: hc, area: "bottom", side: sideName, order };
+          overflow.push({ combatantId: item.combatantId, area: "bottom", side: sideName, order, index: i, reason: "width" });
         }
-        bottomCount++;
+      } else if (n <= capacity) {
+        for (let i = 0; i < n; i++) {
+          const item = bottomItems[i];
+          const x = contentX + i * stepX;
+          const y = contentY;
+          positions[item.combatantId] = { x, y, width: wc, height: hc, area: "bottom", side: sideName, order: item.record.order ?? 0 };
+        }
+      } else {
+        const lastNormalIdx = capacity - 1;
+        const lastNormalX = contentX + lastNormalIdx * stepX;
+        const tailCount = n - capacity;
+        const available = W - wc - lastNormalIdx * stepX;
+        const maxStep = tailCount > 0 ? available / tailCount : 0;
+        const desired = PILE_OVERLAP;
+        const pileStep = Math.max(0, Math.min(desired, maxStep));
+        for (let i = 0; i < n; i++) {
+          const item = bottomItems[i];
+          let x;
+          if (i < lastNormalIdx) x = contentX + i * stepX;
+          else if (i === lastNormalIdx) x = lastNormalX;
+          else x = lastNormalX + (i - lastNormalIdx) * pileStep;
+          const y = contentY;
+          positions[item.combatantId] = { x, y, width: wc, height: hc, area: "bottom", side: sideName, order: item.record.order ?? 0 };
+        }
+        // intentional pile — no overflow report (all cards stay within bottomContent)
       }
     }
   }

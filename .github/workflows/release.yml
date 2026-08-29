@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate module.json matches tag
+        run: |
+          TAG="${{ github.ref_name }}"
+          TAG_NO_V="${TAG#v}"
+          VERSION=$(jq -r '.version' module.json)
+          MANIFEST=$(jq -r '.manifest' module.json)
+          DOWNLOAD=$(jq -r '.download' module.json)
+
+          echo "Tag:      $TAG"
+          echo "Version:  $VERSION"
+          echo "Manifest: $MANIFEST"
+          echo "Download: $DOWNLOAD"
+
+          if [ "$VERSION" != "$TAG" ] && [ "$VERSION" != "$TAG_NO_V" ]; then
+            echo "::error file=module.json::'version' ($VERSION) does not match tag ($TAG)"
+            exit 1
+          fi
+
+          if [[ "$MANIFEST" != *"$VERSION"* ]]; then
+            echo "::error file=module.json::'manifest' URL ($MANIFEST) does not contain version ($VERSION)"
+            exit 1
+          fi
+
+          if [[ "$DOWNLOAD" != *"$VERSION"* ]]; then
+            echo "::error file=module.json::'download' URL ($DOWNLOAD) does not contain version ($VERSION)"
+            exit 1
+          fi
+
+          echo "module.json validation passed."
+
+      - name: Create module.zip
+        run: |
+          MODULE_DIR=$(jq -r '.id' module.json)
+          STAGING="_staging"
+          rm -rf "$STAGING"
+          mkdir -p "$STAGING/$MODULE_DIR"
+          rsync -a --exclude ".git" --exclude "img" --exclude ".github" --exclude "AGENTS.md" --exclude ".gitignore" --exclude "$STAGING" ./ "$STAGING/$MODULE_DIR/"
+          (cd "$STAGING" && zip -r module.zip "$MODULE_DIR")
+          mv "$STAGING/module.zip" module.zip
+          rm -rf "$STAGING"
+          unzip -l module.zip
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          files: |
+            module.zip
+            module.json

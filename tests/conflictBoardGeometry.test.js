@@ -145,7 +145,7 @@ test("side cards are ordered by the record order, not insertion", () => {
   assert.ok(positions.m.y < positions.z.y);
 });
 
-test("side overflow spills into bottomFriendly/bottomHostile with same gap", () => {
+test("side overflow spills into bottomFriendly/bottomHostile horizontally", () => {
   const g = getConflictBoardGeometry({ sizePreset: "small" });
   // small preset: friendly content height 476, card 150+10 step => 3 cards fit in column (0,160,320), 4th overflows to bottom
   const state = {
@@ -165,17 +165,18 @@ test("side overflow spills into bottomFriendly/bottomHostile with same gap", () 
   assert.equal(positions.c.area, "side");
   assert.equal(positions.d.area, "bottom");
   assert.equal(positions.d.x, g.bottomFriendly.content.x);
+  assert.equal(positions.d.y, g.bottomFriendly.content.y);
   assert.equal(positions.d.side, "friendly");
   // hostile column still in side
   assert.equal(positions.e.area, "side");
   assert.equal(positions.e.x, g.hostile.content.x);
   assert.equal(positions.f.area, "side");
-  // no overflow yet (bottom can hold at least 1)
+  // no overflow yet (bottom horizontal row: pile tail keeps within)
   assert.equal(overflow.length, 0);
-  // check steps
+  // check steps: side vertical, bottom horizontal
   assert.equal(positions.b.y - positions.a.y, g.card.height + CARD_GAP);
-  assert.equal(positions.d.y, g.bottomFriendly.content.y); // first in bottom
-  // second friendly bottom would stack with CARD_GAP as well
+  assert.equal(positions.d.y, g.bottomFriendly.content.y); // first in bottom is at top of box
+  // second friendly bottom would be placed horizontally next to first (if fits) or pile on last slot
   const state2 = {
     cards: {
       a: { side: "friendly", order: 0 },
@@ -185,27 +186,38 @@ test("side overflow spills into bottomFriendly/bottomHostile with same gap", () 
       e: { side: "friendly", order: 4 },
     },
   };
-  const { positions: p2 } = layoutConflictCards(g, state2);
-  assert.equal(p2.e.y - p2.d.y, g.card.height + CARD_GAP);
+  const { positions: p2, overflow: o2 } = layoutConflictCards(g, state2);
   assert.equal(p2.e.side, "friendly");
   assert.equal(p2.e.area, "bottom");
+  // horizontal: y equal, x increases (or piles with overlap if width exhausted)
+  assert.equal(p2.e.y, g.bottomFriendly.content.y);
+  assert.equal(p2.d.y, g.bottomFriendly.content.y);
+  // small bottom width 434 holds only 1 card at step 230, so 2 bottom cards pile with overlap
+  assert.ok(p2.e.x >= p2.d.x, "second bottom card not before first");
+  assert.ok(p2.e.x + g.card.width <= g.bottomFriendly.content.x + g.bottomFriendly.content.width + 1e-6, "within bottom width");
+  assert.equal(o2.length, 0, "pile tail not reported as overflow");
 });
 
-test("bottom overflow is reported explicitly; cards are never silently clipped", () => {
+test("bottom horizontal pile keeps all cards within bounds (no overflow beyond board)", () => {
   const g = getConflictBoardGeometry({ sizePreset: "small" });
   const cards = {};
-  // small: friendly column holds 3, bottom holds 1 => 4 total before overflow; 40 will overflow bottom
+  // small: friendly column holds 3, bottom capacity 1 => 4+ total overflow to bottom pile; 40 cards must pile without exceeding bounds
   for (let i = 0; i < 40; i++) cards[`c${i}`] = { side: "friendly", order: i };
   const { positions, overflow, hasOverflow } = layoutConflictCards(g, { cards });
   assert.equal(Object.keys(positions).length, 40);
-  assert.equal(hasOverflow, true);
-  assert.ok(overflow.length > 0);
-  assert.ok(overflow.every((o) => o.reason === "height" && o.area === "bottom"));
-  // the position of the overflowing card is still computed (no clipping)
-  const last = positions.c39;
-  assert.ok(last.y + last.height > g.bottomFriendly.content.y + g.bottomFriendly.content.height);
-  assert.ok(overflow.some((o) => o.combatantId === "c39"));
-  // first cards are in side, later in bottom
+  // horizontal pile keeps all cards visible inside bottomContent — no overflow reported
+  assert.equal(hasOverflow, false);
+  assert.equal(overflow.length, 0);
+  // every bottom card stays within bottomFriendly content rect by X and Y
+  for (let i = 3; i < 40; i++) {
+    const pos = positions[`c${i}`];
+    assert.equal(pos.area, "bottom");
+    assert.equal(pos.y, g.bottomFriendly.content.y, `c${i} y at top of box`);
+    assert.ok(pos.x >= g.bottomFriendly.content.x - 1e-6, `c${i} left within`);
+    assert.ok(pos.x + pos.width <= g.bottomFriendly.content.x + g.bottomFriendly.content.width + 1e-6, `c${i} right within ${pos.x + pos.width}`);
+    assert.ok(pos.y + pos.height <= g.bottomFriendly.content.y + g.bottomFriendly.content.height + 1e-6, `c${i} bottom within`);
+  }
+  // still computed positions for all, first cards in side, later in bottom
   assert.equal(positions.c0.area, "side");
   assert.equal(positions.c3.area, "bottom");
   assert.equal(positions.c0.side, "friendly");
@@ -217,16 +229,20 @@ test("side+bottom overflow is per side — hostile side independent", () => {
   for (let i = 0; i < 10; i++) cards[`f${i}`] = { side: "friendly", order: i };
   for (let i = 0; i < 10; i++) cards[`h${i}`] = { side: "hostile", order: i };
   const { positions, overflow, hasOverflow } = layoutConflictCards(g, { cards });
-  assert.equal(hasOverflow, true);
+  assert.equal(hasOverflow, false, "horizontal pile not considered overflow");
   assert.equal(Object.keys(positions).length, 20);
-  assert.ok(overflow.every((o) => o.reason === "height" && o.area === "bottom"));
-  assert.ok(overflow.some((o) => o.side === "friendly"));
-  assert.ok(overflow.some((o) => o.side === "hostile"));
+  assert.equal(overflow.length, 0);
   // both sides spill to their own bottom boxes
   assert.equal(positions.f3.area, "bottom");
   assert.equal(positions.f3.x, g.bottomFriendly.content.x);
   assert.equal(positions.h3.area, "bottom");
   assert.equal(positions.h3.x, g.bottomHostile.content.x);
+  // y equal (horizontal row)
+  assert.equal(positions.f3.y, g.bottomFriendly.content.y);
+  assert.equal(positions.h3.y, g.bottomHostile.content.y);
+  // friendly not in bottomHostile and vice versa
+  assert.ok(positions.f3.x + g.card.width <= g.bottomFriendly.content.x + g.bottomFriendly.content.width + 1e-6);
+  assert.ok(positions.h3.x + g.card.width <= g.bottomHostile.content.x + g.bottomHostile.content.width + 1e-6);
 });
 
 test("layout groups only by side, ignoring stored area (compat with schema v2)", () => {
@@ -247,14 +263,21 @@ test("layout groups only by side, ignoring stored area (compat with schema v2)",
   assert.equal(positions.b.x, g.hostile.content.x);
 });
 
-test("side overflow is reported when the area height is exhausted", () => {
+test("side overflow is not an error — bottom pile keeps within bounds", () => {
   const g = getConflictBoardGeometry({ sizePreset: "small" });
   const cards = {};
   for (let i = 0; i < 10; i++) cards[`s${i}`] = { side: "friendly", order: i };
   const { positions, overflow, hasOverflow } = layoutConflictCards(g, { cards });
-  assert.equal(hasOverflow, true);
+  assert.equal(hasOverflow, false, "horizontal bottom pile not overflow");
   assert.equal(Object.keys(positions).length, 10);
-  assert.ok(overflow.every((o) => o.reason === "height"));
+  assert.equal(overflow.length, 0);
+  // all bottom cards stay within
+  for (let i = 3; i < 10; i++) {
+    const pos = positions[`s${i}`];
+    assert.equal(pos.area, "bottom");
+    assert.ok(pos.x + pos.width <= g.bottomFriendly.content.x + g.bottomFriendly.content.width + 1e-6);
+    assert.equal(pos.y, g.bottomFriendly.content.y);
+  }
 });
 
 test("hitTestZone returns the first matching zone or null", () => {
@@ -605,6 +628,120 @@ test("bottom cards never overlap roundBox (layout positions)", () => {
         pos.x >= bottomArea.content.x - 1e-6 && pos.x + pos.width <= bottomArea.x + bottomArea.width + 1e-6,
         `${preset} card ${id} inside its bottom box`,
       );
+    }
+  }
+});
+
+test("column capacity is exact per preset (no off-by-one): small 3, medium 4, large 7", () => {
+  const expectations = { small: 3, medium: 4, large: 7 };
+  for (const [preset, expected] of Object.entries(expectations)) {
+    const g = getConflictBoardGeometry({ sizePreset: preset });
+    // build exactly expected cards in side: they must all stay in column
+    const cardsExact = {};
+    for (let i = 0; i < expected; i++) cardsExact[`c${i}`] = { side: "friendly", order: i };
+    const { positions: pExact } = layoutConflictCards(g, { cards: cardsExact });
+    for (let i = 0; i < expected; i++) assert.equal(pExact[`c${i}`].area, "side", `${preset} card ${i} stays in side`);
+    // one more must spill to bottom
+    const cardsPlus = { ...cardsExact, [`c${expected}`]: { side: "friendly", order: expected } };
+    const { positions: pPlus } = layoutConflictCards(g, { cards: cardsPlus });
+    assert.equal(pPlus[`c${expected}`].area, "bottom", `${preset} card ${expected} spills to bottom`);
+    // verify inclusive fitsSide: last side card's bottom edge <= content bottom
+    const lastSide = pExact[`c${expected - 1}`];
+    assert.ok(lastSide.y + g.card.height <= g.friendly.content.y + g.friendly.content.height + 1e-6, `${preset} last side fits inclusive`);
+    // remaining gap < cardHeight confirms no off-by-one
+    const remaining = g.friendly.content.y + g.friendly.content.height - (lastSide.y + g.card.height);
+    assert.ok(remaining < g.card.height && remaining >= 0, `${preset} remaining gap ${remaining} < cardHeight`);
+    // card N-1 not switched early: if we request N=expected, none spilled prematurely
+    assert.equal(Object.values(pExact).filter((p) => p.area === "bottom").length, 0, `${preset} no early spill`);
+  }
+});
+
+test("bottom boxes lay cards horizontally with fixed step (y equal, x += cardW+GAP)", () => {
+  // medium bottom capacity 2 → 2 cards fit without overlap; large capacity 3 → 3 cards fit
+  for (const preset of ["medium", "large"]) {
+    const g = getConflictBoardGeometry({ sizePreset: preset });
+    const capacity = preset === "medium" ? 2 : 3;
+    const sideCap = preset === "medium" ? 4 : 7;
+    // fill side fully then add capacity cards to bottom
+    const cards = {};
+    for (let i = 0; i < sideCap; i++) cards[`s${i}`] = { side: "friendly", order: i };
+    for (let i = 0; i < capacity; i++) cards[`b${i}`] = { side: "friendly", order: sideCap + i };
+    const { positions } = layoutConflictCards(g, { cards });
+    const bottoms = Array.from({ length: capacity }, (_, i) => positions[`b${i}`]);
+    // all bottom: same y, x step = cardW+GAP
+    for (const b of bottoms) assert.equal(b.y, g.bottomFriendly.content.y, `${preset} bottom y at top`);
+    for (let i = 1; i < bottoms.length; i++) {
+      assert.equal(bottoms[i].x - bottoms[i - 1].x, g.card.width + CARD_GAP, `${preset} bottom x step ${i}`);
+      assert.equal(bottoms[i].y, bottoms[0].y, `${preset} bottom y equal`);
+    }
+    // also hostile side independent: friendly bottom cards stay in bottomFriendly
+    for (const b of bottoms) assert.ok(b.x + b.width <= g.bottomFriendly.content.x + g.bottomFriendly.content.width + 1e-6);
+  }
+  // small: capacity 1 → single bottom card at content.x
+  const gSmall = getConflictBoardGeometry({ sizePreset: "small" });
+  const cardsSmall = {};
+  for (let i = 0; i < 3; i++) cardsSmall[`s${i}`] = { side: "friendly", order: i };
+  cardsSmall.b0 = { side: "friendly", order: 3 };
+  const { positions: pS } = layoutConflictCards(gSmall, { cards: cardsSmall });
+  assert.equal(pS.b0.x, gSmall.bottomFriendly.content.x);
+  assert.equal(pS.b0.y, gSmall.bottomFriendly.content.y);
+});
+
+test("overflow beyond bottom width piles with overlap and stays within bottom content rect", () => {
+  for (const preset of ["small", "medium", "large"]) {
+    const g = getConflictBoardGeometry({ sizePreset: preset });
+    const sideCap = preset === "small" ? 3 : preset === "medium" ? 4 : 7;
+    const capacity = preset === "small" ? 1 : preset === "medium" ? 2 : 3;
+    // create more bottom cards than capacity to trigger pile tail
+    const extra = 6;
+    const nBottom = capacity + extra;
+    const cards = {};
+    for (let i = 0; i < sideCap; i++) cards[`s${i}`] = { side: "friendly", order: i };
+    for (let i = 0; i < nBottom; i++) cards[`b${i}`] = { side: "friendly", order: sideCap + i };
+    const { positions, overflow } = layoutConflictCards(g, { cards });
+    assert.equal(overflow.length, 0, `${preset} pile not reported as overflow`);
+    const bottoms = Array.from({ length: nBottom }, (_, i) => positions[`b${i}`]);
+    // all within bottom content rect by X and Y
+    for (let i = 0; i < nBottom; i++) {
+      const pos = bottoms[i];
+      assert.equal(pos.area, "bottom", `${preset} b${i} bottom`);
+      assert.equal(pos.y, g.bottomFriendly.content.y, `${preset} b${i} y`);
+      assert.ok(pos.x >= g.bottomFriendly.content.x - 1e-6, `${preset} b${i} left`);
+      assert.ok(pos.x + pos.width <= g.bottomFriendly.content.x + g.bottomFriendly.content.width + 1e-6, `${preset} b${i} right within ${pos.x + pos.width} <= ${g.bottomFriendly.content.x + g.bottomFriendly.content.width}`);
+      assert.ok(pos.y + pos.height <= g.bottomFriendly.content.y + g.bottomFriendly.content.height + 1e-6, `${preset} b${i} bottom within`);
+    }
+    // monotonic x non-decreasing
+    for (let i = 1; i < nBottom; i++) assert.ok(bottoms[i].x >= bottoms[i - 1].x - 1e-6, `${preset} monotonic ${i}`);
+    // beyond capacity, step is compressed (overlap): tail step <= CARD_GAP+cardW and <= PILE_OVERLAP unless shrunk further
+    if (nBottom > capacity) {
+      const lastNormalIdx = capacity - 1;
+      const tailStep = bottoms[lastNormalIdx + 1].x - bottoms[lastNormalIdx].x;
+      assert.ok(tailStep <= PILE_OVERLAP + 1e-6 || tailStep < g.card.width + CARD_GAP, `${preset} tail overlaps (step ${tailStep} <= ${PILE_OVERLAP} or < normal)`);
+      assert.ok(tailStep >= 0, `${preset} pile step non-negative`);
+    }
+  }
+});
+
+test("friendly and hostile bottom piles are independent (no cross-area leakage)", () => {
+  for (const preset of ["small", "medium", "large"]) {
+    const g = getConflictBoardGeometry({ sizePreset: preset });
+    const sideCap = preset === "small" ? 3 : preset === "medium" ? 4 : 7;
+    const cards = {};
+    for (let i = 0; i < sideCap + 5; i++) cards[`f${i}`] = { side: "friendly", order: i };
+    for (let i = 0; i < sideCap + 5; i++) cards[`h${i}`] = { side: "hostile", order: i };
+    const { positions } = layoutConflictCards(g, { cards });
+    for (let i = sideCap; i < sideCap + 5; i++) {
+      const pf = positions[`f${i}`];
+      const ph = positions[`h${i}`];
+      assert.equal(pf.side, "friendly");
+      assert.equal(ph.side, "hostile");
+      assert.equal(pf.area, "bottom");
+      assert.equal(ph.area, "bottom");
+      // friendly bottom inside bottomFriendly content, hostile inside bottomHostile content
+      assert.ok(pf.x >= g.bottomFriendly.content.x - 1e-6 && pf.x + pf.width <= g.bottomFriendly.content.x + g.bottomFriendly.content.width + 1e-6, `${preset} friendly ${i} in its box`);
+      assert.ok(ph.x >= g.bottomHostile.content.x - 1e-6 && ph.x + ph.width <= g.bottomHostile.content.x + g.bottomHostile.content.width + 1e-6, `${preset} hostile ${i} in its box`);
+      // no cross leakage: friendly not inside hostile box
+      assert.ok(pf.x + pf.width <= g.roundBox.x + 1e-6 || pf.x >= g.bottomFriendly.content.x, `${preset} friendly not leaking`);
     }
   }
 });
