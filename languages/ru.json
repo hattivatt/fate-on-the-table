@@ -295,5 +295,16 @@
   "fate-on-the-table.conflict.placement.fromCombatTracker": "Разместить на столе",
   "fate-on-the-table.conflict.manageFromCombatTracker": "Менеджер конфликта",
   "fate-on-the-table.settings.autoTurnMarker": "Автовключение маркера хода",
-  "fate-on-the-table.settings.autoTurnMarkerHint": "Когда персонаж попадает в бой на сцене с активным полем конфликта, автоматически включать маркер хода его токена (кольцо-подсветку активного участника)."
+  "fate-on-the-table.settings.autoTurnMarkerHint": "Когда персонаж попадает в бой на сцене с активным полем конфликта, автоматически включать маркер хода его токена (кольцо-подсветку активного участника).",
+  "fate-on-the-table.settings.nameGenEnable": "Генерация имён токенов",
+  "fate-on-the-table.settings.nameGenEnableHint": "Когда включено, новые непривязанные токены получают случайное сгенерированное имя (адаптировано из Token Mold).",
+  "fate-on-the-table.settings.nameGenLanguage": "Язык генерации имён",
+  "fate-on-the-table.settings.nameGenLanguageHint": "Язык, используемый для случайной генерации имён. «Случайный» выбирает один из доступных языков.",
+  "fate-on-the-table.settings.nameGenLanguageChoices.random": "Случайный",
+  "fate-on-the-table.settings.nameGenLanguageChoices.english": "English",
+  "fate-on-the-table.settings.nameGenLanguageChoices.russian": "Русский",
+  "fate-on-the-table.settings.nameGenMinLength": "Минимальная длина имени",
+  "fate-on-the-table.settings.nameGenMinLengthHint": "Минимальная длина генерируемых имён (3–15).",
+  "fate-on-the-table.settings.nameGenMaxLength": "Максимальная длина имени",
+  "fate-on-the-table.settings.nameGenMaxLengthHint": "Максимальная длина генерируемых имён (3–15)."
 }

@@ -295,5 +295,16 @@
   "fate-on-the-table.conflict.placement.fromCombatTracker": "Place on the table",
   "fate-on-the-table.conflict.manageFromCombatTracker": "Conflict Manager",
   "fate-on-the-table.settings.autoTurnMarker": "Auto-enable turn markers",
-  "fate-on-the-table.settings.autoTurnMarkerHint": "When a character joins a combat on a scene with an active conflict board, automatically enable its token's turn marker (the ring highlighting the active combatant)."
+  "fate-on-the-table.settings.autoTurnMarkerHint": "When a character joins a combat on a scene with an active conflict board, automatically enable its token's turn marker (the ring highlighting the active combatant).",
+  "fate-on-the-table.settings.nameGenEnable": "Token name generation",
+  "fate-on-the-table.settings.nameGenEnableHint": "When enabled, new unlinked tokens get a random generated name (adapted from Token Mold).",
+  "fate-on-the-table.settings.nameGenLanguage": "Name generation language",
+  "fate-on-the-table.settings.nameGenLanguageHint": "Language used for random name generation. Random picks one of the available languages.",
+  "fate-on-the-table.settings.nameGenLanguageChoices.random": "Random",
+  "fate-on-the-table.settings.nameGenLanguageChoices.english": "English",
+  "fate-on-the-table.settings.nameGenLanguageChoices.russian": "Russian",
+  "fate-on-the-table.settings.nameGenMinLength": "Minimum name length",
+  "fate-on-the-table.settings.nameGenMinLengthHint": "Minimum length of generated names (3–15).",
+  "fate-on-the-table.settings.nameGenMaxLength": "Maximum name length",
+  "fate-on-the-table.settings.nameGenMaxLengthHint": "Maximum length of generated names (3–15)."
 }

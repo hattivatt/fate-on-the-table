@@ -75,6 +75,15 @@ import {
   insertFateUtilsBoardPlacement,
   attachPlaceBoardClick,
 } from "./conflictUi.js";
+import { pickNewName } from "./nameGenerator.js";
+import {
+  resolveLanguage,
+  loadNameGenDict,
+} from "./nameGenLanguages.js";
+import {
+  isNameGenEnabled,
+  getNameGenOptions,
+} from "./settings.js";
 
 // Canvas interaction patches must be applied on every module load (page
 // reloads included), so this runs at top level — not inside a one-shot hook.
@@ -82,6 +91,62 @@ initWidgetInteractions();
 initStressBoxInteractions();
 
 console.log("[fate-on-the-table] module loaded");
+
+// Random token name generation for unlinked tokens (adapted from Token Mold — trigram model).
+// Pure logic lives in nameGenerator.js / nameGenLanguages.js; this hook only wires Foundry.
+Hooks.on("preCreateToken", async (tokenDoc, data) => {
+  try {
+    if (typeof game !== "undefined" && game?.user?.isGM === false) return;
+    if (!isNameGenEnabled()) return;
+    const doc = tokenDoc ?? data;
+    // In preCreateToken the TokenDocument has `actorLink`; creation data may also carry it.
+    const actorLink =
+      tokenDoc?.actorLink ?? tokenDoc?.getFlag?.("fate-on-the-table", "actorLink") ?? data?.actorLink;
+    // Only unlinked tokens (actorLink === false). Linked tokens keep their actor name.
+    // When actorLink is undefined (no actor) we treat as unlinked? But spec says strictly === false.
+    if (actorLink !== false) {
+      // Fallback: if both are undefined, the token has no actor — skip to avoid naming actor-less tokens.
+      // However Foundry typically sets actorLink explicitly; we obey strict false check.
+      return;
+    }
+    const opts = getNameGenOptions();
+    const langKey = resolveLanguage(opts.language);
+    let dict = null;
+    try {
+      dict = await loadNameGenDict(langKey);
+    } catch (err) {
+      console.warn("[fate-on-the-table] name dict load failed:", err);
+      return;
+    }
+    if (!dict) {
+      console.warn("[fate-on-the-table] name dict not available for", langKey);
+      return;
+    }
+    let newName = "";
+    try {
+      newName = pickNewName(dict, { min: opts.min, max: opts.max });
+    } catch (err) {
+      console.warn("[fate-on-the-table] name generation failed:", err);
+      return;
+    }
+    if (!newName || typeof newName !== "string") return;
+    // Apply to the pending document; never block creation on failure.
+    try {
+      if (typeof tokenDoc?.updateSource === "function") {
+        tokenDoc.updateSource({ name: newName });
+      } else if (tokenDoc && typeof tokenDoc === "object") {
+        tokenDoc.name = newName;
+        if (data && typeof data === "object" && data !== tokenDoc) data.name = newName;
+      } else if (data && typeof data === "object") {
+        data.name = newName;
+      }
+    } catch (err) {
+      console.warn("[fate-on-the-table] failed to apply generated name:", err);
+    }
+  } catch (err) {
+    console.warn("[fate-on-the-table] preCreateToken name generation failed:", err);
+  }
+});
 
 const FATE_POINT_SETTINGS = [
   "fatePointImage",

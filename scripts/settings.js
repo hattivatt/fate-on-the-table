@@ -503,6 +503,50 @@ export function registerSettings() {
     requiresReload: false,
   });
 
+  // Random name generation for unlinked tokens (adapted from Token Mold)
+  game.settings.register(MODULE_ID, "nameGenEnable", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.nameGenEnable`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.nameGenEnableHint`),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true,
+  });
+
+  game.settings.register(MODULE_ID, "nameGenLanguage", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.nameGenLanguage`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.nameGenLanguageHint`),
+    scope: "world",
+    config: true,
+    type: String,
+    default: "random",
+    choices: {
+      random: game.i18n.localize(`${MODULE_ID}.settings.nameGenLanguageChoices.random`),
+      english: game.i18n.localize(`${MODULE_ID}.settings.nameGenLanguageChoices.english`),
+      russian: game.i18n.localize(`${MODULE_ID}.settings.nameGenLanguageChoices.russian`),
+    },
+  });
+
+  game.settings.register(MODULE_ID, "nameGenMinLength", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.nameGenMinLength`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.nameGenMinLengthHint`),
+    scope: "world",
+    config: true,
+    type: Number,
+    default: 6,
+    range: { min: 3, max: 15, step: 1 },
+  });
+
+  game.settings.register(MODULE_ID, "nameGenMaxLength", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.nameGenMaxLength`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.nameGenMaxLengthHint`),
+    scope: "world",
+    config: true,
+    type: Number,
+    default: 9,
+    range: { min: 3, max: 15, step: 1 },
+  });
+
   Hooks.on("renderSettingsConfig", onRenderSettingsConfig);
   Hooks.on("closeSettingsConfig", () => {
     openSettingsConfig = null;
@@ -622,6 +666,45 @@ export function getConflictBoardOptions() {
       read("conflictBoardOverflowPolicy", defaults.conflictBoardOverflowPolicy),
     ),
   };
+}
+
+/**
+ * Name generation settings helpers (pure-ish, testable).
+ */
+export function isNameGenEnabled() {
+  try {
+    if (typeof game === "undefined" || typeof game?.settings?.get !== "function") return true;
+    const v = game.settings.get(MODULE_ID, "nameGenEnable");
+    if (v === undefined) return true;
+    return !!v;
+  } catch {
+    return true;
+  }
+}
+
+export function getNameGenOptions() {
+  const read = (key, fallback) => {
+    if (typeof game === "undefined" || typeof game?.settings?.get !== "function") return fallback;
+    try {
+      const v = game.settings.get(MODULE_ID, key);
+      return v === undefined ? fallback : v;
+    } catch {
+      return fallback;
+    }
+  };
+  let min = Number(read("nameGenMinLength", 6));
+  let max = Number(read("nameGenMaxLength", 9));
+  if (!Number.isFinite(min)) min = 6;
+  if (!Number.isFinite(max)) max = 9;
+  min = Math.max(3, Math.min(15, Math.floor(min)));
+  max = Math.max(3, Math.min(15, Math.floor(max)));
+  if (min > max) {
+    const t = min;
+    min = max;
+    max = t;
+  }
+  const language = String(read("nameGenLanguage", "random") ?? "random");
+  return { min, max, language };
 }
 
 function getFontList() {
