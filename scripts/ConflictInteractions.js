@@ -937,6 +937,15 @@ export function buildSkillMenuItems(actor) {
  * @param {string} combatantId
  * @returns {object|null}
  */
+/**
+ * Pure helper: next board state with `cards[combatantId].eliminated = true`.
+ * Kept for the "Leave combat" menu path and for tests. Since `eliminated`
+ * now mirrors `combatant.defeated` via `applyCombatTurnStateToCards` /
+ * `reconcileConflictBoardProjection`, the `defeated:true` update alone would
+ * be sufficient (the next sync mirrors it). The helper is retained for
+ * immediate visual feedback before the sync and for idempotence — the write
+ * is harmless even when the sync will set the same flag.
+ */
 export function markEliminatedInState(state, combatantId) {
   if (!state || !combatantId) return state;
   const rec = state.cards?.[combatantId];
@@ -1006,7 +1015,12 @@ async function showCardContextMenu(doc, state, event) {
       children: skillChildren,
     });
   }
-  // "Leave combat": GM-only destructive action at the bottom (defeated + eliminated pile)
+  // "Leave combat": GM-only destructive action. We keep both
+  // `combatant.update({defeated:true})` (source of truth) and the immediate
+  // `markEliminatedInState` mirror (eliminated:true). Minimal-risk choice:
+  // the double write is idempotent with the new "eliminated mirrors defeated"
+  // sync; keeping it avoids a transient flash where the strike is missing
+  // until the next reconcile, while removing it would add no benefit.
   const canLeave = !combatant.defeated && state.cards?.[targetCombatantId]?.eliminated !== true;
   if (canLeave) {
     if (items.length) items.push({ sep: true, label: "", icon: "" });

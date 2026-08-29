@@ -612,17 +612,17 @@ test("assignInitialCardAreas accepts plain descriptors, id alias and dedupe", ()
   assert.deepEqual(assignInitialCardAreas(), { cards: {}, order: [] });
 });
 
-/* ---- v2: applyCombatTurnStateToCards uses acted flag, not area ---- */
+/* ---- v2: applyCombatTurnStateToCards uses acted/eliminated flags, eliminated mirrors defeated ---- */
 
-test("applyCombatTurnStateToCards projects hasActed onto the cards' acted flag", () => {
+test("applyCombatTurnStateToCards projects hasActed onto the cards' acted flag (defeated false)", () => {
   const state = normalizeConflictBoard(validBoard()).normalized;
-  // combatant-1 side, combatant-2 acted:true initially; we reset to no acted for test
   state.cards["combatant-2"] = { side: "hostile", area: "side", order: 1 };
   const res = applyCombatTurnStateToCards(state, {
-    "combatant-1": true, // -> acted true
-    "combatant-2": true, // -> acted true
+    "combatant-1": { hasActed: true, defeated: false },
+    "combatant-2": { hasActed: true, defeated: false },
   });
   assert.equal(res.state.cards["combatant-1"].acted, true);
+  assert.equal(res.state.cards["combatant-1"].eliminated, undefined);
   assert.equal(res.state.cards["combatant-1"].area, "side");
   assert.equal(res.state.cards["combatant-1"].side, "friendly");
   assert.equal(res.state.cards["combatant-1"].order, 0);
@@ -630,10 +630,9 @@ test("applyCombatTurnStateToCards projects hasActed onto the cards' acted flag",
   assert.equal(res.state.cards["combatant-2"].area, "side");
   assert.deepEqual(res.changed.sort(), ["combatant-1", "combatant-2"]);
 
-  // back to side when hasActed is false, side/order preserved, acted removed
   const back = applyCombatTurnStateToCards(res.state, {
-    "combatant-1": false,
-    "combatant-2": false,
+    "combatant-1": { hasActed: false, defeated: false },
+    "combatant-2": { hasActed: false, defeated: false },
   });
   assert.equal(back.state.cards["combatant-1"].acted, undefined);
   assert.equal(back.state.cards["combatant-1"].area, "side");
@@ -642,50 +641,114 @@ test("applyCombatTurnStateToCards projects hasActed onto the cards' acted flag",
   assert.deepEqual(back.changed.sort(), ["combatant-1", "combatant-2"]);
 });
 
-test("applyCombatTurnStateToCards never overwrites an eliminated card", () => {
+test("applyCombatTurnStateToCards mirrors defeated to eliminated: true sets, false clears (incl. manual flag)", () => {
   const state = normalizeConflictBoard(
     validBoard({
       cards: {
         "combatant-1": { side: "friendly", area: "side", order: 0, eliminated: true },
+        "combatant-2": { side: "hostile", area: "side", order: 1 },
+        "combatant-3": { side: "friendly", area: "side", order: 2, acted: true },
       },
     }),
   ).normalized;
-  const res = applyCombatTurnStateToCards(state, { "combatant-1": true });
-  assert.equal(res.state.cards["combatant-1"].eliminated, true);
-  assert.equal(res.state.cards["combatant-1"].acted, undefined);
-  assert.equal(res.state.cards["combatant-1"].area, "side");
-  assert.deepEqual(res.changed, []);
-  const back = applyCombatTurnStateToCards(state, { "combatant-1": false });
-  assert.equal(back.state.cards["combatant-1"].eliminated, true);
-  assert.deepEqual(back.changed, []);
+  // defeated:true -> eliminated:true even if was false; defeated also forces acted:false
+  const set = applyCombatTurnStateToCards(state, {
+    "combatant-2": { hasActed: false, defeated: true },
+    "combatant-3": { hasActed: true, defeated: true },
+  });
+  assert.equal(set.state.cards["combatant-2"].eliminated, true);
+  assert.equal(set.state.cards["combatant-2"].acted, undefined, "defeated forces acted false");
+  assert.equal(set.state.cards["combatant-3"].eliminated, true);
+  assert.equal(set.state.cards["combatant-3"].acted, undefined, "defeated clears acted");
+  assert.ok(set.changed.includes("combatant-2"));
+  assert.ok(set.changed.includes("combatant-3"));
+
+  // defeated:false -> eliminated cleared, even if previously eliminated true (manual/migrated flag)
+  const clear = applyCombatTurnStateToCards(state, {
+    "combatant-1": { hasActed: false, defeated: false },
+  });
+  assert.equal(clear.state.cards["combatant-1"].eliminated, undefined, "defeated false clears manual eliminated");
+  assert.deepEqual(clear.changed, ["combatant-1"]);
+
+  // migrated v1 board: v1 area eliminated -> v2 eliminated:true, first sync with defeated:false clears it
+  const migrated = normalizeConflictBoard({
+    version: 1,
+    combatId: "combat-abc",
+    sizePreset: "medium",
+    board: { origin: { x: 0, y: 0 }, background: { color: "#ffffff", texture: "", alpha: 1 } },
+    zones: [],
+    cards: { m: { side: "friendly", area: "eliminated", order: 0 } },
+    tokenZones: {},
+  }).normalized;
+  assert.equal(migrated.cards.m.eliminated, true);
+  const afterSync = applyCombatTurnStateToCards(migrated, { m: { hasActed: false, defeated: false } });
+  assert.equal(afterSync.state.cards.m.eliminated, undefined, "migrated eliminated cleared when defeated false");
 });
 
-test("applyCombatTurnStateToCards is pure and leaves unknown combatants alone", () => {
+test("applyCombatTurnStateToCards eliminated+hasActed combos, changed includes both flags", () => {
+  const state = normalizeConflictBoard(
+    validBoard({
+      cards: {
+        a: { side: "friendly", area: "side", order: 0 },
+        b: { side: "friendly", area: "side", order: 1, acted: true },
+        c: { side: "friendly", area: "side", order: 2, eliminated: true },
+      },
+    }),
+  ).normalized;
+  const res = applyCombatTurnStateToCards(state, {
+    a: { hasActed: true, defeated: true }, // -> eliminated true, acted false (defeated overrides)
+    b: { hasActed: false, defeated: false }, // -> acted cleared
+    c: { hasActed: true, defeated: false }, // -> eliminated cleared, acted true
+  });
+  assert.equal(res.state.cards.a.eliminated, true);
+  assert.equal(res.state.cards.a.acted, undefined);
+  assert.equal(res.state.cards.b.acted, undefined);
+  assert.equal(res.state.cards.b.eliminated, undefined);
+  assert.equal(res.state.cards.c.eliminated, undefined);
+  assert.equal(res.state.cards.c.acted, true);
+  assert.deepEqual(res.changed.sort(), ["a", "b", "c"]);
+  // both flags changing counts as one entry per id
+  const both = applyCombatTurnStateToCards(
+    normalizeConflictBoard(validBoard({ cards: { x: { side: "friendly", area: "side", order: 0 } } })).normalized,
+    { x: { hasActed: true, defeated: true } },
+  );
+  assert.equal(both.state.cards.x.eliminated, true);
+  assert.equal(both.state.cards.x.acted, undefined);
+  assert.deepEqual(both.changed, ["x"]);
+});
+
+test("applyCombatTurnStateToCards is pure and leaves unknown combatants alone (area still normalized)", () => {
   const state = normalizeConflictBoard(validBoard()).normalized;
+  // inject an area that needs normalization to verify unknown id still normalizes it
+  state.cards["combatant-1"].area = "acted";
   const snapshot = structuredClone(state);
-  const res = applyCombatTurnStateToCards(state, { "ghost": true });
-  assert.deepEqual(state, snapshot); // input untouched
-  assert.deepEqual(res.state.cards, state.cards); // nothing known changed
-  assert.deepEqual(res.changed, []);
-  // zones / board / tokenZones preserved by the new state
+  const res = applyCombatTurnStateToCards(state, { ghost: { hasActed: true, defeated: false } });
+  assert.deepEqual(state, snapshot);
+  assert.equal(res.state.cards["combatant-1"].area, "side", "unknown id still normalizes area");
+  assert.deepEqual(res.changed, [], "area normalization alone does not count as changed");
+  assert.equal(res.state.cards["combatant-2"].acted, true);
   assert.deepEqual(res.state.zones, state.zones);
   assert.deepEqual(res.state.board, state.board);
   assert.deepEqual(res.state.tokenZones, state.tokenZones);
   assert.deepEqual(applyCombatTurnStateToCards(null, {}).state.cards, {});
+  // unknown id with eliminated flag: eliminated is NOT mirrored (no entry)
+  const withElim = normalizeConflictBoard(validBoard({ cards: { u: { side: "friendly", area: "side", order: 0, eliminated: true } } })).normalized;
+  const keep = applyCombatTurnStateToCards(withElim, {});
+  assert.equal(keep.state.cards.u.eliminated, true);
 });
 
-test("applyCombatTurnStateToCards keeps the current combatant un-acted even when hasActed", () => {
+test("applyCombatTurnStateToCards keeps the current combatant un-acted even when hasActed (defeated false)", () => {
   const state = normalizeConflictBoard(validBoard()).normalized;
   state.cards["combatant-2"] = { side: "hostile", area: "side", order: 1 };
   const res = applyCombatTurnStateToCards(
     state,
-    { "combatant-1": true, "combatant-2": true },
+    { "combatant-1": { hasActed: true, defeated: false }, "combatant-2": { hasActed: true, defeated: false } },
     { currentCombatantId: "combatant-1" },
   );
   assert.equal(res.state.cards["combatant-1"].acted, undefined);
+  assert.equal(res.state.cards["combatant-1"].eliminated, undefined);
   assert.equal(res.state.cards["combatant-1"].area, "side");
   assert.equal(res.state.cards["combatant-2"].acted, true);
-  assert.equal(res.state.cards["combatant-2"].area, "side");
   assert.deepEqual(res.changed, ["combatant-2"]);
 });
 
@@ -694,7 +757,7 @@ test("applyCombatTurnStateToCards treats a current combatant with hasActed false
   state.cards["combatant-2"] = { side: "hostile", area: "side", order: 1 };
   const res = applyCombatTurnStateToCards(
     state,
-    { "combatant-1": false, "combatant-2": true },
+    { "combatant-1": { hasActed: false, defeated: false }, "combatant-2": { hasActed: true, defeated: false } },
     { currentCombatantId: "combatant-1" },
   );
   assert.equal(res.state.cards["combatant-1"].acted, undefined);
@@ -702,7 +765,7 @@ test("applyCombatTurnStateToCards treats a current combatant with hasActed false
   assert.deepEqual(res.changed, ["combatant-2"]);
 });
 
-test("applyCombatTurnStateToCards never overwrites an eliminated current combatant", () => {
+test("applyCombatTurnStateToCards defeated current combatant is eliminated and not acted", () => {
   const state = normalizeConflictBoard(
     validBoard({
       cards: {
@@ -713,48 +776,56 @@ test("applyCombatTurnStateToCards never overwrites an eliminated current combata
   ).normalized;
   const res = applyCombatTurnStateToCards(
     state,
-    { "combatant-1": true, "combatant-2": true },
+    { "combatant-1": { hasActed: true, defeated: true }, "combatant-2": { hasActed: true, defeated: false } },
     { currentCombatantId: "combatant-1" },
   );
   assert.equal(res.state.cards["combatant-1"].eliminated, true);
-  assert.equal(res.state.cards["combatant-1"].acted, undefined);
+  assert.equal(res.state.cards["combatant-1"].acted, undefined, "defeated forces acted false even when current");
   assert.equal(res.state.cards["combatant-2"].acted, true);
+  // c1 already eliminated:true -> no eliminated change; c2 not defeated so remains acted true (already) -> no change, but c1's acted was already undefined so also no change
   assert.deepEqual(res.changed, []);
+  // clearing defeated on the same current combatant removes eliminated and respects current
+  const cleared = applyCombatTurnStateToCards(
+    state,
+    { "combatant-1": { hasActed: true, defeated: false }, "combatant-2": { hasActed: true, defeated: false } },
+    { currentCombatantId: "combatant-1" },
+  );
+  assert.equal(cleared.state.cards["combatant-1"].eliminated, undefined);
+  assert.equal(cleared.state.cards["combatant-1"].acted, undefined, "current still not acted even after clearing defeated");
+  assert.deepEqual(cleared.changed, ["combatant-1"]);
 });
 
-test("applyCombatTurnStateToCards without a current keeps the legacy true->acted mapping", () => {
+test("applyCombatTurnStateToCards without a current keeps the legacy true->acted mapping (defeated false)", () => {
   const state = normalizeConflictBoard(validBoard()).normalized;
   state.cards["combatant-1"] = { side: "friendly", area: "side", order: 0 };
   state.cards["combatant-2"] = { side: "hostile", area: "side", order: 1 };
   const snapshot = structuredClone(state);
   const legacy = applyCombatTurnStateToCards(
     state,
-    { "combatant-1": true, "combatant-2": true },
+    { "combatant-1": { hasActed: true, defeated: false }, "combatant-2": { hasActed: true, defeated: false } },
     {},
   );
   assert.equal(legacy.state.cards["combatant-1"].acted, true);
   assert.equal(legacy.state.cards["combatant-2"].acted, true);
   assert.deepEqual(legacy.changed.sort(), ["combatant-1", "combatant-2"]);
-  // an explicit null current behaves exactly like no current
   const nullCurrent = applyCombatTurnStateToCards(
     state,
-    { "combatant-1": true, "combatant-2": true },
+    { "combatant-1": { hasActed: true, defeated: false }, "combatant-2": { hasActed: true, defeated: false } },
     { currentCombatantId: null },
   );
   assert.equal(nullCurrent.state.cards["combatant-1"].acted, true);
   assert.equal(nullCurrent.state.cards["combatant-2"].acted, true);
-  // purity: the input is never mutated, unknown flags/combatants untouched
   assert.deepEqual(state, snapshot);
   const unknown = applyCombatTurnStateToCards(
     state,
-    { ghost: true },
+    { ghost: { hasActed: true, defeated: false } },
     { currentCombatantId: "ghost" },
   );
   assert.deepEqual(unknown.state.cards, state.cards);
   assert.deepEqual(unknown.changed, []);
 });
 
-test("applyCombatTurnStateToCards priority: unknown -> eliminated -> current -> hasActed", () => {
+test("applyCombatTurnStateToCards priority: unknown -> eliminated:=defeated -> current/defeated -> hasActed", () => {
   const state = normalizeConflictBoard(
     validBoard({
       cards: {
@@ -762,21 +833,31 @@ test("applyCombatTurnStateToCards priority: unknown -> eliminated -> current -> 
         b: { side: "friendly", area: "side", order: 1, eliminated: true },
         c: { side: "friendly", area: "side", order: 2 },
         d: { side: "friendly", area: "side", order: 3 },
+        e: { side: "friendly", area: "side", order: 4, acted: true },
       },
     }),
   ).normalized;
-  // a unknown combatantId -> no-op; b eliminated -> no-op even if current; c current with hasActed true -> not acted; d hasActed true -> acted
+  // a unknown -> no-op; b defeated:false -> eliminated cleared even though was true; c current with hasActed true -> not acted; d hasActed true -> acted; e defeated:true -> eliminated true and acted false
   const res = applyCombatTurnStateToCards(
     state,
-    { b: true, c: true, d: true }, // a not listed
+    {
+      b: { hasActed: true, defeated: false },
+      c: { hasActed: true, defeated: false },
+      d: { hasActed: true, defeated: false },
+      e: { hasActed: true, defeated: true },
+    },
     { currentCombatantId: "c" },
   );
   assert.equal(res.state.cards.a.acted, undefined);
-  assert.equal(res.state.cards.b.eliminated, true);
-  assert.equal(res.state.cards.b.acted, undefined);
-  assert.equal(res.state.cards.c.acted, undefined); // current wins
+  assert.equal(res.state.cards.a.eliminated, undefined);
+  assert.equal(res.state.cards.b.eliminated, undefined, "defeated false clears eliminated");
+  assert.equal(res.state.cards.b.acted, true, "b now acted (was eliminated, now cleared and hasActed true)");
+  assert.equal(res.state.cards.c.acted, undefined, "current wins");
   assert.equal(res.state.cards.d.acted, true);
-  assert.deepEqual(res.changed, ["d"]);
+  assert.equal(res.state.cards.e.eliminated, true);
+  assert.equal(res.state.cards.e.acted, undefined, "defeated forces not acted");
+  assert.deepEqual(res.changed.sort(), ["b", "d", "e"]);
+  assert.ok(res.changed.includes("b") && res.changed.includes("d") && res.changed.includes("e"));
 });
 
 test("createConflictBoard produces a normalized empty board v2", () => {

@@ -432,15 +432,20 @@ function resolveAvailable(scene, combat, options = {}) {
 }
 
 /**
- * Plain `{ [combatantId]: hasActed }` map of a board's combatants, read from
- * the standard `fate-core-official.hasActed` flag. Combatants without an id
- * are skipped; unknown/missing flags count as `false`.
+ * Plain `{ [combatantId]: { hasActed, defeated } }` map of a board's combatants.
+ * `hasActed` is read from the `fate-core-official.hasActed` flag,
+ * `defeated` from the core `combatant.defeated` boolean (mirrored to
+ * `cards[combatantId].eliminated` by `applyCombatTurnStateToCards`).
+ * Combatants without an id are skipped; unknown/missing flags/fields count as `false`.
  */
 function resolveCombatantTurnStates(combat, options = {}) {
   const states = {};
   for (const combatant of resolveCombatants(combat, options)) {
     if (!combatant?.id) continue;
-    states[combatant.id] = !!combatant.getFlag?.(SYSTEM_FLAG_SCOPE, HAS_ACTED_KEY);
+    states[combatant.id] = {
+      hasActed: !!combatant.getFlag?.(SYSTEM_FLAG_SCOPE, HAS_ACTED_KEY),
+      defeated: !!combatant.defeated,
+    };
   }
   return states;
 }

@@ -668,28 +668,44 @@ function toSet(values) {
 }
 
 /**
- * Projects the live combat turn state (`fate-core-official.hasActed`) onto
- * the board state's cards. Pure: never mutates `state`, never touches
- * `game`/combat documents — pass a plain `combatantStates` map instead.
+ * Projects the live combat turn state onto the board state's cards. Pure:
+ * never mutates `state`, never touches `game`/combat documents — pass a plain
+ * `combatantStates` map instead.
  *
  * v2 semantics: cards stay in place (`area` always "side"); `acted` and
  * `eliminated` are boolean flags on the card record.
  *
+ * `eliminated` is DERIVED from `combatant.defeated` (the core Combatant
+ * boolean toggled by Foundry's "Mark Defeated" tracker action). It mirrors
+ * `defeated` on every sync: `defeated:true` → `eliminated:true` (even if it
+ * was `false` before), `defeated:false` → `eliminated:false` (clearing any
+ * previously set eliminated flag, including a migrated v1 `area:"eliminated"`
+ * or a manual "Leave combat" flag, on the first sync where `defeated` is
+ * `false`). The combatant's `defeated` field is the single source of truth;
+ * the card flag is a projection, not an independent store.
+ *
  * Rules (priority order):
  * - (1) a card whose combatant id is NOT listed in `combatantStates` is left
- *   untouched (orphan removal is `reconcileConflictBoard`'s job);
- * - (2) `eliminated:true` is NEVER overwritten by turn-state;
- * - (3) isCurrent -> `acted:false` (current actor always appears un-greyed);
- * - (4) hasActed:true -> `acted:true`;
- * - (5) hasActed:false -> `acted:false`.
- * `changed` lists ids whose `acted` flag actually changed (area is ignored).
+ *   untouched (orphan removal is `reconcileConflictBoard`'s job; area is still
+ *   normalized to "side" without marking `changed`);
+ * - (2) `eliminated` := `defeated` (`record.eliminated` set/cleared from
+ *   `combatantStates[id].defeated`; `changed` if it differs);
+ * - (3) `defeated:true` forces `acted:false` (eliminated card is not "acted"),
+ *   otherwise: isCurrent → `acted:false` (current actor always appears
+ *   un-greyed);
+ * - (4) `hasActed:true` → `acted:true`;
+ * - (5) `hasActed:false` → `acted:false`.
+ * `changed` lists ids whose `acted` OR `eliminated` flag actually changed
+ * (area normalization alone does not count).
  *
  * @param {object} state  Normalized conflict board state.
- * @param {Record<string, boolean>} combatantStates  `{ [combatantId]: hasActed }`.
+ * @param {Record<string, {hasActed: boolean, defeated: boolean}>} combatantStates
+ *   `{ [combatantId]: { hasActed, defeated } }`. Unknown ids are no-ops;
+ *   missing keys inside the entry are treated as `false` (no data).
  * @param {object} [options]  `{ currentCombatantId: string|null }` — the id of
  *   the current combatant (`combat.turns[combat.turn]`, Fate Utilities order).
  * @returns {{state: object, changed: string[]}}  New state + ids whose `acted`
- *   flag actually changed.
+ *   or `eliminated` flag actually changed.
  */
 export function applyCombatTurnStateToCards(state, combatantStates = {}, options = {}) {
   const cards = {};
@@ -700,9 +716,9 @@ export function applyCombatTurnStateToCards(state, combatantStates = {}, options
       cards[combatantId] = record;
       continue;
     }
-    const hasActed = combatantStates[combatantId];
-    if (typeof hasActed !== "boolean") {
-      // still ensure area is normalized to "side" without marking changed
+    const entry = combatantStates[combatantId];
+    if (entry == null || typeof entry !== "object") {
+      // (1) unknown id → no-op except area normalization
       if (record.area !== "side") {
         cards[combatantId] = { ...record, area: "side" };
       } else {
@@ -710,24 +726,31 @@ export function applyCombatTurnStateToCards(state, combatantStates = {}, options
       }
       continue;
     }
-    if (record.eliminated === true) {
-      // never mutate eliminated cards
-      if (record.area !== "side") {
-        cards[combatantId] = { ...record, area: "side" };
-      } else {
-        cards[combatantId] = record;
-      }
-      continue;
-    }
+    // (2) eliminated := defeated (mirror core defeated)
+    const defeated = entry.defeated === true;
+    const hasActed = entry.hasActed === true;
+    const oldEliminated = record.eliminated === true;
+    const nextEliminated = defeated;
+    const eliminatedChanged = oldEliminated !== nextEliminated;
+
+    // (3)-(5) acted logic; defeated forces acted:false
     const isCurrent = currentId !== null && combatantId === currentId;
-    const nextActed = isCurrent ? false : hasActed === true;
+    let nextActed;
+    if (defeated) nextActed = false;
+    else if (isCurrent) nextActed = false;
+    else nextActed = hasActed;
+
     const oldActed = record.acted === true;
-    if (oldActed !== nextActed || record.area !== "side") {
+    const actedChanged = oldActed !== nextActed;
+    const areaChanged = record.area !== "side";
+
+    if (eliminatedChanged || actedChanged || areaChanged) {
       const nextRecord = { ...record, area: "side" };
       if (nextActed) nextRecord.acted = true;
       else delete nextRecord.acted;
-      // preserve eliminated if true (though already handled)
-      if (oldActed !== nextActed) changed.push(combatantId);
+      if (nextEliminated) nextRecord.eliminated = true;
+      else delete nextRecord.eliminated;
+      if (eliminatedChanged || actedChanged) changed.push(combatantId);
       cards[combatantId] = nextRecord;
     } else {
       cards[combatantId] = record;
