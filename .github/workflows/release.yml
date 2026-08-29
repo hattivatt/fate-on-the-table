@@ -51,7 +51,7 @@ jobs:
           STAGING="_staging"
           rm -rf "$STAGING"
           mkdir -p "$STAGING/$MODULE_DIR"
-          rsync -a --exclude ".git" --exclude "img" --exclude ".github" --exclude "AGENTS.md" --exclude ".gitignore" --exclude "$STAGING" ./ "$STAGING/$MODULE_DIR/"
+          rsync -a --exclude ".git" --exclude ".github" --exclude "AGENTS.md" --exclude ".gitignore" --exclude "tests" --exclude "PLAN.md" --exclude "package.json" --exclude "LAYOUT-FORMAT.md" --exclude "$STAGING" ./ "$STAGING/$MODULE_DIR/"
           (cd "$STAGING" && zip -r module.zip "$MODULE_DIR")
           mv "$STAGING/module.zip" module.zip
           rm -rf "$STAGING"
