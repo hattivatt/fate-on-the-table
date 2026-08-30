@@ -97,6 +97,10 @@ https://github.com/<user>/<repo>/releases/latest/download/module.json
 - Проверено с включённым модулем Advanced Drawing Tools (тексты получают ADT-флаги выравнивания).
 - Старые standalone-тайлы макроса `core.fatePointTrackerPlayer` / `core.gmFatePointTracker` и старые Drawing макроса `core.situationAspectsWidget` не удаляются и не управляются модулем; системный флаг FP мастера (`fate-core-official.gmfatepoints`) и системный флаг аспектов (`fate-core-official.situation_aspects`) используются напрямую.
 
+## Credits
+
+Token name generation is adapted from Token Mold by Moerill (MIT License, © 2020 Moerill).
+
 ## Разработка
 
 Подробный план и зафиксированные решения — в [PLAN.md](PLAN.md).
