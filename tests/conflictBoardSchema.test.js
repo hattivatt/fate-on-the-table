@@ -17,6 +17,8 @@ import {
   resolveDisposition,
   createConflictBoard,
   migrateConflictBoard,
+  assignEliminatedAt,
+  markEliminatedInState,
   CONFLICT_BOARD_VERSION,
   SIZE_PRESETS,
   CARD_SIDES,
@@ -782,8 +784,8 @@ test("applyCombatTurnStateToCards defeated current combatant is eliminated and n
   assert.equal(res.state.cards["combatant-1"].eliminated, true);
   assert.equal(res.state.cards["combatant-1"].acted, undefined, "defeated forces acted false even when current");
   assert.equal(res.state.cards["combatant-2"].acted, true);
-  // c1 already eliminated:true -> no eliminated change; c2 not defeated so remains acted true (already) -> no change, but c1's acted was already undefined so also no change
-  assert.deepEqual(res.changed, []);
+  // c1 already eliminated:true but without eliminatedAt -> backfills eliminatedAt (order) and counts as changed
+  assert.deepEqual(res.changed, ["combatant-1"]);
   // clearing defeated on the same current combatant removes eliminated and respects current
   const cleared = applyCombatTurnStateToCards(
     state,
@@ -877,4 +879,162 @@ test("createConflictBoard produces a normalized empty board v2", () => {
   assert.equal(defaultBoard.sizePreset, DEFAULT_SIZE_PRESET);
   assert.deepEqual(defaultBoard.board.origin, { x: 0, y: 0 });
   assert.equal(defaultBoard.version, 2);
+});
+
+test("eliminatedAt garbage is removed, valid integer >=1 preserved only when eliminated true", () => {
+  const garbageValues = [0, -1, "x", NaN, 1.5, null, {}, [], 0.5];
+  for (const bad of garbageValues) {
+    const doc = validBoard({
+      cards: {
+        a: { side: "friendly", area: "side", order: 0, eliminated: true, eliminatedAt: bad },
+      },
+    });
+    const res = normalizeConflictBoard(doc);
+    assert.equal(res.ok, true, `bad eliminatedAt ${String(bad)} should be ok with warning`);
+    assert.ok(res.warnings.some((w) => w.path === "$.cards.a.eliminatedAt"), `warning for ${String(bad)}`);
+    assert.equal(res.normalized.cards.a.eliminatedAt, undefined, `garbage ${String(bad)} removed`);
+    assert.equal(res.normalized.cards.a.eliminated, true);
+  }
+  // undefined is treated as absent — no warning, still removed
+  {
+    const doc = validBoard({
+      cards: {
+        a: { side: "friendly", area: "side", order: 0, eliminated: true, eliminatedAt: undefined },
+      },
+    });
+    const res = normalizeConflictBoard(doc);
+    assert.equal(res.ok, true);
+    assert.equal(res.normalized.cards.a.eliminatedAt, undefined);
+    assert.equal(res.normalized.cards.a.eliminated, true);
+  }
+  // valid kept
+  const valid = validBoard({
+    cards: { a: { side: "friendly", area: "side", order: 0, eliminated: true, eliminatedAt: 5 } },
+  });
+  const rValid = normalizeConflictBoard(valid);
+  assert.equal(rValid.ok, true);
+  assert.equal(rValid.normalized.cards.a.eliminatedAt, 5);
+  // when not eliminated, eliminatedAt is dropped even if valid
+  const notElim = validBoard({
+    cards: { a: { side: "friendly", area: "side", order: 0, eliminatedAt: 3 } },
+  });
+  const rNotElim = normalizeConflictBoard(notElim);
+  assert.equal(rNotElim.normalized.cards.a.eliminatedAt, undefined);
+  assert.equal(rNotElim.normalized.cards.a.eliminated, undefined);
+  // string "1" is garbage
+  const str = validBoard({ cards: { a: { side: "friendly", area: "side", order: 0, eliminated: true, eliminatedAt: "1" } } });
+  const rStr = normalizeConflictBoard(str);
+  assert.equal(rStr.normalized.cards.a.eliminatedAt, undefined);
+});
+
+test("eliminatedSeq garbage removed, valid >=0 preserved", () => {
+  const badVals = [-1, "x", NaN, 1.5, null, {}, []];
+  for (const bad of badVals) {
+    const doc = validBoard({ eliminatedSeq: bad });
+    const res = normalizeConflictBoard(doc);
+    assert.equal(res.ok, true, `bad eliminatedSeq ${String(bad)} ok`);
+    assert.ok(res.warnings.some((w) => w.path === "$.eliminatedSeq"), `warning for ${String(bad)}`);
+    assert.equal(res.normalized.eliminatedSeq, undefined, `garbage ${String(bad)} removed`);
+  }
+  const zero = normalizeConflictBoard(validBoard({ eliminatedSeq: 0 }));
+  assert.equal(zero.normalized.eliminatedSeq, 0);
+  const five = normalizeConflictBoard(validBoard({ eliminatedSeq: 5 }));
+  assert.equal(five.normalized.eliminatedSeq, 5);
+  // string "0" removed
+  const str = normalizeConflictBoard(validBoard({ eliminatedSeq: "0" }));
+  assert.equal(str.normalized.eliminatedSeq, undefined);
+});
+
+test("assignEliminatedAt idempotent and increments seq", () => {
+  const base = validBoard({
+    cards: {
+      c1: { side: "friendly", area: "side", order: 0 },
+      c2: { side: "hostile", area: "side", order: 1 },
+    },
+  });
+  const state = normalizeConflictBoard(base).normalized;
+  // first assign
+  const s1 = assignEliminatedAt(state, "c1");
+  assert.notEqual(s1, state);
+  assert.equal(s1.cards.c1.eliminated, true);
+  assert.equal(s1.cards.c1.eliminatedAt, 1);
+  assert.equal(s1.eliminatedSeq, 1);
+  assert.equal(s1.cards.c1.acted, undefined);
+  // idempotent second time: same ref, no seq bump
+  const s2 = assignEliminatedAt(s1, "c1");
+  assert.equal(s2, s1);
+  assert.equal(s2.eliminatedSeq, 1);
+  assert.equal(s2.cards.c1.eliminatedAt, 1);
+  // assign different card increments
+  const s3 = assignEliminatedAt(s1, "c2");
+  assert.equal(s3.cards.c2.eliminatedAt, 2);
+  assert.equal(s3.eliminatedSeq, 2);
+  assert.equal(s3.cards.c1.eliminatedAt, 1);
+  // missing id returns same ref
+  assert.equal(assignEliminatedAt(s1, "missing"), s1);
+  assert.equal(assignEliminatedAt(null, "c1"), null);
+  // alias markEliminatedInState same behavior
+  const m1 = markEliminatedInState(state, "c1");
+  assert.deepEqual(m1, s1);
+  const m2 = markEliminatedInState(m1, "c1");
+  assert.equal(m2, m1);
+});
+
+test("applyCombatTurnStateToCards backfill assigns eliminatedAt by order then combatantId deterministic", () => {
+  // state.cards keys inserted reverse of order to prove determinism
+  const state = normalizeConflictBoard(
+    validBoard({
+      cards: {
+        // insertion order: c2 then c1, but order c1=0, c2=10
+        c2: { side: "hostile", area: "side", order: 10 },
+        c1: { side: "friendly", area: "side", order: 0 },
+      },
+      eliminatedSeq: 0,
+    }),
+  ).normalized;
+  // both become defeated true without eliminatedAt
+  const res = applyCombatTurnStateToCards(state, {
+    c1: { hasActed: false, defeated: true },
+    c2: { hasActed: false, defeated: true },
+  });
+  // sorted by order asc: c1 first gets 1, c2 gets 2, regardless of insertion order
+  assert.equal(res.state.cards.c1.eliminatedAt, 1, "c1 order 0 -> first");
+  assert.equal(res.state.cards.c2.eliminatedAt, 2, "c2 order 10 -> second");
+  assert.equal(res.state.eliminatedSeq, 2);
+  assert.deepEqual(res.changed.sort(), ["c1", "c2"]);
+
+  // reverse orders equal -> tie-break by combatantId lexical
+  const stateTie = normalizeConflictBoard(
+    validBoard({
+      cards: {
+        b: { side: "friendly", area: "side", order: 5 },
+        a: { side: "hostile", area: "side", order: 5 },
+      },
+    }),
+  ).normalized;
+  const resTie = applyCombatTurnStateToCards(stateTie, {
+    a: { hasActed: false, defeated: true },
+    b: { hasActed: false, defeated: true },
+  });
+  // lexical: a < b, so a gets 1, b gets 2
+  assert.equal(resTie.state.cards.a.eliminatedAt, 1);
+  assert.equal(resTie.state.cards.b.eliminatedAt, 2);
+
+  // existing valid eliminatedAt preserved, not re-assigned
+  const stateWithAt = normalizeConflictBoard(
+    validBoard({
+      cards: {
+        c1: { side: "friendly", area: "side", order: 0, eliminated: true, eliminatedAt: 99 },
+        c2: { side: "hostile", area: "side", order: 1 },
+      },
+      eliminatedSeq: 99,
+    }),
+  ).normalized;
+  const resKeep = applyCombatTurnStateToCards(stateWithAt, {
+    c1: { hasActed: false, defeated: true },
+    c2: { hasActed: false, defeated: true },
+  });
+  assert.equal(resKeep.state.cards.c1.eliminatedAt, 99, "preserved");
+  assert.equal(resKeep.state.cards.c2.eliminatedAt, 100, "next seq after 99");
+  assert.equal(resKeep.state.eliminatedSeq, 100);
 });

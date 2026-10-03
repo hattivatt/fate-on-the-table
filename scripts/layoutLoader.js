@@ -277,7 +277,7 @@ export function legacyToJson(legacy) {
         },
         texture: { source: "@setting.backgroundTexture", whenEmpty: "fill" },
         layer: {
-          elevation: legacy.background.elevation ?? -10,
+          elevation: legacy.background.elevation ?? 0,
           sort: legacy.background.sort ?? -1000,
         },
       }

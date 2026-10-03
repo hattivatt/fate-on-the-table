@@ -44,7 +44,7 @@ import {
   reconcileConsequences,
 } from "./situationAspectConsequences.js";
 import { normalizeAspects as normalizeAspectsData } from "./situationAspectData.js";
-import { toArray } from "./utils.js";
+import { toArray, existingDocumentIds, safeDeleteEmbeddedDocuments } from "./utils.js";
 
 const SA_PARTS = [SA_TEXT_PART, SA_FRAME_PART, SA_BACKGROUND_PART];
 
@@ -262,7 +262,7 @@ export function buildSaBackgroundDoc(opts = getSituationAspectOptions()) {
     fillColor: opts.backgroundColor,
     fillAlpha: opts.backgroundAlpha,
     texture: opts.backgroundTexture || null,
-    elevation: -10,
+    elevation: 0,
     sort: -1000,
   };
 }
@@ -312,6 +312,7 @@ const SYNC_FIELDS = [
  * @returns {Promise<boolean>}  True when the scene has a live widget.
  */
 export async function syncSituationAspects(scene = canvas?.scene) {
+  if (typeof game !== "undefined" && game?.user?.isGM === false) return false;
   if (!scene) return false;
 
   // Coalesced structural passes: zone migration/cleanup + consequence
@@ -382,12 +383,9 @@ export async function syncSituationAspects(scene = canvas?.scene) {
   );
   let liveExisting = existing;
   if (!saTextPartsInSync(existingText, textDocs) && existingText.length) {
-    await scene.deleteEmbeddedDocuments(
-      "Drawing",
-      existingText.map((d) => d.id),
-      { fateOnTheTableSync: true },
-    );
-    const stale = new Set(existingText.map((d) => d.id));
+    const staleIds = existingText.map((d) => d.id);
+    await safeDeleteEmbeddedDocuments(scene, "Drawing", existingDocumentIds(scene, "Drawing", staleIds), { fateOnTheTableSync: true });
+    const stale = new Set(staleIds);
     liveExisting = existing.filter((d) => !stale.has(d.id));
   }
   for (const doc of textDocs) {
@@ -407,11 +405,7 @@ export async function syncSituationAspects(scene = canvas?.scene) {
     (d) => !SA_PARTS.includes(d.getFlag(FLAG_SCOPE, "part")),
   );
   if (extras.length) {
-    await scene.deleteEmbeddedDocuments(
-      "Drawing",
-      extras.map((d) => d.id),
-      { fateOnTheTableSync: true },
-    );
+    await safeDeleteEmbeddedDocuments(scene, "Drawing", existingDocumentIds(scene, "Drawing", extras.map((d) => d.id)), { fateOnTheTableSync: true });
   }
   return true;
 }
@@ -613,11 +607,7 @@ export async function removeSituationAspectWidget(scene = canvas?.scene) {
     if (docs.length) {
       // Marked like every module-owned delete (see deleteWidgetDocsByIds in
       // ConflictBoardSync.js) so hooks never re-enter the sync.
-      await scene.deleteEmbeddedDocuments(
-        "Drawing",
-        docs.map((d) => d.id),
-        { fateOnTheTableSync: true },
-      );
+      await safeDeleteEmbeddedDocuments(scene, "Drawing", existingDocumentIds(scene, "Drawing", docs.map((d) => d.id)), { fateOnTheTableSync: true });
       removed += docs.length;
     }
     await scene.unsetFlag(FLAG_SCOPE, SITUATION_ASPECTS_WIDGET_FLAG);

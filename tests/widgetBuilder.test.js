@@ -902,7 +902,7 @@ test("minimal layout renders the consequence header above its cost rows (free + 
   );
   const headers = docs.filter((d) => d.part === "consequencesHeader");
   assert.equal(headers.length, 1, "a header renders when the actor has consequence slots");
-  assert.equal(headers[0].elevation, 0);
+  assert.equal(headers[0].elevation, 2);
   assert.equal(headers[0].sort, 0);
   // Occupied slot shows the actual consequence name (the visible input result).
   const costRows = docs.filter((d) => d.part === "consequenceCostRows");

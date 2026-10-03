@@ -136,6 +136,7 @@
   "fate-on-the-table.consequence.ok": "Сохранить",
   "fate-on-the-table.consequence.cancel": "Отмена",
   "fate-on-the-table.consequence.notOwner": "Редактировать последствия можно только у своих персонажей.",
+  "fate-on-the-table.fatePoints.notOwner": "Менять фейт-поинты можно только у своих персонажей.",
   "fate-on-the-table.context.takeFatePoint": "Забрать фейт-поинт",
   "fate-on-the-table.context.removeWidget": "Удалить виджет",
   "fate-on-the-table.context.removeWidgetTitle": "Удалить виджет",

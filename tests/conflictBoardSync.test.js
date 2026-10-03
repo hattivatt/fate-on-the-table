@@ -285,7 +285,7 @@ test("buildBoardPartDescriptors emits background + 5 frames + 2 labels + divider
   assert.equal(divider.strokeAlpha, 0.35);
   assert.equal(divider.fillType, 0);
   assert.equal(divider.fillAlpha, 0);
-  assert.equal(divider.elevation, -3);
+  assert.equal(divider.elevation, 0);
 });
 
 test("buildBoardPartDescriptors round number appears only with activeCombat round>=1 and scales with preset", () => {
@@ -302,7 +302,7 @@ test("buildBoardPartDescriptors round number appears only with activeCombat roun
   const num = withRound.find((p) => p.part === "conflictRoundNumber");
   assert.ok(num);
   assert.equal(num.text, "3");
-  assert.equal(num.elevation, -2);
+  assert.equal(num.elevation, 0);
   assert.equal(num.sort, -200);
   // size scales with preset
   const smallNum = buildBoardPartDescriptors(state, geomSmall, { round: 1 }).find((p) => p.part === "conflictRoundNumber");
@@ -403,34 +403,32 @@ test("zone projection sits above the field frame but below cards and the turn ma
   const geometry = getConflictBoardGeometry({ sizePreset: "medium" });
   const [body, label] = buildZoneDescriptors(state, geometry, state.zones[0]);
 
-  // zone body + label are raised above the board-level field parts
-  assert.equal(body.elevation, -1);
+  // zone body + label are raised above the board-level field parts (order via sort at elevation 0)
+  assert.equal(body.elevation, 0);
   assert.equal(body.sort, -100);
-  assert.equal(label.elevation, -1);
+  assert.equal(label.elevation, 0);
   assert.equal(label.sort, -50);
   assert.ok(label.sort > body.sort, "label renders above the zone body");
 
-  // the board field frame (elevation -3 / sort -300) and the area labels
-  // (elevation -2 / sort -200) stay BELOW the zone
+  // the board field frame (elevation 0 / sort -300) and the area labels
+  // (elevation 0 / sort -200) stay BELOW the zone via sort
   const boardParts = buildBoardPartDescriptors(state, geometry);
   const fieldFrame = boardParts.find(
     (p) => p.part === CONFLICT_AREA_PART && p.index === 4,
   );
   assert.ok(fieldFrame, "field frame descriptor present");
-  assert.equal(fieldFrame.elevation, -3);
+  assert.equal(fieldFrame.elevation, 0);
   assert.equal(fieldFrame.sort, -300);
   const areaLabel = boardParts.find((p) => p.part === CONFLICT_AREA_LABEL_PART);
-  assert.equal(areaLabel.elevation, -2);
+  assert.equal(areaLabel.elevation, 0);
   assert.equal(areaLabel.sort, -200);
-  assert.ok(body.elevation > fieldFrame.elevation, "zone body above field frame");
   assert.ok(body.sort > fieldFrame.sort, "zone body sort above field frame");
-  assert.ok(body.elevation > areaLabel.elevation, "zone body above area labels");
   assert.ok(body.sort > areaLabel.sort, "zone body sort above area labels");
 
-  // participant cards (elevation 0) and the turn marker (elevation 12)
-  // stay ABOVE the zone: the zone must never cover them
-  assert.ok(body.elevation < 0, "zone body below participant cards");
-  assert.ok(label.elevation < 0, "zone label below participant cards");
+  // participant cards (elevation 0 / sort 0) and the turn marker (elevation 12)
+  // stay ABOVE the zone: the zone must never cover them (sort -100/-50 < 0)
+  assert.ok(body.sort < 0, "zone body below participant cards (sort)");
+  assert.ok(label.sort < 0, "zone label below participant cards (sort)");
   const marker = buildTurnMarkerDescriptor(
     state,
     geometry,
@@ -2323,7 +2321,7 @@ test("buildCardActedOverlayDescriptor matches card rect and style", () => {
   assert.equal(d.fillColor, "#808080");
   assert.equal(d.fillAlpha, 0.45);
   assert.equal(d.stroke, 0);
-  assert.equal(d.elevation, 0);
+  assert.equal(d.elevation, 2);
   assert.equal(d.sort, 5);
   assert.equal(d.text, "");
 });
@@ -2340,7 +2338,7 @@ test("buildCardEliminatedStrikeDescriptors are two diagonal red bars through car
     assert.equal(s.fillColor, "#b71c1c");
     assert.equal(s.fillAlpha, 0.95);
     assert.equal(s.stroke, 0);
-    assert.equal(s.elevation, 0);
+    assert.equal(s.elevation, 2);
     assert.equal(s.sort, 6);
     assert.equal(s.h, 6);
     const cx = pos.x + pos.width / 2;
@@ -2391,7 +2389,7 @@ test("buildConflictBoardDocuments: acted card adds grey overlay, ordinary card a
     assert.deepEqual({ x: overlay[0].x, y: overlay[0].y, w: overlay[0].w, h: overlay[0].h }, { x: positions.c1.x, y: positions.c1.y, w: positions.c1.width, h: positions.c1.height });
     assert.equal(overlay[0].fillColor, "#808080");
     assert.equal(overlay[0].fillAlpha, 0.45);
-    assert.equal(overlay[0].elevation, 0);
+    assert.equal(overlay[0].elevation, 2);
     assert.equal(overlay[0].sort, 5);
     assert.equal(overlay[0].flags.combatId, "combat-abc");
     assert.equal(overlay[0].flags.combatantId, "c1");
@@ -2430,7 +2428,7 @@ test("buildConflictBoardDocuments: eliminated card adds two diagonal strikes", a
     assert.deepEqual(strikes.map((d) => d.index).sort(), [0, 1]);
     for (const s of strikes) {
       assert.equal(s.fillColor, "#b71c1c");
-      assert.equal(s.elevation, 0);
+      assert.equal(s.elevation, 2);
       assert.equal(s.sort, 6);
       assert.ok(Number.isFinite(s.rotation));
       assert.equal(s.flags.combatantId, "c1");
@@ -2525,7 +2523,7 @@ test("syncConflictBoard: acted overlay created and removed via upsertParts batch
     assert.deepEqual(doc.shape, { width: Math.round(expectedOverlay.w), height: Math.round(expectedOverlay.h) });
     assert.equal(doc.fillColor, "#808080");
     assert.equal(doc.fillAlpha, 0.45);
-    assert.equal(doc.elevation, 0);
+    assert.equal(doc.elevation, 2);
     assert.equal(doc.sort, 5);
     await writeConflictBoard(scene, stateClear);
     const second = await syncConflictBoard(scene, { combat: combatClear });
@@ -2573,8 +2571,9 @@ test("syncConflictBoard: eliminated strikes created and respect acted+eliminated
       assert.equal(s.getFlag(FLAG_SCOPE, "widgetId"), "wCard1");
       assert.equal(s.strokeWidth, 0);
       assert.equal(s.fillColor, "#b71c1c");
-      assert.equal(s.elevation, 0);
-      assert.equal(s.sort, 6);
+      assert.equal(s.elevation, 4);
+      // eliminated pile offset: base 6 + eliminatedAt*10 (first eliminatedAt=1 -> 16), elevation 2+2*1=4
+      assert.equal(s.sort, 16);
       assert.ok(Number.isFinite(s.rotation));
     }
     const byIndex = [...strikes].sort((a, b) => (a.getFlag(FLAG_SCOPE, "index") ?? -1) - (b.getFlag(FLAG_SCOPE, "index") ?? -1));
@@ -2620,7 +2619,8 @@ test("eliminated card survives round change while defeated true, cleared when de
     assert.equal(pure1.state.cards.c1.eliminated, true);
     assert.equal(pure1.state.cards.c1.acted, undefined, "defeated forces acted false");
     assert.equal(pure1.state.cards.c1.area, "side");
-    assert.deepEqual(pure1.changed, ["c2"]);
+    // c1 backfills eliminatedAt (new with this feature) so both cards report changed
+    assert.deepEqual(pure1.changed.sort(), ["c1", "c2"]);
     // c1 still defeated true after round reset, c2 cleared
     const pure2 = applyCombatTurnStateToCards(pure1.state, { c1: { hasActed: false, defeated: true }, c2: { hasActed: false, defeated: false } }, { currentCombatantId: "c1" });
     assert.equal(pure2.state.cards.c1.eliminated, true);
@@ -2962,4 +2962,212 @@ test("currentCombatantIdOf handles turn null and combat.combatant fallback (v14)
   assert.equal(currentCombatantIdOf({ turn: 0, turns: [], combatants: [], combatant: { id: "c9" } }), "c9");
   // turn null never returns combatant even if present (popcorn: no current)
   assert.equal(currentCombatantIdOf({ turn: null, combatant: { id: "c9" }, combatants: [{ id: "c9" }] }), null);
+});
+
+test("buildConflictBoardDocuments: eliminated pile sort grows with eliminatedAt and active cards get none", async () => {
+  installProjectionGlobals();
+  const raw = JSON.parse(readFileSync(new URL("../layouts/minimal.json", import.meta.url), "utf8"));
+  addLayout(analyzeLayout(raw).normalized);
+  try {
+    const state = validState({
+      cards: {
+        a: { side: "friendly", area: "side", order: 0, eliminated: true, eliminatedAt: 1 },
+        b: { side: "hostile", area: "side", order: 1, eliminated: true, eliminatedAt: 3 },
+        c: { side: "friendly", area: "side", order: 2, eliminated: true, eliminatedAt: 2 },
+        d: { side: "friendly", area: "side", order: 3 },
+        e: { side: "hostile", area: "side", order: 4 },
+      },
+      tokenZones: {},
+    });
+    const scene = mockScene({
+      tokens: {
+        ta: { uuid: "Scene.scene1.Token.ta" },
+        tb: { uuid: "Scene.scene1.Token.tb" },
+        tc: { uuid: "Scene.scene1.Token.tc" },
+        td: { uuid: "Scene.scene1.Token.td" },
+        te: { uuid: "Scene.scene1.Token.te" },
+      },
+    });
+    const combat = {
+      id: "combat-abc",
+      combatants: [
+        { id: "a", tokenId: "ta", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 } },
+        { id: "b", tokenId: "tb", sceneId: "scene1", token: { name: "B", texture: { src: "b.png" }, disposition: -1 } },
+        { id: "c", tokenId: "tc", sceneId: "scene1", token: { name: "C", texture: { src: "c.png" }, disposition: 1 } },
+        { id: "d", tokenId: "td", sceneId: "scene1", token: { name: "D", texture: { src: "d.png" }, disposition: 1 } },
+        { id: "e", tokenId: "te", sceneId: "scene1", token: { name: "E", texture: { src: "e.png" }, disposition: -1 } },
+      ],
+    };
+    const built = await buildConflictBoardDocuments(scene, state, combat, {});
+    // eliminated pile: sort = base + eliminatedAt*10, active cards no offset; tile/strike tiers
+    const sortOf = (id) => built.cards[id]?.[0]?.sort ?? null;
+    const tileElevationOf = (id) => {
+      const tile = built.cards[id]?.find((d) => d.kind === "tile");
+      return tile ? tile.elevation : null;
+    };
+    const strikeElevationOf = (id) => {
+      const strike = built.cards[id]?.find((d) => d.part === CONFLICT_CARD_ELIMINATED_STRIKE_PART);
+      return strike ? strike.elevation : null;
+    };
+    // a: base ~0 +10 =10, c:20, b:30 (ordering by eliminatedAt not by order)
+    assert.equal(sortOf("a"), 10);
+    assert.equal(sortOf("c"), 20);
+    assert.equal(sortOf("b"), 30);
+    // active cards keep base sort (0) without offset
+    assert.equal(sortOf("d"), 0);
+    assert.equal(sortOf("e"), 0);
+    // tile elevations: 1+2*rank for pile, 1 for active
+    assert.equal(tileElevationOf("a"), 1 + 2 * 1);
+    assert.equal(tileElevationOf("c"), 1 + 2 * 2);
+    assert.equal(tileElevationOf("b"), 1 + 2 * 3);
+    assert.equal(tileElevationOf("d"), 1);
+    assert.equal(tileElevationOf("e"), 1);
+    // strike elevations: 2+2*rank for pile
+    assert.equal(strikeElevationOf("a"), 2 + 2 * 1);
+    assert.equal(strikeElevationOf("c"), 2 + 2 * 2);
+    assert.equal(strikeElevationOf("b"), 2 + 2 * 3);
+    // pile: base-0 drawings stay 0 with sort offset, base >=2 lifted by 2*R
+    // (stressTrackNames, consequencesHeader, el_3i03bm: 2→2+2R; widgetBounds 10→10+2R; stressBoxRows etc 20→20+2R)
+    for (const id of ["a", "b", "c"]) {
+      const rank = state.cards[id].eliminatedAt;
+      const docs = built.cards[id].filter((d) => d.kind === "drawing" && d.part !== CONFLICT_CARD_ELIMINATED_STRIKE_PART);
+      // base-0 parts (name etc.) stay at 0
+      const baseZero = docs.filter((d) => d.part === "name" || d.part === "aspectsHeader");
+      assert.ok(baseZero.length > 0, `${id} has base-0 drawings`);
+      for (const d of baseZero) assert.equal(d.elevation, 0, `${id} ${d.part} stays elevation 0 (base 0)`);
+      // base-2 texts/overlays lifted to 2+2R
+      for (const part of ["stressTrackNames", "consequencesHeader", "el_3i03bm"]) {
+        const found = docs.filter((d) => d.part === part);
+        if (found.length) {
+          for (const d of found) assert.equal(d.elevation, 2 + 2 * rank, `${id} ${part} elevation 2→${2 + 2 * rank}`);
+        }
+      }
+      // high service parts also lifted (+2R) — spot-check
+      const bounds = docs.find((d) => d.part === "widgetBounds");
+      if (bounds) assert.equal(bounds.elevation, 10 + 2 * rank, `${id} widgetBounds 10→${10 + 2 * rank}`);
+      const stressBoxes = docs.filter((d) => d.part === "stressBoxRows");
+      if (stressBoxes.length) for (const d of stressBoxes) assert.equal(d.elevation, 20 + 2 * rank, `${id} stressBoxRows 20→${20 + 2 * rank}`);
+      const costRows = docs.filter((d) => d.part === "consequenceCostRows");
+      if (costRows.length) for (const d of costRows) assert.equal(d.elevation, 20 + 2 * rank, `${id} consequenceCostRows 20→${20 + 2 * rank}`);
+      // own texts (2+2R) above own tile (1+2R) and own strike above texts/tile via sort
+      const tile = built.cards[id].find((d) => d.kind === "tile");
+      const strike = built.cards[id].find((d) => d.part === CONFLICT_CARD_ELIMINATED_STRIKE_PART);
+      assert.ok(tile.elevation < 2 + 2 * rank, `${id} own texts 2+2R above own tile ${tile.elevation}`);
+      assert.equal(strike.elevation, 2 + 2 * rank, `${id} strike elevation 2+2R`);
+      // strike sort 6+10R above texts sort 0+10R (same elevation, sort decides) — only if such texts exist
+      const atElev = docs.filter((d) => d.elevation === 2 + 2 * rank);
+      if (atElev.length) {
+        const textSort = Math.min(...atElev.map((d) => d.sort));
+        assert.ok(strike.sort > textSort, `${id} strike sort ${strike.sort} > texts sort ${textSort}`);
+      } else {
+        // no base-2 texts in this minimal actor (empty tracks/aspects); strike still above tile via sort
+        assert.ok(strike.sort > tile.sort, `${id} strike sort ${strike.sort} > tile sort ${tile.sort}`);
+      }
+    }
+    // topmost is maximal eliminatedAt
+    const sorts = ["a", "b", "c"].map((id) => ({ id, sort: sortOf(id), at: state.cards[id].eliminatedAt }));
+    sorts.sort((x, y) => x.sort - y.sort);
+    assert.equal(sorts[sorts.length - 1].id, "b");
+    assert.equal(sorts[sorts.length - 1].at, 3);
+    // strikes also carry same offset (base 6 + at*10)
+    const strikeSorts = ["a", "b", "c"].map((id) => {
+      const strike = built.cards[id].find((d) => d.part === CONFLICT_CARD_ELIMINATED_STRIKE_PART);
+      return { id, sort: strike.sort };
+    });
+    assert.deepEqual(
+      strikeSorts.map((s) => s.sort).sort((a, b) => a - b),
+      [16, 26, 36],
+    );
+    assert.equal(strikeSorts.find((s) => s.id === "b").sort, 36);
+    // heap tier: tile of topmost (rank 3 => 7) > strike of any lower (max 6) and > texts of lower (2+2r)
+    assert.ok(tileElevationOf("b") > strikeElevationOf("a"), "tile top (7) > strike lower (4)");
+    assert.ok(tileElevationOf("b") > strikeElevationOf("c"), "tile top (7) > strike mid (6)");
+    assert.ok(tileElevationOf("b") > 2 + 2 * 1, "tile top (7) > texts lower r=1 (4)");
+    assert.ok(tileElevationOf("b") > 2 + 2 * 2, "tile top (7) > texts mid r=2 (6)");
+    // also tile of mid (5) > strike/texts of lower (4)
+    assert.ok(tileElevationOf("c") > strikeElevationOf("a"), "tile mid (5) > strike lower (4)");
+  } finally {
+    uninstallProjectionGlobals();
+  }
+});
+
+test("conflict card layer ordering: non-eliminated tile 1, acted 2, strike 2 and tile above base drawings", async () => {
+  installProjectionGlobals();
+  const raw = JSON.parse(readFileSync(new URL("../layouts/minimal.json", import.meta.url), "utf8"));
+  addLayout(analyzeLayout(raw).normalized);
+  try {
+    const baseState = validState({
+      cards: {
+        actedCard: { side: "friendly", area: "side", order: 0, acted: true },
+        eliminatedCard: { side: "hostile", area: "side", order: 1, eliminated: true },
+        normalCard: { side: "friendly", area: "side", order: 2 },
+      },
+      tokenZones: {},
+    });
+    const scene = mockScene({
+      tokens: {
+        tActed: { uuid: "Scene.scene1.Token.tActed" },
+        tElim: { uuid: "Scene.scene1.Token.tElim" },
+        tNorm: { uuid: "Scene.scene1.Token.tNorm" },
+      },
+    });
+    const combat = {
+      id: "combat-abc",
+      combatants: [
+        { id: "actedCard", tokenId: "tActed", sceneId: "scene1", token: { name: "A", texture: { src: "a.png" }, disposition: 1 } },
+        { id: "eliminatedCard", tokenId: "tElim", sceneId: "scene1", token: { name: "B", texture: { src: "b.png" }, disposition: -1 } },
+        { id: "normalCard", tokenId: "tNorm", sceneId: "scene1", token: { name: "C", texture: { src: "c.png" }, disposition: 1 } },
+      ],
+    };
+    const built = await buildConflictBoardDocuments(scene, baseState, combat, {});
+    // (a) all tile descriptors elevation >=1
+    for (const [cid, docs] of Object.entries(built.cards)) {
+      for (const d of docs.filter((x) => x.kind === "tile")) {
+        assert.ok((d.elevation ?? 0) >= 1, `${cid} tile ${d.part}#${d.index} elevation ${d.elevation} must be >=1`);
+      }
+    }
+    // (d) non-eliminated: tile 1, acted 2
+    const actedTile = built.cards.actedCard.find((d) => d.kind === "tile");
+    assert.equal(actedTile.elevation, 1, "acted card tile elevation 1");
+    const actedOverlay = built.cards.actedCard.find((d) => d.part === CONFLICT_CARD_ACTED_OVERLAY_PART);
+    assert.ok(actedOverlay, "acted overlay present");
+    assert.equal(actedOverlay.elevation, 2, "acted overlay elevation 2");
+    assert.ok(actedOverlay.elevation > actedTile.elevation, "acted overlay above tile");
+    const normalTile = built.cards.normalCard.find((d) => d.kind === "tile");
+    assert.equal(normalTile.elevation, 1, "normal card tile elevation 1");
+    // eliminated non-pile (side area) => strike 2 > tile 1
+    const elimTile = built.cards.eliminatedCard.find((d) => d.kind === "tile");
+    assert.equal(elimTile.elevation, 1, "eliminated side card tile elevation 1");
+    const elimStrike = built.cards.eliminatedCard.find((d) => d.part === CONFLICT_CARD_ELIMINATED_STRIKE_PART);
+    assert.equal(elimStrike.elevation, 2, "eliminated side card strike elevation 2");
+    assert.ok(elimStrike.elevation > elimTile.elevation, "strike above tile");
+    // (b) tile above base drawings (background/elevation 0)
+    for (const [cid, docs] of Object.entries(built.cards)) {
+      const tile = docs.find((d) => d.kind === "tile");
+      const baseDrawings = docs.filter((d) => d.kind === "drawing" && d.elevation === 0);
+      if (baseDrawings.length) {
+        const maxBase = Math.max(...baseDrawings.map((d) => d.elevation));
+        assert.ok(tile.elevation > maxBase, `${cid} tile ${tile.elevation} > max base drawing ${maxBase}`);
+      }
+      // any overlay/strike > tile
+      for (const over of docs.filter((d) => d.part === CONFLICT_CARD_ACTED_OVERLAY_PART || d.part === CONFLICT_CARD_ELIMINATED_STRIKE_PART)) {
+        assert.ok(over.elevation > tile.elevation, `${cid} overlay ${over.elevation} > tile ${tile.elevation}`);
+      }
+    }
+  } finally {
+    uninstallProjectionGlobals();
+  }
+});
+
+test("all conflict board service parts have non-negative elevation (regression for v13 PrimaryCanvasGroup)", () => {
+  const state = validState();
+  const geometry = getConflictBoardGeometry({ sizePreset: "medium" });
+  const boardParts = buildBoardPartDescriptors(state, geometry, { round: 2 });
+  for (const d of boardParts) {
+    assert.ok((d.elevation ?? 0) >= 0, `board part ${d.part}#${d.index} elevation ${d.elevation} must be >=0`);
+  }
+  const zoneParts = buildZoneDescriptors(state, geometry, state.zones[0], [{ name: "Fire", zoneIds: ["zone-1"] }]);
+  for (const d of zoneParts) {
+    assert.ok((d.elevation ?? 0) >= 0, `zone part ${d.part} elevation ${d.elevation} must be >=0`);
+  }
 });

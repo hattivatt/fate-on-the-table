@@ -92,7 +92,7 @@ import {
   zonePlacementSize,
   zoneRectAtAnchor,
 } from "./conflictBoardGeometry.js";
-import { DEFAULT_ZONE_STYLE } from "./conflictBoardSchema.js";
+import { DEFAULT_ZONE_STYLE, markEliminatedInState } from "./conflictBoardSchema.js";
 import { widgetDocsByOwnerType } from "./widgetDocs.js";
 import { PlacementManager } from "./PlacementManager.js";
 import {
@@ -190,6 +190,24 @@ export function findTopConflictCardDocAtPoint(scene, point) {
   });
   const hit = findConflictCardAtPoint(rects, point);
   return hit?.doc ?? null;
+}
+
+/**
+ * Shared helper: when the hit document is the turn marker overlay, resolve
+ * the underlying card at the cursor world point. Returns the topmost card
+ * doc under the point or null. Exported for tests and reused by both
+ * double-click and context-menu paths.
+ * @param {object} doc Hit document (or placeable with `.document`).
+ * @param {Event|null} event DOM/MIM event with clientX/Y.
+ * @returns {object|null} Card document or null.
+ */
+export function resolveUnderTurnMarker(doc, event) {
+  const unwrapped = doc?.document ?? doc;
+  if (!isTurnMarkerDocument(unwrapped)) return null;
+  const point = worldPointFromEvent(event) ?? canvasWorldPosition(event);
+  if (!point) return null;
+  const sceneForHit = (typeof canvas !== "undefined" ? canvas?.scene : null) ?? unwrapped?.parent ?? null;
+  return findTopConflictCardDocAtPoint(sceneForHit, point);
 }
 
 let registered = false;
@@ -477,9 +495,7 @@ export async function handleConflictDocumentDoubleClick(document, event) {
   // cursor world point and open its sheet (or the consequence editor when the
   // card's topmost part at that point is a consequenceCostRows row).
   if (isTurnMarkerDocument(doc)) {
-    const point = worldPointFromEvent(event) ?? canvasWorldPosition(event);
-    const sceneForHit = canvas?.scene ?? doc?.parent ?? null;
-    const cardDoc = point ? findTopConflictCardDocAtPoint(sceneForHit, point) : null;
+    const cardDoc = resolveUnderTurnMarker(doc, event);
     if (!cardDoc) return true;
     if (isConsequenceCostPart(cardDoc)) {
       await handleConsequenceCostDoubleClick(cardDoc, event);
@@ -518,12 +534,25 @@ export async function handleConflictDocumentDoubleClick(document, event) {
  * @returns {boolean|Promise<boolean>}  True when the event was consumed (Promise when card menu resolves actor).
  */
 export async function handleConflictContextMenu(document, event) {
-  const doc = document?.document ?? document;
+  let doc = document?.document ?? document;
   if (!isConflictDocument(doc)) return false;
   event?.preventDefault?.();
   event?.stopPropagation?.();
   const scene = canvas?.scene;
   const state = scene ? readConflictBoard(scene) : null;
+  // Turn marker tunneling (mirrors double-click): if the hit doc is the
+  // marker overlay, resolve the underlying card at the cursor point and
+  // show the card menu. If no card is under the point (e.g. 4px padding
+  // ring or gap between parts) fall through to the board/field menu.
+  if (isTurnMarkerDocument(doc)) {
+    const cardDoc = resolveUnderTurnMarker(doc, event);
+    if (cardDoc) {
+      // Consequence cost rows on cards are handled as card menu on
+      // right-click (no consequence editor for context menu); show the
+      // card menu so Pass/Return etc. remain available.
+      return await showCardContextMenu(cardDoc, state, event);
+    }
+  }
   const ownerType = doc.getFlag(FLAG_SCOPE, "ownerType");
 
   if (ownerType === CONFLICT_CARD_OWNER_TYPE) {
@@ -930,35 +959,8 @@ export function buildSkillMenuItems(actor) {
   }));
 }
 
-/**
- * Pure: next board state with `cards[combatantId].eliminated = true`.
- * Never mutates input. Returns same reference when no change or missing record.
- * @param {object|null} state
- * @param {string} combatantId
- * @returns {object|null}
- */
-/**
- * Pure helper: next board state with `cards[combatantId].eliminated = true`.
- * Kept for the "Leave combat" menu path and for tests. Since `eliminated`
- * now mirrors `combatant.defeated` via `applyCombatTurnStateToCards` /
- * `reconcileConflictBoardProjection`, the `defeated:true` update alone would
- * be sufficient (the next sync mirrors it). The helper is retained for
- * immediate visual feedback before the sync and for idempotence — the write
- * is harmless even when the sync will set the same flag.
- */
-export function markEliminatedInState(state, combatantId) {
-  if (!state || !combatantId) return state;
-  const rec = state.cards?.[combatantId];
-  if (!rec) return state;
-  if (rec.eliminated === true) return state;
-  return {
-    ...state,
-    cards: {
-      ...state.cards,
-      [combatantId]: { ...rec, eliminated: true },
-    },
-  };
-}
+/** Re-exported from conflictBoardSchema.js — single source of truth for eliminatedAt. */
+export { markEliminatedInState };
 
 export { resolveCardActor };
 

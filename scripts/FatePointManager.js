@@ -67,6 +67,21 @@ const LIMITED = CONST.DOCUMENT_OWNERSHIP_LEVELS.LIMITED;
 
 const MANAGER_DIALOG_ID = "fate-on-the-table-fp-manager";
 
+function canEditActor(actor) {
+  if (typeof game === "undefined" || !game?.user) return true;
+  if (game.user.isGM === true) return true;
+  try {
+    if (typeof actor?.testUserPermission === "function") {
+      if (actor.testUserPermission(game.user, OWNER)) return true;
+      if (actor.testUserPermission(game.user, "OWNER")) return true;
+      const alt = globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 3;
+      if (alt !== OWNER && actor.testUserPermission(game.user, alt)) return true;
+    }
+  } catch {}
+  if (actor?.isOwner) return true;
+  return false;
+}
+
 /** True while a manager operation is running (double-click guard). */
 let busy = false;
 
@@ -747,6 +762,14 @@ async function modifyPlayerFp(actorId, delta) {
  */
 export async function modifyActorFatePoints(actor, delta) {
   if (!actor) return;
+  if (!canEditActor(actor)) {
+    if (typeof ui !== "undefined") {
+      try {
+        ui.notifications.warn(game.i18n.localize("fate-on-the-table.fatePoints.notOwner"));
+      } catch {}
+    }
+    return;
+  }
   const current = Number(actor.system?.details?.fatePoints?.current) || 0;
   const next = Math.max(0, current + delta);
   if (next === current) return;
@@ -793,6 +816,14 @@ async function syncAll() {
 /** Refresh all players: raise current to refresh, never lower a surplus. */
 async function refreshAll() {
   for (const { actor } of playerActors()) {
+    if (!canEditActor(actor)) {
+      if (typeof ui !== "undefined") {
+        try {
+          ui.notifications.warn(game.i18n.localize("fate-on-the-table.fatePoints.notOwner"));
+        } catch {}
+      }
+      continue;
+    }
     const current = Number(actor.system?.details?.fatePoints?.current) || 0;
     const refresh = Number(actor.system?.details?.fatePoints?.refresh) || 0;
     if (current < refresh) {

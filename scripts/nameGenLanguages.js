@@ -28,6 +28,91 @@ export function resolveLanguage(setting) {
 const dictCache = new Map();
 
 /**
+ * Synchronous cache accessor — no side effects, no loading.
+ * @param {string} lang
+ * @returns {any|undefined}
+ */
+export function getCachedNameGenDict(lang) {
+  return dictCache.has(lang) ? dictCache.get(lang) : undefined;
+}
+
+/**
+ * Preload a set of language dicts with per-entry isolation.
+ * One broken dict does not reject the whole batch.
+ * Falls back via loadNameGenDict, but unknown languages are reported as
+ * errors even when the fallback succeeds — the requested key itself is broken.
+ * @param {string[]} langKeys
+ * @returns {Promise<Array<{lang:string, dict:any|null, error:any|null}>>}
+ */
+export async function preloadNameGenDicts(langKeys) {
+  if (!Array.isArray(langKeys) || langKeys.length === 0) return [];
+  const results = await Promise.all(
+    langKeys.map(async (k) => {
+      try {
+        // Unknown language keys are considered broken even though
+        // loadNameGenDict falls back to english/russian and succeeds.
+        const isKnown = k in NAME_GEN_LANGUAGES;
+        const dict = await loadNameGenDict(k);
+        if (!isKnown) {
+          return { lang: k, dict: null, error: new Error(`unknown language "${k}"`) };
+        }
+        // loadNameGenDict may return null only when both primary and
+        // fallback imports fail — treat as error.
+        if (!dict) {
+          return { lang: k, dict: null, error: new Error(`dict not available for "${k}"`) };
+        }
+        return { lang: k, dict, error: null };
+      } catch (err) {
+        return { lang: k, dict: null, error: err };
+      }
+    }),
+  );
+  return results;
+}
+
+/**
+ * Pure helper: resolve settings language option to the list of dict keys
+ * that must be preloaded. `random` → all languages, otherwise single resolved.
+ * @param {{language?:string}|string} opts
+ * @returns {string[]}
+ */
+export function resolveNameGenLanguageKeys(opts) {
+  const language = typeof opts === "string" ? opts : (opts?.language ?? "random");
+  if (language === "random") return Object.keys(NAME_GEN_LANGUAGES);
+  return [resolveLanguage(language)];
+}
+
+/**
+ * Pure helper for writing a generated name to a token doc / creation data.
+ * Mirrors the preCreateToken apply logic for testability.
+ * @param {object|null} tokenDoc
+ * @param {object|null} data
+ * @param {string} newName
+ * @returns {boolean} true if applied
+ */
+export function applyGeneratedName(tokenDoc, data, newName) {
+  if (!newName || typeof newName !== "string") return false;
+  try {
+    if (typeof tokenDoc?.updateSource === "function") {
+      tokenDoc.updateSource({ name: newName });
+      return true;
+    }
+    if (tokenDoc && typeof tokenDoc === "object") {
+      tokenDoc.name = newName;
+      if (data && typeof data === "object" && data !== tokenDoc) data.name = newName;
+      return true;
+    }
+    if (data && typeof data === "object") {
+      data.name = newName;
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+/**
  * Load a dict module for a language with caching.
  * Dynamic import, GM-only memory — cache lives in this module.
  * On failure, tries the other language and warns.

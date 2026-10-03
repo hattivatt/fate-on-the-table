@@ -38,7 +38,7 @@
       "whenEmpty": "fill"
     },
     "layer": {
-      "elevation": -10,
+      "elevation": 0,
       "sort": -1000
     }
   },
@@ -92,6 +92,10 @@
       "content": {
         "resolver": "@portrait",
         "mode": "image"
+      },
+      "layer": {
+        "elevation": 1,
+        "sort": 0
       }
     },
     {
@@ -172,6 +176,10 @@
         "axis": "x",
         "direction": "forward",
         "pitch": 24
+      },
+      "layer": {
+        "elevation": 1,
+        "sort": 0
       }
     },
     {

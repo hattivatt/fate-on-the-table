@@ -352,7 +352,7 @@ test("legacy single-text widget migrates to one clickable part per aspect", asyn
     assert.equal(flagOf(d, "widgetId"), WIDGET_ID);
     assert.equal(flagOf(d, "ownerType"), SA_OWNER_TYPE);
     assert.equal(flagOf(d, "part"), SA_TEXT_PART);
-    // Text stays above the background (elevation -10/sort -1000) and below
+    // Text stays above the background (elevation 0/sort -1000) and below
     // the frame (10/1000) — same z-order as the legacy single text part.
     assert.equal(d.elevation, 0);
     assert.equal(d.sort, 0);
@@ -589,4 +589,17 @@ test("a manually fully-deleted group clears the registry", async () => {
     { scope: FLAG_SCOPE, key: SITUATION_ASPECTS_WIDGET_FLAG },
   ]);
   assert.equal(scene.getFlag(FLAG_SCOPE, SITUATION_ASPECTS_WIDGET_FLAG), undefined);
+});
+
+test("SA background and frame have non-negative elevation (regression for v13 PrimaryCanvasGroup)", () => {
+  const bg = buildSaBackgroundDoc(OPTS);
+  const frame = buildSaFrameDoc(OPTS);
+  const texts = buildSaTextDocs([{ name: "A", free_invokes: 1 }], OPTS);
+  for (const d of [bg, frame, ...texts]) {
+    assert.ok((d.elevation ?? 0) >= 0, `SA doc ${d.part}#${d.index} elevation ${d.elevation} must be >=0`);
+  }
+  const emptyTexts = buildSaTextDocs([], OPTS);
+  for (const d of emptyTexts) {
+    assert.ok((d.elevation ?? 0) >= 0, `SA empty placeholder elevation ${d.elevation} must be >=0`);
+  }
 });

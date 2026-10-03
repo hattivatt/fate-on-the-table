@@ -136,6 +136,7 @@
   "fate-on-the-table.consequence.ok": "Save",
   "fate-on-the-table.consequence.cancel": "Cancel",
   "fate-on-the-table.consequence.notOwner": "You can only edit the consequences of characters you own.",
+  "fate-on-the-table.fatePoints.notOwner": "You can only change the fate points of characters you own.",
   "fate-on-the-table.context.takeFatePoint": "Take fate point",
   "fate-on-the-table.context.removeWidget": "Remove widget",
   "fate-on-the-table.context.removeWidgetTitle": "Remove widget",

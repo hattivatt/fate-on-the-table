@@ -94,3 +94,48 @@ export function toArray(collection) {
     return [];
   }
 }
+
+/**
+ * Filters ids to those that still exist at delete time. When the scene lacks
+ * a `.get` accessor (Node-test mocks without `.drawings`/`.tiles` maps) the
+ * list is returned unchanged so tests keep working.
+ * @param {object|null} scene
+ * @param {"Drawing"|"Tile"} type
+ * @param {string[]} ids
+ * @returns {string[]}
+ */
+export function existingDocumentIds(scene, type, ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  const coll = type === "Tile" ? scene?.tiles : scene?.drawings;
+  if (typeof coll?.get === "function") {
+    return ids.filter((id) => !!coll.get(id));
+  }
+  // No map accessor — pass through so array-based mocks keep working.
+  return ids;
+}
+
+/**
+ * Deletes embedded documents idempotently: missing ids are filtered before the
+ * call and a `does not exist` backend error is swallowed (concurrent deletes
+ * race). All other errors are re-thrown.
+ * @param {object} scene
+ * @param {"Drawing"|"Tile"} type
+ * @param {string[]} ids
+ * @param {object} [options]
+ * @returns {Promise<void>}
+ */
+export async function safeDeleteEmbeddedDocuments(scene, type, ids, options) {
+  if (!scene || !Array.isArray(ids) || ids.length === 0) return;
+  const filtered = existingDocumentIds(scene, type, ids);
+  if (!filtered.length) return;
+  try {
+    await scene.deleteEmbeddedDocuments(type, filtered, options);
+  } catch (err) {
+    const msg = String(err?.message ?? err ?? "");
+    if (/does not exist/i.test(msg)) {
+      console.warn("[fate-on-the-table] delete skipped — document already gone:", msg);
+      return;
+    }
+    throw err;
+  }
+}

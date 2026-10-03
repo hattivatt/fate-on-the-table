@@ -38,7 +38,7 @@
       "whenEmpty": "fill"
     },
     "layer": {
-      "elevation": -10,
+      "elevation": 0,
       "sort": -1000
     }
   },

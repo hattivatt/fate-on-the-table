@@ -331,7 +331,7 @@ test("buildZoneDescriptors: with one zone-bound aspect creates overlay with corr
   assert.equal(asp.stroke, 0);
   assert.equal(asp.fillType, 0);
   assert.equal(asp.fillAlpha, 0);
-  assert.equal(asp.elevation, -1);
+  assert.equal(asp.elevation, 0);
   assert.equal(asp.sort, -40);
 });
 
@@ -617,5 +617,15 @@ test("migration T1: aspect with zoneIds lands in correct zone (no suffix needed)
     assert.equal(z2Asp.text, "Leak");
   } finally {
     uninstallGlobals();
+  }
+});
+
+test("zone overlay parts have non-negative elevation (regression for v13 PrimaryCanvasGroup)", () => {
+  const state = validState();
+  const geometry = getConflictBoardGeometry({ sizePreset: "medium" });
+  const zone = state.zones[0];
+  const parts = buildZoneDescriptors(state, geometry, zone, [{ name: "Smoke", zoneIds: ["zone-1"] }]);
+  for (const d of parts) {
+    assert.ok((d.elevation ?? 0) >= 0, `zone part ${d.part} elevation ${d.elevation} must be >=0`);
   }
 });

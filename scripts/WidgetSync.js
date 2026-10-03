@@ -11,6 +11,7 @@ import {
 } from "./settings.js";
 import { FLAG_SCOPE, WIDGETS_FLAG } from "./constants.js";
 import { allWidgetDocs } from "./widgetDocs.js";
+import { existingDocumentIds, safeDeleteEmbeddedDocuments } from "./utils.js";
 
 const DEBOUNCE_MS = 400;
 
@@ -45,12 +46,15 @@ const TILE_FIELDS = [
   "texture.src",
   "texture.anchorX",
   "texture.anchorY",
+  "elevation",
+  "sort",
 ];
 
 const pending = new Map();
 
 /** Debounced hook entry: schedules a sync for a modified actor. */
 export function scheduleActorSync(actor) {
+  if (typeof game !== "undefined" && game?.user?.isGM === false) return;
   if (actor.type !== "fate-core-official") return;
   const t = pending.get(actor.id);
   if (t) clearTimeout(t);
@@ -127,6 +131,7 @@ export async function removeWidgetRecord(actor, widgetId) {
  * @param {object} scene
  */
 export async function reconcileScene(scene) {
+  if (typeof game !== "undefined" && game?.user?.isGM === false) return;
   const actorUuids = new Set();
   for (const doc of [...scene.drawings, ...scene.tiles]) {
     const actorUuid = doc.getFlag(FLAG_SCOPE, "actorUuid");
@@ -150,8 +155,8 @@ async function deleteWidgetDocs(scene, widgetId) {
   const tileIds = docs
     .filter((d) => d.documentName === "Tile")
     .map((d) => d.id);
-  if (drawIds.length) await scene.deleteEmbeddedDocuments("Drawing", drawIds, { fateOnTheTableSync: true });
-  if (tileIds.length) await scene.deleteEmbeddedDocuments("Tile", tileIds, { fateOnTheTableSync: true });
+  if (drawIds.length) await safeDeleteEmbeddedDocuments(scene, "Drawing", existingDocumentIds(scene, "Drawing", drawIds), { fateOnTheTableSync: true });
+  if (tileIds.length) await safeDeleteEmbeddedDocuments(scene, "Tile", existingDocumentIds(scene, "Tile", tileIds), { fateOnTheTableSync: true });
 }
 
 /**
@@ -210,8 +215,8 @@ export async function cleanupStaleConsequenceBoxes(scene, actor) {
     const tileIds = stale
       .filter((d) => d.documentName === "Tile")
       .map((d) => d.id);
-    if (drawIds.length) await scene.deleteEmbeddedDocuments("Drawing", drawIds, { fateOnTheTableSync: true });
-    if (tileIds.length) await scene.deleteEmbeddedDocuments("Tile", tileIds, { fateOnTheTableSync: true });
+    if (drawIds.length) await safeDeleteEmbeddedDocuments(scene, "Drawing", existingDocumentIds(scene, "Drawing", drawIds), { fateOnTheTableSync: true });
+    if (tileIds.length) await safeDeleteEmbeddedDocuments(scene, "Tile", existingDocumentIds(scene, "Tile", tileIds), { fateOnTheTableSync: true });
   }
 }
 
@@ -232,6 +237,7 @@ function resolveRecordLayoutId(actor, record) {
 }
 
 async function syncActor(actor) {
+  if (typeof game !== "undefined" && game?.user?.isGM === false) return;
   if (!canvas?.scene) return;
   // Module-owned stale cleanup: remove any legacy consequence CHECKBOX
   // Drawing/Tile the actor may still have on this scene from an older
@@ -356,10 +362,10 @@ async function syncWidget(actor, record, docs) {
     await canvas.scene.updateEmbeddedDocuments("Tile", updates.Tile, syncOptions);
   }
   if (deletions.Drawing.length) {
-    await canvas.scene.deleteEmbeddedDocuments("Drawing", deletions.Drawing, syncOptions);
+    await safeDeleteEmbeddedDocuments(canvas.scene, "Drawing", existingDocumentIds(canvas.scene, "Drawing", deletions.Drawing), syncOptions);
   }
   if (deletions.Tile.length) {
-    await canvas.scene.deleteEmbeddedDocuments("Tile", deletions.Tile, syncOptions);
+    await safeDeleteEmbeddedDocuments(canvas.scene, "Tile", existingDocumentIds(canvas.scene, "Tile", deletions.Tile), syncOptions);
   }
   if (creations.Drawing.length) {
     await canvas.scene.createEmbeddedDocuments("Drawing", creations.Drawing);

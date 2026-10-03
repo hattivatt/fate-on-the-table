@@ -54,8 +54,10 @@
  *   moves the others.
  * - card parts (minimal layout docs): per-card `widgetId`, `ownerType:
  *   "conflictCard"`, `part` = minimal-layout element id, `index` = layout
- *   index, plus `combatId`, `combatantId`, `tokenUuid`, `area`
- *   ("friendly"|"hostile"|"acted"|"eliminated"), the linked `actorUuid` when
+ *   index, plus `combatId`, `combatantId`, `tokenUuid`, `area` — in persisted
+ *   state (v2) `area` is always "side"; in the projection `area` is
+ *   "side"|"bottom"|"eliminated" (see `positions[].area` / `flags.area`),
+ *   the linked `actorUuid` when
  *   the combatant's token has one, and `trackKey` on `stressBoxRows` /
  *   `consequenceCostRows` parts for the click/double-click target mapping.
  *
@@ -121,7 +123,7 @@ import { build, toDocumentData, stressBoxTarget, consequenceCostTarget } from ".
 import { getLayout } from "./layoutRegistry.js";
 import { aspectsForZone } from "./situationAspectZones.js";
 import { normalizeAspects } from "./situationAspectData.js";
-import { toArray } from "./utils.js";
+import { toArray, existingDocumentIds, safeDeleteEmbeddedDocuments } from "./utils.js";
 
 /** System flag scope carrying `hasActed` on Combatants. */
 const SYSTEM_FLAG_SCOPE = GM_FP_SCOPE;
@@ -184,6 +186,8 @@ const TILE_FIELDS = [
   "texture.src",
   "texture.anchorX",
   "texture.anchorY",
+  "elevation",
+  "sort",
 ];
 
 /* ------------------------------------------------------------------ *
@@ -510,7 +514,7 @@ export function buildBoardPartDescriptors(state, geometry, activeCombat = null) 
     fillColor: bg.color ?? "#ffffff",
     fillAlpha: clampAlpha(bg.alpha, 0.01),
     texture: bg.texture || null,
-    elevation: -10,
+    elevation: 0,
     sort: -1000,
   });
 
@@ -526,11 +530,11 @@ export function buildBoardPartDescriptors(state, geometry, activeCombat = null) 
 
   for (const [name, rect] of areas) {
     if (!rect) continue;
-    parts.push(framePart(CONFLICT_AREA_PART, frameIndex[name], rect, -3, -300, 0.35, 1));
+    parts.push(framePart(CONFLICT_AREA_PART, frameIndex[name], rect, 0, -300, 0.35, 1));
   }
   if (geometry?.field) {
     // stronger contrast border for the central field
-    parts.push(framePart(CONFLICT_AREA_PART, frameIndex.field, geometry.field, -3, -300, 1, 2));
+    parts.push(framePart(CONFLICT_AREA_PART, frameIndex.field, geometry.field, 0, -300, 1, 2));
   }
 
   const labelAreas = [
@@ -557,7 +561,7 @@ export function buildBoardPartDescriptors(state, geometry, activeCombat = null) 
       fillColor: "#ffffff",
       fillAlpha: 0,
       texture: null,
-      elevation: -2,
+      elevation: 0,
       sort: -200,
     });
   }
@@ -567,7 +571,7 @@ export function buildBoardPartDescriptors(state, geometry, activeCombat = null) 
   const roundBox = geometry?.roundBox ?? null;
   if (roundBox && bottomFriendly && bottomHostile) {
     // divider box – framed rectangle covering roundBox (readable border)
-    parts.push(framePart(CONFLICT_ROUND_DIVIDER_PART, -1, roundBox, -3, -290, 0.35, 1));
+    parts.push(framePart(CONFLICT_ROUND_DIVIDER_PART, -1, roundBox, 0, -290, 0.35, 1));
 
     // large round number centred INSIDE the box, under cards
     const roundNum = Number(activeCombat?.round);
@@ -596,7 +600,7 @@ export function buildBoardPartDescriptors(state, geometry, activeCombat = null) 
         fillColor: "#ffffff",
         fillAlpha: 0,
         texture: null,
-        elevation: -2,
+        elevation: 0,
         sort: -200,
       });
     }
@@ -624,7 +628,7 @@ export function buildBoardPartDescriptors(state, geometry, activeCombat = null) 
       fillColor: "#000000",
       fillAlpha: 0.6,
       texture: null,
-      elevation: -3,
+      elevation: 0,
       sort: -290,
       text: "",
     });
@@ -664,7 +668,7 @@ function framePart(part, index, rect, elevation, sort, strokeAlpha, strokeWidth 
  * zone has a name) a label. Coordinates are BOARD-LOCAL.
  *
  * Layer order: the zone sits ABOVE the board-level field frame
- * (`elevation: -3, sort: -300`) and the area labels (`elevation: -2,
+ * (`elevation: 0, sort: -300`) and the area labels (`elevation: 0,
  * sort: -200`) — so a click/right-click on the zone never falls through to
  * the field — but BELOW the participant cards (`elevation: 0, sort: 0`) and
  * the turn marker (`elevation: 12, sort: 1200`), so the zone never covers
@@ -735,12 +739,12 @@ export function zoneAspectsText(aspects, zone, opts = {}) {
  * Coordinates are BOARD-LOCAL.
  *
  * Layer order: the zone sits ABOVE the board-level field frame
- * (`elevation: -3, sort: -300`) and the area labels (`elevation: -2,
+ * (`elevation: 0, sort: -300`) and the area labels (`elevation: 0,
  * sort: -200`) — so a click/right-click on the zone never falls through to
  * the field — but BELOW the participant cards (`elevation: 0, sort: 0`) and
  * the turn marker (`elevation: 12, sort: 1200`), so the zone never covers
  * them. Fill/stroke/text stay fully visible at the raised elevation.
- * The aspects overlay (when present) renders at elevation -1 / sort -40
+ * The aspects overlay (when present) renders at elevation 0 / sort -40
  * (above body -100 / label -50, below cards 0).
  * @param {object} state  Normalized conflict board state.
  * @param {object} geometry  Output of `getConflictBoardGeometry`.
@@ -773,7 +777,7 @@ export function buildZoneDescriptors(state, geometry, zone, zoneAspects) {
       fillColor: style.fill ?? "#ffffff",
       fillAlpha: clampAlpha(style.alpha, 0.01),
       texture: null,
-      elevation: -1,
+      elevation: 0,
       sort: -100,
       text: "",
     },
@@ -798,7 +802,7 @@ export function buildZoneDescriptors(state, geometry, zone, zoneAspects) {
       fillColor: "#ffffff",
       fillAlpha: 0,
       texture: null,
-      elevation: -1,
+      elevation: 0,
       sort: -50,
     });
   }
@@ -823,7 +827,7 @@ export function buildZoneDescriptors(state, geometry, zone, zoneAspects) {
         fillColor: "#ffffff",
         fillAlpha: 0,
         texture: null,
-        elevation: -1,
+        elevation: 0,
         sort: -40,
       });
     }
@@ -1064,7 +1068,7 @@ export function buildCardActedOverlayDescriptor(position) {
     fillAlpha: 0.45,
     texture: null,
     text: "",
-    elevation: 0,
+    elevation: 2,
     sort: 5,
   };
 }
@@ -1108,7 +1112,7 @@ export function buildCardEliminatedStrikeDescriptors(position) {
     fillAlpha: 0.95,
     texture: null,
     text: "",
-    elevation: 0,
+    elevation: 2,
     sort: 6,
   };
   return [
@@ -1197,6 +1201,21 @@ export async function buildConflictBoardDocuments(scene, state, combat, options 
       cardOpts,
     );
     if (!descriptors.length) continue;
+    const cardRecordForSort = state.cards[combatantId];
+    const isEliminatedPile =
+      position.area === "eliminated" &&
+      Number.isInteger(cardRecordForSort?.eliminatedAt) &&
+      cardRecordForSort.eliminatedAt >= 1;
+    if (isEliminatedPile) {
+      const rank = Number(cardRecordForSort.eliminatedAt);
+      const offset = Math.min(rank * 10, 5000);
+      for (const d of descriptors) {
+        d.sort = (Number.isFinite(d.sort) ? d.sort : 0) + offset;
+        if (d.kind === "tile") d.elevation = 1 + 2 * rank;
+        else if (Number.isFinite(d.elevation) && d.elevation >= 2) d.elevation = d.elevation + 2 * rank;
+        // drawing parts with base 0 stay at 0; sort offset preserves paint order between stacked cards
+      }
+    }
     // Every card part carries the conflict identity flags so the click /
     // double-click routing can resolve its token/actor. `actorUuid` is the
     // linked actor's document uuid when available (synthetic unlinked token
@@ -1225,6 +1244,14 @@ export async function buildConflictBoardDocuments(scene, state, combat, options 
     const cardRecord = state.cards[combatantId];
     if (cardRecord?.eliminated === true) {
       const strikes = buildCardEliminatedStrikeDescriptors(position);
+      if (isEliminatedPile) {
+        const rank = Number(cardRecord.eliminatedAt);
+        const offset = Math.min(rank * 10, 5000);
+        for (const s of strikes) {
+          s.sort = (Number.isFinite(s.sort) ? s.sort : 0) + offset;
+          s.elevation = 2 + 2 * rank;
+        }
+      }
       for (const s of strikes) {
         const flags = {
           combatId: state.combatId,
@@ -1415,6 +1442,7 @@ const syncQueues = new Map();
  *   removedCombatantIds: string[], removedZoneIds: string[]}>}
  */
 export function syncConflictBoard(scene, options = {}) {
+  if (typeof game !== "undefined" && game?.user?.isGM === false) return Promise.resolve({ ok: false, changed: false, reason: "notGm" });
   if (!scene) {
     return Promise.resolve({ ok: false, changed: false, error: "No scene." });
   }
@@ -1645,6 +1673,7 @@ export async function removeConflictBoardProjection(scene, options = {}) {
  * @returns {Promise<{removed: number, changed: boolean, error?: string}>}
  */
 export function removeConflictBoard(scene, options = {}) {
+  if (typeof game !== "undefined" && game?.user?.isGM === false) return Promise.resolve({ removed: 0, changed: false, reason: "notGm" });
   if (!scene) {
     return Promise.resolve({ removed: 0, changed: false, error: "No scene." });
   }
@@ -1754,10 +1783,10 @@ async function upsertParts(scene, existing, descriptors, widgetId, ownerType, op
     await scene.updateEmbeddedDocuments("Tile", updates.Tile, syncOptions);
   }
   if (deletions.Drawing.length) {
-    await scene.deleteEmbeddedDocuments("Drawing", deletions.Drawing, syncOptions);
+    await safeDeleteEmbeddedDocuments(scene, "Drawing", deletions.Drawing, syncOptions);
   }
   if (deletions.Tile.length) {
-    await scene.deleteEmbeddedDocuments("Tile", deletions.Tile, syncOptions);
+    await safeDeleteEmbeddedDocuments(scene, "Tile", deletions.Tile, syncOptions);
   }
   if (creations.Drawing.length) {
     await scene.createEmbeddedDocuments("Drawing", creations.Drawing);
@@ -1798,9 +1827,11 @@ async function deleteWidgetDocsByIds(scene, widgetIds, ownerType, options = {}) 
       tileIds.push(doc.id);
     }
   }
-  if (drawIds.length) await scene.deleteEmbeddedDocuments("Drawing", drawIds, options);
-  if (tileIds.length) await scene.deleteEmbeddedDocuments("Tile", tileIds, options);
-  return drawIds.length + tileIds.length;
+  const filteredDrawIds = existingDocumentIds(scene, "Drawing", drawIds);
+  const filteredTileIds = existingDocumentIds(scene, "Tile", tileIds);
+  if (filteredDrawIds.length) await safeDeleteEmbeddedDocuments(scene, "Drawing", filteredDrawIds, options);
+  if (filteredTileIds.length) await safeDeleteEmbeddedDocuments(scene, "Tile", filteredTileIds, options);
+  return filteredDrawIds.length + filteredTileIds.length;
 }
 
 function diff(existing, payload, fields) {

@@ -425,9 +425,10 @@ test("built-in layouts carry the consequence header + cost rows (no checkbox pai
     assert.equal(header.content.resolver, "@consequencesHeader");
     assert.equal(header.content.mode, "value");
     assert.equal(header.type, "drawing");
-    // The header is a plain text value element on the base canvas layer.
+    // The header is a text value element: minimal is just above the portrait tile (2), full stays on base layer.
     assert.equal(header.position, undefined);
-    assert.equal(header.layer.elevation, 0);
+    const expectedHeaderElevation = id === "minimal" ? 2 : 0;
+    assert.equal(header.layer.elevation, expectedHeaderElevation);
     assert.equal(header.layer.sort, 0);
 
     assert.ok(rows, `layout "${id}" must contain a consequenceCostRows element`);

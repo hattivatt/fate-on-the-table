@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chooseWeighted, pickNewName, changeCase } from "../scripts/nameGenerator.js";
-import { NAME_GEN_LANGUAGES, resolveLanguage, loadNameGenDict, _clearCacheForTests } from "../scripts/nameGenLanguages.js";
+import { NAME_GEN_LANGUAGES, resolveLanguage, loadNameGenDict, _clearCacheForTests, getCachedNameGenDict, preloadNameGenDicts, resolveNameGenLanguageKeys, applyGeneratedName } from "../scripts/nameGenLanguages.js";
 
 // Provide minimal foundry stubs for settings.js (which imports LayoutImportExport etc.)
 globalThis.foundry = {
@@ -283,4 +283,122 @@ test("loadNameGenDict: caches and loads both langs", async () => {
   const ru = await loadNameGenDict("russian");
   assert.ok(ru && typeof ru.lower === "string");
   _clearCacheForTests();
+});
+
+test("getCachedNameGenDict: miss returns undefined without side effect", async () => {
+  _clearCacheForTests();
+  assert.equal(getCachedNameGenDict("english"), undefined);
+  assert.equal(getCachedNameGenDict("russian"), undefined);
+  // still miss after check — no loading occurred
+  assert.equal(getCachedNameGenDict("english"), undefined);
+});
+
+test("getCachedNameGenDict: hit after load returns same object", async () => {
+  _clearCacheForTests();
+  const en = await loadNameGenDict("english");
+  const cached = getCachedNameGenDict("english");
+  assert.equal(cached, en);
+  assert.ok(cached && typeof cached.upper === "string");
+  _clearCacheForTests();
+});
+
+test("preloadNameGenDicts: single language loads", async () => {
+  _clearCacheForTests();
+  const res = await preloadNameGenDicts(["english"]);
+  assert.equal(res.length, 1);
+  assert.equal(res[0].lang, "english");
+  assert.ok(res[0].dict && typeof res[0].dict.upper === "string");
+  assert.equal(res[0].error, null);
+  // cache hit
+  assert.equal(getCachedNameGenDict("english"), res[0].dict);
+  _clearCacheForTests();
+});
+
+test("preloadNameGenDicts: mixed valid and broken isolates errors", async () => {
+  _clearCacheForTests();
+  const res = await preloadNameGenDicts(["english", "nonexistent"]);
+  assert.equal(res.length, 2);
+  const enEntry = res.find((r) => r.lang === "english");
+  const badEntry = res.find((r) => r.lang === "nonexistent");
+  assert.ok(enEntry.dict && typeof enEntry.dict.upper === "string", "english loaded");
+  assert.equal(enEntry.error, null);
+  assert.equal(badEntry.dict, null);
+  assert.ok(badEntry.error, "broken should be in errors");
+  // english still cached
+  assert.ok(getCachedNameGenDict("english"));
+  // does not throw overall
+});
+
+test("preloadNameGenDicts: idempotent via cache", async () => {
+  _clearCacheForTests();
+  const first = await preloadNameGenDicts(["english"]);
+  const dict1 = first[0].dict;
+  const second = await preloadNameGenDicts(["english"]);
+  assert.equal(second[0].dict, dict1, "second call returns same cached object");
+  assert.equal(second[0].error, null);
+  _clearCacheForTests();
+});
+
+test("preloadNameGenDicts: empty array returns empty", async () => {
+  const res = await preloadNameGenDicts([]);
+  assert.deepEqual(res, []);
+});
+
+test("resolveNameGenLanguageKeys: random returns all keys", () => {
+  const keys = resolveNameGenLanguageKeys({ language: "random" });
+  assert.deepEqual(keys.sort(), Object.keys(NAME_GEN_LANGUAGES).sort());
+  const keys2 = resolveNameGenLanguageKeys("random");
+  assert.deepEqual(keys2.sort(), Object.keys(NAME_GEN_LANGUAGES).sort());
+});
+
+test("resolveNameGenLanguageKeys: fixed language returns single resolved key", () => {
+  assert.deepEqual(resolveNameGenLanguageKeys({ language: "english" }), ["english"]);
+  assert.deepEqual(resolveNameGenLanguageKeys({ language: "russian" }), ["russian"]);
+  assert.deepEqual(resolveNameGenLanguageKeys("english"), ["english"]);
+  // unknown falls back to random resolution (single random key)
+  const unknown = resolveNameGenLanguageKeys({ language: "unknown_lang" });
+  assert.equal(unknown.length, 1);
+  assert.ok(["english", "russian"].includes(unknown[0]));
+});
+
+test("applyGeneratedName: writes via updateSource", () => {
+  let called = null;
+  const tokenDoc = { updateSource: (obj) => { called = obj; } };
+  const data = {};
+  const ok = applyGeneratedName(tokenDoc, data, "Alice");
+  assert.equal(ok, true);
+  assert.deepEqual(called, { name: "Alice" });
+  // data should not be touched when updateSource exists (mirrors module.js)
+  assert.equal(data.name, undefined);
+});
+
+test("applyGeneratedName: fallback to tokenDoc.name and data.name", () => {
+  const tokenDoc = {};
+  const data = {};
+  const ok = applyGeneratedName(tokenDoc, data, "Bob");
+  assert.equal(ok, true);
+  assert.equal(tokenDoc.name, "Bob");
+  assert.equal(data.name, "Bob");
+  // when tokenDoc is null, writes to data only
+  const data2 = {};
+  const ok2 = applyGeneratedName(null, data2, "Eve");
+  assert.equal(ok2, true);
+  assert.equal(data2.name, "Eve");
+});
+
+test("applyGeneratedName: empty name does not write", () => {
+  const tokenDoc = { updateSource: () => { throw new Error("should not be called"); } };
+  const data = {};
+  assert.equal(applyGeneratedName(tokenDoc, data, ""), false);
+  assert.equal(applyGeneratedName(tokenDoc, data, null), false);
+  assert.equal(applyGeneratedName(tokenDoc, data, undefined), false);
+  assert.equal(data.name, undefined);
+});
+
+test("applyGeneratedName: handles tokenDoc without updateSource but with object fallback", () => {
+  const tokenDoc = { name: "old" };
+  const dataSame = tokenDoc; // same reference — should not double write data
+  const ok = applyGeneratedName(tokenDoc, dataSame, "NewName");
+  assert.equal(ok, true);
+  assert.equal(tokenDoc.name, "NewName");
 });

@@ -761,3 +761,188 @@ test("hitTestConflictZone distinguishes bottomFriendly, bottomHostile and roundB
   assert.equal(rb.type, "area");
   assert.equal(rb.area, "roundBox");
 });
+
+test("eliminated pile: cards with eliminated:true do not occupy side/bottom columns", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "medium" });
+  const state = {
+    cards: {
+      e1: { side: "friendly", area: "side", order: 0, eliminated: true, eliminatedAt: 2 },
+      e2: { side: "hostile", area: "side", order: 1, eliminated: true, eliminatedAt: 1 },
+      f1: { side: "friendly", area: "side", order: 2 },
+      f2: { side: "friendly", area: "side", order: 3 },
+      h1: { side: "hostile", area: "side", order: 4 },
+    },
+  };
+  const { positions } = layoutConflictCards(g, state);
+  // eliminated cards are in eliminated area only
+  assert.equal(positions.e1.area, "eliminated");
+  assert.equal(positions.e2.area, "eliminated");
+  assert.equal(positions.e2.eliminatedAt, 1);
+  assert.equal(positions.e1.eliminatedAt, 2);
+  // non-eliminated stay in side/bottom, not affected by eliminated count
+  assert.equal(positions.f1.area, "side");
+  assert.equal(positions.f2.area, "side");
+  assert.equal(positions.h1.area, "side");
+  // side positions are still at content origin
+  assert.equal(positions.f1.x, g.friendly.content.x);
+  assert.equal(positions.h1.x, g.hostile.content.x);
+  assert.equal(Object.keys(positions).length, 5);
+});
+
+test("eliminated pile: n=0 no eliminated positions, n=1 centered without NaN", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "medium" });
+  const { positions: p0 } = layoutConflictCards(g, { cards: { a: { side: "friendly", order: 0 } } });
+  assert.equal(Object.values(p0).some((p) => p.area === "eliminated"), false);
+  assert.equal(p0.a.area, "side");
+
+  const { positions: p1 } = layoutConflictCards(g, {
+    cards: { e1: { side: "friendly", order: 0, eliminated: true, eliminatedAt: 1 } },
+  });
+  assert.equal(p1.e1.area, "eliminated");
+  // pile of 1 is centered in eliminatedArea.content (not at left edge)
+  const wc = g.eliminatedArea.cardWidth;
+  const content = g.eliminatedArea.content;
+  const expectedX = content.x + (content.width - wc) / 2;
+  assert.ok(Math.abs(p1.e1.x - expectedX) <= 1, `n=1 x ${p1.e1.x} ≈ ${expectedX}`);
+  assert.equal(p1.e1.y, g.eliminatedArea.content.y);
+  assert.ok(Number.isFinite(p1.e1.x) && Number.isFinite(p1.e1.y), "position finite");
+  assert.ok(!Number.isNaN(p1.e1.x) && !Number.isNaN(p1.e1.y), "not NaN");
+  // centroid check: (first.x + last.x + wc)/2 == content center delta ≤1
+  const centroid = (p1.e1.x + p1.e1.x + wc) / 2;
+  const contentCenter = content.x + content.width / 2;
+  assert.ok(Math.abs(centroid - contentCenter) <= 1, `n=1 centroid ${centroid} ≈ ${contentCenter}`);
+});
+
+test("eliminated pile: n=10 step compressed and last card within eliminatedArea right edge", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "medium" });
+  const cards = {};
+  for (let i = 0; i < 10; i++) cards[`e${i}`] = { side: i % 2 ? "hostile" : "friendly", order: i, eliminated: true, eliminatedAt: i + 1 };
+  const { positions } = layoutConflictCards(g, { cards });
+  assert.equal(Object.keys(positions).length, 10);
+  // all eliminated
+  for (let i = 0; i < 10; i++) assert.equal(positions[`e${i}`].area, "eliminated");
+  const content = g.eliminatedArea.content;
+  const wc = g.eliminatedArea.cardWidth;
+  const maxRight = content.x + content.width;
+  for (let i = 0; i < 10; i++) {
+    const pos = positions[`e${i}`];
+    assert.ok(pos.x + pos.width <= maxRight + 1e-6, `e${i} right ${pos.x + pos.width} <= ${maxRight}`);
+    assert.ok(pos.x >= content.x - 1e-6, `e${i} left within`);
+  }
+  // last card must be exactly near right edge but not beyond
+  const last = positions["e9"];
+  assert.ok(last.x + last.width <= maxRight + 1e-6);
+  // step is deterministic and <= PILE_OVERLAP when compressed
+  const steps = [];
+  const sorted = Object.entries(cards).sort((a, b) => a[1].eliminatedAt - b[1].eliminatedAt).map(([k]) => positions[k].x);
+  for (let i = 1; i < sorted.length; i++) steps.push(sorted[i] - sorted[i - 1]);
+  const W = content.width;
+  const needed = wc + 9 * PILE_OVERLAP;
+  const expectedStep = needed > W ? Math.max(0, (W - wc) / 9) : PILE_OVERLAP;
+  assert.ok(Math.abs(steps[0] - expectedStep) < 1e-6, `step ${steps[0]} matches expected ${expectedStep}`);
+  // pile is centered inside content (centroid == content center delta ≤1)
+  const first = positions["e0"];
+  const centroid = (first.x + last.x + wc) / 2;
+  const contentCenter = content.x + content.width / 2;
+  assert.ok(Math.abs(centroid - contentCenter) <= 1, `n=10 centroid ${centroid} ≈ ${contentCenter}`);
+});
+
+test("eliminated pile: centered inside eliminatedArea.content for n=1, n=2, n=10 (delta ≤1) and within bounds", () => {
+  const cases = [1, 2, 10];
+  for (const n of cases) {
+    const g = getConflictBoardGeometry({ sizePreset: "medium" });
+    const cards = {};
+    for (let i = 0; i < n; i++) cards[`e${i}`] = { side: i % 2 ? "hostile" : "friendly", order: i, eliminated: true, eliminatedAt: i + 1 };
+    const { positions } = layoutConflictCards(g, { cards });
+    const content = g.eliminatedArea.content;
+    const wc = g.eliminatedArea.cardWidth;
+    const sortedXs = Object.entries(cards).sort((a, b) => a[1].eliminatedAt - b[1].eliminatedAt).map(([k]) => positions[k].x);
+    const firstX = sortedXs[0];
+    const lastX = sortedXs[sortedXs.length - 1];
+    const centroid = (firstX + lastX + wc) / 2;
+    const contentCenter = content.x + content.width / 2;
+    assert.ok(Math.abs(centroid - contentCenter) <= 1, `n=${n} centroid ${centroid} ≈ ${contentCenter}`);
+    // no card leaves content bounds
+    for (let i = 0; i < n; i++) {
+      const pos = positions[`e${i}`];
+      assert.ok(pos.x >= content.x - 1e-6, `n=${n} e${i} left ${pos.x} >= ${content.x}`);
+      assert.ok(pos.x + pos.width <= content.x + content.width + 1e-6, `n=${n} e${i} right ${pos.x + pos.width} <= ${content.x + content.width}`);
+      assert.equal(pos.y, content.y, `n=${n} e${i} y`);
+    }
+  }
+});
+
+test("eliminated pile: overflow compression keeps pile centered and within bounds", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "medium" });
+  // force overflow: n=40 needs 220+39*26=1234 > 876, so step compresses to (876-220)/39 ≈16.82
+  const n = 40;
+  const cards = {};
+  for (let i = 0; i < n; i++) cards[`e${i}`] = { side: i % 2 ? "hostile" : "friendly", order: i, eliminated: true, eliminatedAt: i + 1 };
+  const { positions } = layoutConflictCards(g, { cards });
+  const content = g.eliminatedArea.content;
+  const wc = g.eliminatedArea.cardWidth;
+  const W = content.width;
+  const expectedStep = Math.max(0, (W - wc) / (n - 1));
+  const sortedXs = Object.entries(cards).sort((a, b) => a[1].eliminatedAt - b[1].eliminatedAt).map(([k]) => positions[k].x);
+  // step compressed
+  const actualStep = sortedXs[1] - sortedXs[0];
+  assert.ok(Math.abs(actualStep - expectedStep) < 1e-6, `compressed step ${actualStep} ≈ ${expectedStep}`);
+  assert.ok(actualStep < PILE_OVERLAP + 1e-6, "step is compressed below PILE_OVERLAP");
+  // still centered
+  const firstX = sortedXs[0];
+  const lastX = sortedXs[sortedXs.length - 1];
+  const centroid = (firstX + lastX + wc) / 2;
+  const contentCenter = content.x + content.width / 2;
+  assert.ok(Math.abs(centroid - contentCenter) <= 1, `overflow centroid ${centroid} ≈ ${contentCenter}`);
+  // all within bounds
+  for (let i = 0; i < n; i++) {
+    const pos = positions[`e${i}`];
+    assert.ok(pos.x >= content.x - 1e-6, `overflow e${i} left`);
+    assert.ok(pos.x + pos.width <= content.x + content.width + 1e-6, `overflow e${i} right ${pos.x + pos.width}`);
+  }
+  // pile fills content exactly when compressed to max width: last right = content right (within rounding)
+  const pileWidth = wc + (n - 1) * expectedStep; // == W when compressed
+  assert.ok(Math.abs(pileWidth - W) < 1e-6, `pile fills content W=${W}`);
+  const last = positions[`e${n - 1}`];
+  assert.ok(Math.abs(last.x + wc - (content.x + content.width)) <= 1, "compressed pile touches right edge");
+});
+
+test("eliminated pile: positions centered under roundBox by X", () => {
+  for (const preset of ["small", "medium", "large"]) {
+    const g = getConflictBoardGeometry({ sizePreset: preset });
+    const cards = { e1: { side: "friendly", order: 0, eliminated: true, eliminatedAt: 1 } };
+    const { positions } = layoutConflictCards(g, { cards });
+    const elim = g.eliminatedArea;
+    const roundBox = g.roundBox;
+    // eliminatedArea itself is centered under total width, which is centered under roundBox
+    // check that center of eliminatedArea aligns with center of total board / roundBox
+    const elimCenter = elim.x + elim.width / 2;
+    const totalW = g.bounds.width - 2 * BOARD_PADDING; // totalW from geometry
+    assert.ok(Math.abs(elimCenter - totalW / 2) < 1e-6, `${preset} eliminatedArea centered: ${elimCenter} vs ${totalW / 2}`);
+    // pile is now centered: single card's center ≈ content center ≈ elimCenter
+    const contentCenter = elim.content.x + elim.content.width / 2;
+    assert.ok(Math.abs(contentCenter - elimCenter) < 1e-6, `${preset} content centered`);
+    const pileCenter = positions.e1.x + positions.e1.width / 2;
+    assert.ok(Math.abs(pileCenter - contentCenter) <= 1, `${preset} single pile centered ${pileCenter} ≈ ${contentCenter}`);
+    // also check that eliminatedArea is below bottom strip
+    assert.ok(elim.y > roundBox.y + roundBox.height, `${preset} eliminated below roundBox`);
+  }
+});
+
+test("eliminated pile: deterministic — two calls with same input deepEqual positions", () => {
+  const g = getConflictBoardGeometry({ sizePreset: "medium" });
+  const cards = {
+    e2: { side: "hostile", order: 3, eliminated: true, eliminatedAt: 2 },
+    e1: { side: "friendly", order: 0, eliminated: true, eliminatedAt: 1 },
+    e3: { side: "friendly", order: 5, eliminated: true, eliminatedAt: 3 },
+    f1: { side: "friendly", order: 1 },
+  };
+  const state = { cards };
+  const a = layoutConflictCards(g, state);
+  const b = layoutConflictCards(g, state);
+  assert.deepEqual(a.positions, b.positions);
+  assert.deepEqual(a.overflow, b.overflow);
+  // order by eliminatedAt, not insertion: e1 before e2 before e3
+  const xs = [a.positions.e1.x, a.positions.e2.x, a.positions.e3.x];
+  assert.ok(xs[0] < xs[1] && xs[1] < xs[2], "sorted by eliminatedAt");
+});

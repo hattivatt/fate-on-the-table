@@ -1968,3 +1968,149 @@ test("card context menu with only Leave combat (no Pass/Return, no Roll) still s
   assert.equal(labels.some((h) => h.includes("fate-on-the-table.conflict.card.leaveCombat")), true);
   assert.equal(dom.body.children.length, 1);
 });
+
+/* ------------------------------------------------------------------ *
+ * Turn marker context menu tunneling (regression for right-click)
+ * ------------------------------------------------------------------ */
+
+test("resolveUnderTurnMarker returns underlying card doc when marker covers card at point", () => {
+  globalThis.PIXI = { Point: class { constructor(x, y) { this.x = x; this.y = y; } } };
+  const cardDoc = mockConflictDoc("c1", "Drawing", CONFLICT_CARD_OWNER_TYPE, { x: 100, y: 100, width: 60, height: 80 }, { elevation: 0, sort: 0 });
+  const markerDoc = {
+    id: "marker",
+    documentName: "Drawing",
+    x: 96, y: 96, elevation: 12, sort: 1200, shape: { width: 68, height: 88 },
+    parent: { id: "scene1", drawings: [cardDoc], tiles: [] },
+    getFlag(scope, key) {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "ownerType") return "conflictBoard";
+      if (key === "part") return "conflictTurnMarker";
+      return undefined;
+    },
+  };
+  // canvas fallback must also contain the card
+  globalThis.canvas = {
+    scene: { id: "scene1", drawings: [cardDoc], tiles: [] },
+    app: { view: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 1000 }), width: 1000, height: 1000 } },
+    stage: { worldTransform: { applyInverse: (pt) => ({ x: pt.x, y: pt.y }) } },
+  };
+  try {
+    const evt = { clientX: 110, clientY: 110, preventDefault() {}, stopPropagation() {} };
+    const hit = mod.resolveUnderTurnMarker(markerDoc, evt);
+    assert.equal(hit?.id, "c1");
+    // non-marker doc returns null
+    const nonMarker = mockConflictDoc("b1", "Drawing", "conflictBoard", { x: 0, y: 0, width: 10, height: 10 });
+    assert.equal(mod.resolveUnderTurnMarker(nonMarker, evt), null);
+    // null event returns null
+    assert.equal(mod.resolveUnderTurnMarker(markerDoc, null), null);
+    // marker but no card under point (gap / padding ring)
+    const evtPad = { clientX: 97, clientY: 97, preventDefault() {}, stopPropagation() {} };
+    assert.equal(mod.resolveUnderTurnMarker(markerDoc, evtPad), null);
+  } finally {
+    delete globalThis.PIXI;
+    delete globalThis.canvas;
+  }
+});
+
+test("turn marker context menu tunnels to card menu when cursor is over underlying card", async () => {
+  const dom = installMenuDomStub();
+  globalThis.PIXI = { Point: class { constructor(x, y) { this.x = x; this.y = y; } } };
+  const combat = { id: "combat-abc", turn: 0, combatants: [menuCombatant("c1"), menuCombatant("c2")] };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  const cardDoc = {
+    id: "card-c2",
+    documentName: "Drawing",
+    x: 100, y: 100, elevation: 0, sort: 0, shape: { width: 60, height: 80 },
+    getFlag(scope, key) {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "ownerType") return CONFLICT_CARD_OWNER_TYPE;
+      if (key === "combatantId") return "c2";
+      if (key === "tokenUuid") return "Scene.scene1.Token.t-c2";
+      return undefined;
+    },
+  };
+  const markerDoc = {
+    id: "marker",
+    documentName: "Drawing",
+    x: 96, y: 96, elevation: 12, sort: 1200, shape: { width: 68, height: 88 },
+    getFlag(scope, key) {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "ownerType") return "conflictBoard";
+      if (key === "part") return "conflictTurnMarker";
+      if (key === "widgetId") return "wBoard";
+      return undefined;
+    },
+  };
+  // scene drawings contain both card and marker so lookup finds the card
+  scene.drawings = [cardDoc, markerDoc];
+  scene.tiles = [];
+  installMenuCombat({}, combat, scene);
+  // Preserve worldTransform needed for point resolution (installMenuCombat overwrites canvas)
+  globalThis.canvas.app = { view: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 1000 }), width: 1000, height: 1000 } };
+  globalThis.canvas.stage = { worldTransform: { applyInverse: (pt) => ({ x: pt.x, y: pt.y }) } };
+  globalThis.canvas.scene = scene;
+  try {
+    const evt = { clientX: 110, clientY: 110, preventDefault() {}, stopPropagation() {} };
+    const handled = await mod.handleConflictContextMenu(markerDoc, evt);
+    assert.equal(handled, true);
+    // Card c2 is not current and has not acted, so passTurn must be present (not field/board menu)
+    const labels = dom.createdButtons.map((b) => b.innerHTML);
+    assert.ok(labels.some((h) => h.includes("fate-on-the-table.conflict.card.passTurn")), "marker over card must show card pass turn");
+    assert.ok(labels.some((h) => h.includes("fate-on-the-table.conflict.card.leaveCombat")));
+    assert.equal(labels.some((h) => h.includes("fate-on-the-table.conflict.zone.add")), false);
+    assert.equal(labels.some((h) => h.includes("fate-on-the-table.conflict.board.remove") && labels.length === 1), false);
+  } finally {
+    delete globalThis.PIXI;
+  }
+});
+
+test("turn marker context menu falls through to board menu when cursor is over marker padding ring (no card)", async () => {
+  const dom = installMenuDomStub();
+  globalThis.PIXI = { Point: class { constructor(x, y) { this.x = x; this.y = y; } } };
+  const combat = { id: "combat-abc", turn: 0, combatants: [menuCombatant("c1"), menuCombatant("c2")] };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  const cardDoc = {
+    id: "card-c2",
+    documentName: "Drawing",
+    x: 200, y: 200, elevation: 0, sort: 0, shape: { width: 60, height: 80 },
+    getFlag(scope, key) {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "ownerType") return CONFLICT_CARD_OWNER_TYPE;
+      if (key === "combatantId") return "c2";
+      return undefined;
+    },
+  };
+  const markerDoc = {
+    id: "marker",
+    documentName: "Drawing",
+    x: 196, y: 196, elevation: 12, sort: 1200, shape: { width: 68, height: 88 },
+    getFlag(scope, key) {
+      if (scope !== FLAG_SCOPE) return undefined;
+      if (key === "ownerType") return "conflictBoard";
+      if (key === "part") return "conflictTurnMarker";
+      if (key === "widgetId") return "wBoard";
+      return undefined;
+    },
+  };
+  // Only the far card exists; marker is elsewhere.
+  scene.drawings = [cardDoc, markerDoc];
+  scene.tiles = [];
+  installMenuCombat({}, combat, scene);
+  globalThis.canvas.app = { view: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 1000 }), width: 1000, height: 1000 } };
+  globalThis.canvas.stage = { worldTransform: { applyInverse: (pt) => ({ x: pt.x, y: pt.y }) } };
+  globalThis.canvas.scene = scene;
+  try {
+    // Cursor at marker padding ring: inside marker (196+68) but outside card (200,200,60,80) -> should NOT find card
+    const evt = { clientX: 197, clientY: 197, preventDefault() {}, stopPropagation() {} };
+    const handled = await mod.handleConflictContextMenu(markerDoc, evt);
+    assert.equal(handled, true);
+    const labels = dom.createdButtons.map((b) => b.innerHTML);
+    // Should NOT show card menu (no pass/return for c2), should show board menu (remove board)
+    assert.equal(labels.some((h) => h.includes("fate-on-the-table.conflict.card.passTurn")), false);
+    assert.equal(labels.some((h) => h.includes("fate-on-the-table.conflict.card.returnTurn")), false);
+    // Board-level outside field -> single "Remove board" entry
+    assert.ok(labels.some((h) => h.includes("fate-on-the-table.conflict.board.remove")), "padding ring must fall through to board menu");
+  } finally {
+    delete globalThis.PIXI;
+  }
+});

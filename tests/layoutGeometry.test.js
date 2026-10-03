@@ -234,7 +234,7 @@ test("default layout: full actor (4 skill rows, 3 FP tokens, 2 stress rows)", ()
   );
   assert.equal(bg.fillType, 1); // SOLID without a texture
   assert.equal(bg.fillColor, "#ffffff");
-  assert.equal(bg.elevation, -10);
+  assert.equal(bg.elevation, 0);
   assert.equal(bg.sort, -1000);
   const bounds = find("widgetBounds");
   assert.deepEqual(
@@ -601,7 +601,7 @@ test("minimal layout: an empty stress track name is skipped, boxes and bounds st
   assert.equal(bounds.sort, 1000);
   const bg = docs.find((d) => d.part === "widgetBackground");
   assert.ok(bg, "widgetBackground must be present");
-  assert.equal(bg.elevation, -10);
+  assert.equal(bg.elevation, 0);
   assert.equal(bg.sort, -1000);
   assert.equal(canvas.width, 659);
   assert.equal(canvas.height, 445);
@@ -676,7 +676,7 @@ test("whitespace-only rows/value text is invisible for Foundry v14; framed boxes
   assert.equal(bounds.sort, 1000);
   const bg = docs.find((d) => d.part === "widgetBackground");
   assert.ok(bg, "widgetBackground must be present");
-  assert.equal(bg.elevation, -10);
+  assert.equal(bg.elevation, 0);
   assert.equal(bg.sort, -1000);
   assert.equal(canvas.width, 659);
   assert.equal(canvas.height, 443);
@@ -868,7 +868,7 @@ test("minimal layout: consequence header renders above the cost rows (free + occ
   const partDocs = (part) => docs.filter((d) => d.part === part);
 
   // The header is a single value-mode Drawing at its provided rect, above the
-  // cost rows, on the base canvas layer (no above-bounds elevation).
+  // cost rows, just above the portrait tile (elevation 2) but below the grab frame.
   const header = partDocs("consequencesHeader");
   assert.equal(header.length, 1);
   assert.deepEqual(
@@ -878,7 +878,7 @@ test("minimal layout: consequence header renders above the cost rows (free + occ
   assert.equal(header[0].text, "Последствия");
   assert.equal(header[0].size, 16);
   assert.equal(header[0].align, "left");
-  assert.equal(header[0].elevation, 0);
+  assert.equal(header[0].elevation, 2);
   assert.equal(header[0].sort, 0);
 
   // One rows-mode Drawing per consequence slot, BELOW the header (y 330 >
@@ -990,7 +990,7 @@ test("minimal layout snapshot matches the provided layout-minimal.json geometry"
   assert.deepEqual(layout.canvas.origin, { x: -150, y: -200 });
   assert.deepEqual(layout.canvas.size, { width: 659, height: 450 });
   assert.deepEqual(layout.canvas.sizePolicy.minimum, { width: 659, height: 443 });
-  assert.equal(layout.background.layer.elevation, -10);
+  assert.equal(layout.background.layer.elevation, 0);
   assert.equal(layout.background.layer.sort, -1000);
   assert.deepEqual(layout.bounds.stroke, { width: 1, color: "#000000", alpha: 0.2 });
   assert.equal(layout.bounds.layer.elevation, 10);
@@ -1011,6 +1011,7 @@ test("minimal layout snapshot matches the provided layout-minimal.json geometry"
   assert.equal(stressNames.repeat.pitch, 64);
   assert.equal(stressNames.repeat.itemHeight, 24);
   assert.equal(stressNames.repeat.direction, "forward");
+  assert.equal(stressNames.layer.elevation, 2);
 
   // consequencesHeader x=418 y=290 width=210 height=20, above the cost rows.
   const consHeader = el("consequencesHeader");
@@ -1019,7 +1020,7 @@ test("minimal layout snapshot matches the provided layout-minimal.json geometry"
   assert.equal(consHeader.content.mode, "value");
   assert.equal(consHeader.style.fontSize, 16);
   assert.equal(consHeader.position, undefined);
-  assert.equal(consHeader.layer.elevation, 0);
+  assert.equal(consHeader.layer.elevation, 2);
 
   // consequenceCostRows x=377 y=330 width=260 height=20, pitch 40 below the
   // header, no anchorTo. The wider 260px block (right edge 637, inside the
@@ -1051,6 +1052,7 @@ test("minimal layout snapshot matches the provided layout-minimal.json geometry"
   assert.equal(short.content.resolver, "@shortAspects");
   assert.equal(short.content.mode, "value");
   assertRect("el_3i03bm", { x: 320, y: 100, width: 320, height: 120 });
+  assert.equal(short.layer.elevation, 2);
   assert.ok(
     !layout.elements.some((e) => e.content?.resolver === "@aspects"),
     "minimal must not keep a full @aspects element",
@@ -1095,4 +1097,102 @@ test("aspects content is top-aligned inside its block (not vertically centered)"
   // Scaled 2x: height doubles but remains content-based (72*2=144)
   const { aspects: scaled } = renderAspects("High Concept\n\nTrouble", 2);
   assert.equal(scaled.h, 144, "scaled aspects height is content height * scale");
+});
+
+test("service parts have non-negative elevation (regression for v13 PrimaryCanvasGroup)", () => {
+  for (const id of ["default", "minimal", "full"]) {
+    const layout = loadNormalized(id);
+    const { docs } = computeLayoutDocs(layout, resolvedData(), {
+      fatePointImage: "modules/fate-on-the-table/fp.png",
+      measureText: fastMeasureText,
+    });
+    for (const d of docs) {
+      assert.ok((d.elevation ?? 0) >= 0, `${id} doc ${d.part}#${d.index} elevation ${d.elevation} must be >=0`);
+    }
+  }
+  const legacyLayout = legacyToJson(legacyLayouts.default);
+  const { docs: legacyDocs } = computeLayoutDocs(legacyLayout, resolvedData(), {});
+  for (const d of legacyDocs) {
+    assert.ok((d.elevation ?? 0) >= 0, `legacy doc ${d.part}#${d.index} elevation ${d.elevation} must be >=0`);
+  }
+});
+
+test("all tile descriptors have non-negative elevation (regression for v13 tiles under background)", async () => {
+  const prevGame = globalThis.game;
+  const prevCONST = globalThis.CONST;
+  const prevFoundry = globalThis.foundry;
+  globalThis.game = { user: { id: "u1" }, i18n: { localize: (k) => k }, settings: { get: () => "" } };
+  globalThis.CONST = { DRAWING_TYPES: { RECTANGLE: 1 }, DRAWING_FILL_TYPES: { NONE: 0, SOLID: 1, PATTERN: 2 } };
+  globalThis.foundry = { data: { ShapeData: { TYPES: { RECTANGLE: 1 } } }, utils: { getProperty: (o, p) => p.split(".").reduce((a, k) => a?.[k], o) } };
+  const { buildTileRow, toDocumentData } = await import("../scripts/WidgetBuilder.js");
+  try {
+    // Ensure layout tiles (portrait, fatePointTokens) are on elevation >=1 (above background 0)
+    for (const id of ["default", "minimal", "full"]) {
+      const layout = loadNormalized(id);
+      const { docs } = computeLayoutDocs(layout, resolvedData(), {
+        fatePointImage: "modules/fate-on-the-table/fp.png",
+        measureText: fastMeasureText,
+      });
+      const tiles = docs.filter((d) => d.kind === "tile");
+      assert.ok(tiles.length > 0, `${id} must have at least one tile descriptor`);
+      for (const d of tiles) {
+        assert.ok((d.elevation ?? -1) >= 1, `${id} tile ${d.part}#${d.index} elevation ${d.elevation} must be >=1`);
+        // Tile on 1 must not be above interactive box texts (elevation 20 / sort 2000)
+        if (d.part === "portrait") {
+          assert.ok((d.sort ?? 0) < 2000, `${id} portrait sort ${d.sort} must be below box rows`);
+        }
+        // toDocumentData must preserve elevation >=1 / sort for Tile payloads
+        const payload = toDocumentData(d, { widgetId: "w1", part: d.part, index: d.index });
+        assert.ok((payload.elevation ?? -1) >= 1, `${id} tile payload elevation ${payload.elevation} must be >=1`);
+      }
+    }
+    // buildTileRow (GM fate point row) defaults to elevation 1
+    const row = buildTileRow({ part: "gmFatePointTokens", count: 3, src: "fp.png", x: 0, y: 0, w: 70, h: 70, step: 20 });
+    assert.equal(row.length, 3);
+    for (const d of row) {
+      assert.ok((d.elevation ?? -1) >= 1, `buildTileRow elevation ${d.elevation} must be >=1`);
+      assert.equal(d.elevation, 1);
+      assert.equal(d.sort, 0);
+      const payload = toDocumentData({ ...d, x: d.x, y: d.y }, { widgetId: "w1", part: d.part, index: d.index });
+      assert.equal(payload.elevation, 1);
+    }
+    // buildTileRow respects explicit positive elevation but clamps negatives to 1
+    const pos = buildTileRow({ part: "test", count: 1, src: "fp.png", x: 0, y: 0, w: 10, h: 10, elevation: 12, sort: 500 });
+    assert.equal(pos[0].elevation, 12);
+    assert.equal(pos[0].sort, 500);
+    const neg = buildTileRow({ part: "test", count: 1, src: "fp.png", x: 0, y: 0, w: 10, h: 10, elevation: -5, sort: -100 });
+    assert.equal(neg[0].elevation, 1, "negative elevation must be clamped to 1");
+    assert.equal(neg[0].sort, -100, "sort is preserved even for negative elevation clamp");
+
+    // Negative layer in JSON is clamped to 1 by layoutGeometry
+    const custom = {
+      scale: 1,
+      canvas: { sizePolicy: { mode: "fixed" }, size: { width: 200, height: 200 } },
+      background: { enabled: false },
+      bounds: { enabled: false },
+      elements: [
+        { id: "portrait", type: "tile", rect: { x: 0, y: 0, width: 100, height: 100 }, content: { resolver: "@portrait", mode: "image" }, layer: { elevation: -10, sort: -5 } },
+        { id: "tokens", type: "tileRow", rect: { x: 0, y: 0, width: 20, height: 20 }, content: { resolver: "@fatePointTokens", mode: "count" }, repeat: { axis: "x", direction: "forward", pitch: 20 }, layer: { elevation: -3, sort: 7 } },
+      ],
+    };
+    const { docs: customDocs } = computeLayoutDocs(custom, { portrait: "img.png", tokens: 2 }, { fatePointImage: "fp.png" });
+    for (const d of customDocs) {
+      assert.ok((d.elevation ?? -1) >= 1, `custom tile ${d.part} elevation ${d.elevation} must be >=1`);
+    }
+    assert.equal(customDocs.find((d) => d.part === "portrait").sort, -5, "sort preserved even when elevation clamped");
+    assert.equal(customDocs.find((d) => d.part === "tokens").sort, 7);
+    assert.equal(customDocs.find((d) => d.part === "portrait").elevation, 1);
+    assert.equal(customDocs.find((d) => d.part === "tokens").elevation, 1);
+
+    // Legacy layout portrait also on elevation >=1
+    const legacyLayout = legacyToJson(legacyLayouts.default);
+    const { docs: legacyDocs } = computeLayoutDocs(legacyLayout, resolvedData(), {});
+    for (const d of legacyDocs.filter((x) => x.kind === "tile")) {
+      assert.ok((d.elevation ?? -1) >= 1, `legacy tile ${d.part} elevation ${d.elevation} must be >=1`);
+    }
+  } finally {
+    if (prevGame !== undefined) globalThis.game = prevGame; else delete globalThis.game;
+    if (prevCONST !== undefined) globalThis.CONST = prevCONST; else delete globalThis.CONST;
+    if (prevFoundry !== undefined) globalThis.foundry = prevFoundry; else delete globalThis.foundry;
+  }
 });

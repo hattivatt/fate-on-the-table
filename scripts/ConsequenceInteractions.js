@@ -34,6 +34,21 @@ export const CONSEQUENCE_COST_ROWS_PART = "consequenceCostRows";
 
 const OWNER = globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 2;
 
+function canEditActor(actor) {
+  if (typeof game === "undefined" || !game?.user) return true;
+  if (game.user.isGM === true) return true;
+  try {
+    if (typeof actor?.testUserPermission === "function") {
+      if (actor.testUserPermission(game.user, OWNER)) return true;
+      if (actor.testUserPermission(game.user, "OWNER")) return true;
+      const alt = globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 3;
+      if (alt !== OWNER && actor.testUserPermission(game.user, alt)) return true;
+    }
+  } catch {}
+  if (actor?.isOwner) return true;
+  return false;
+}
+
 /**
  * True when a Drawing document is an editable consequence cost row:
  * part `consequenceCostRows` with a flat `index >= 0`. Recognized on
@@ -71,11 +86,11 @@ export async function handleConsequenceCostDoubleClick(document, event) {
   const resolved = await resolveActor(doc);
   const actor = resolved?.actor;
   if (!actor) return true;
-  if (!actor.testUserPermission?.(game.user, OWNER)) {
+  if (!canEditActor(actor)) {
     if (typeof ui !== "undefined") {
-      ui.notifications.warn(
-        game.i18n.localize("fate-on-the-table.consequence.notOwner"),
-      );
+      try {
+        ui.notifications.warn(game.i18n.localize("fate-on-the-table.consequence.notOwner"));
+      } catch {}
     }
     return true;
   }
@@ -185,6 +200,14 @@ async function resolveConflictCardActor(doc) {
  * @returns {Promise<void>}
  */
 async function writeConsequence(actor, token, trackKey, consequenceText) {
+  if (!canEditActor(actor)) {
+    if (typeof ui !== "undefined") {
+      try {
+        ui.notifications.warn(game.i18n.localize("fate-on-the-table.consequence.notOwner"));
+      } catch {}
+    }
+    return;
+  }
   const current = actor.system?.tracks?.[trackKey];
   const baseAspect =
     current?.aspect && typeof current.aspect === "object" && !Array.isArray(current.aspect)

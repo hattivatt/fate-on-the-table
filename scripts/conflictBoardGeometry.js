@@ -185,6 +185,14 @@ export function getConflictBoardGeometry(options = {}) {
   const bottomHostileW = totalW - (totalW / 2 + roundBoxW / 2);
   const bottomHostile = area(totalW / 2 + roundBoxW / 2, bottomY, bottomHostileW, bottomH);
 
+  // Invisible pile for eliminated cards, centered under roundBox, below the
+  // visible bottom strip. Does NOT affect `bounds`/visual board size.
+  const eliminatedGap = 10;
+  const eliminatedW = Math.min(totalW - 2 * SIDE_PADDING, 900);
+  const eliminatedX = totalW / 2 - eliminatedW / 2;
+  const eliminatedY = bottomY + bottomH + eliminatedGap;
+  const eliminatedArea = area(eliminatedX, eliminatedY, eliminatedW, bottomH);
+
   return {
     sizePreset: preset,
     boardSize,
@@ -196,6 +204,7 @@ export function getConflictBoardGeometry(options = {}) {
     bottomFriendly,
     bottomHostile,
     roundBox,
+    eliminatedArea,
     // deprecated aliases for backward compatibility (parallel schema agent / old callers)
     acted: bottomFriendly,
     eliminated: bottomHostile,
@@ -248,12 +257,82 @@ export function layoutConflictCards(geometry, state = {}) {
   const positions = {};
   const overflow = [];
   const groups = { friendly: [], hostile: [] };
+  const eliminatedItems = [];
 
   for (const [combatantId, record] of Object.entries(state.cards ?? {})) {
     if (!isObject(record)) continue;
+    if (record.eliminated === true) {
+      const sideName = record.side === "hostile" ? "hostile" : "friendly";
+      eliminatedItems.push({ combatantId, record, side: sideName });
+      continue;
+    }
     const sideName = record.side === "hostile" ? "hostile" : "friendly";
     if (!groups[sideName]) continue;
     groups[sideName].push({ combatantId, record, side: sideName });
+  }
+
+  // Eliminated pile: centered under roundBox, outside visible board bounds.
+  // Sorted by eliminatedAt asc (null at end, stable) with overlap PILE_OVERLAP.
+  if (eliminatedItems.length > 0) {
+    const elimArea = geometry?.eliminatedArea ?? null;
+    if (elimArea?.content) {
+      eliminatedItems.sort((a, b) => {
+        const aAt = Number.isInteger(a.record.eliminatedAt) && a.record.eliminatedAt >= 1 ? a.record.eliminatedAt : Infinity;
+        const bAt = Number.isInteger(b.record.eliminatedAt) && b.record.eliminatedAt >= 1 ? b.record.eliminatedAt : Infinity;
+        if (aAt !== bAt) return aAt - bAt;
+        return (a.record.order ?? 0) - (b.record.order ?? 0);
+      });
+      const wc = elimArea.cardWidth;
+      const hc = elimArea.cardHeight;
+      const contentX = elimArea.content.x;
+      const contentY = elimArea.content.y;
+      const W = elimArea.content.width;
+      const n = eliminatedItems.length;
+      let step = PILE_OVERLAP;
+      if (n > 1) {
+        const needed = wc + (n - 1) * PILE_OVERLAP;
+        if (needed > W) step = Math.max(0, (W - wc) / (n - 1));
+      } else {
+        step = 0;
+      }
+      const pileWidth = n === 1 ? wc : wc + (n - 1) * step;
+      const startX = contentX + Math.max(0, (W - pileWidth) / 2);
+      for (let i = 0; i < n; i++) {
+        const item = eliminatedItems[i];
+        const x = startX + i * step;
+        const y = contentY;
+        positions[item.combatantId] = {
+          x,
+          y,
+          width: wc,
+          height: hc,
+          area: "eliminated",
+          side: item.side,
+          order: item.record.order ?? 0,
+          eliminatedAt: item.record.eliminatedAt,
+        };
+      }
+    } else {
+      // Fallback for old geometry without eliminatedArea: keep at 0,0 but distinct
+      eliminatedItems.sort((a, b) => {
+        const aAt = Number.isInteger(a.record.eliminatedAt) && a.record.eliminatedAt >= 1 ? a.record.eliminatedAt : Infinity;
+        const bAt = Number.isInteger(b.record.eliminatedAt) && b.record.eliminatedAt >= 1 ? b.record.eliminatedAt : Infinity;
+        if (aAt !== bAt) return aAt - bAt;
+        return (a.record.order ?? 0) - (b.record.order ?? 0);
+      });
+      for (const item of eliminatedItems) {
+        positions[item.combatantId] = {
+          x: 0,
+          y: 0,
+          width: geometry?.card?.width ?? 220,
+          height: geometry?.card?.height ?? 150,
+          area: "eliminated",
+          side: item.side,
+          order: item.record.order ?? 0,
+          eliminatedAt: item.record.eliminatedAt,
+        };
+      }
+    }
   }
 
   const sides = ["friendly", "hostile"];

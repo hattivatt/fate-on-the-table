@@ -181,9 +181,11 @@
       area: "side",               // всегда "side" в v2
       order: 0,                   // integer >=0
       acted: true|undefined,      // true когда hasActed
-      eliminated: true|undefined  // зеркало combatant.defeated
+      eliminated: true|undefined, // зеркало combatant.defeated
+      eliminatedAt: 1|undefined   // порядок в куче выбывших, нарастает с eliminatedSeq
     }
   },
+  eliminatedSeq: 0|undefined,     // счётчик порядка выбытия, integer >=0
   tokenZones: {
     "Scene.<sceneId>.Token.<tokenId>": "zone-1"
   }
@@ -191,10 +193,15 @@
 ```
 
 - `acted`/`eliminated` — флаги; `area` не перемещается. `eliminated` зеркалит
-  `combatant.defeated` в обе стороны (синк трекера ↔ борда).
+  `combatant.defeated` в обе стороны (синк трекера ↔ борда), `eliminatedAt`/`eliminatedSeq`
+  задают порядок в общей куче выбывших (бэкфилл на первом синке).
 - Нижние боксы борда: `bottomFriendly`/`bottomHostile` (горизонтальная раскладка
   с pile-хвостом); бокс-разделитель с цифрой раунда; усиленная граница поля.
-  Карточки: acted-оверлей (посерение) и eliminated-перечёркивание (rotation ±45).
+  Выбывшие карточки убираются с поля в невидимую общую кучу `eliminatedArea`
+  прямо под цифрой раунда (центрирована под `roundBox`, ниже нижнего стрипа, с
+  перекрытием `PILE_OVERLAP` и сжатием шага при переполнении; последний выбывший
+  сверху по `sort = base + eliminatedAt*10`). Карточки: acted-оверлей (посерение)
+  и eliminated-перечёркивание (rotation ±45).
 - Меню карточки: «Выйти из боя» (`defeated+eliminated`), «Бросок» с подменю всех
   навыков (`rollSkill`). Даблклик сквозь маркер хода открывает чарник карточки
   (в т.ч. `unlinked`).

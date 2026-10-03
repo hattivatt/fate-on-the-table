@@ -171,6 +171,8 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
           w: rect.width * scale,
           h: rect.height * scale,
           src,
+          elevation: Math.max(1, el.layer?.elevation ?? 1),
+          sort: el.layer?.sort ?? 0,
         });
       }
     } else if (el.type === "tileRow") {
@@ -185,6 +187,8 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
           (options.fatePointStep ?? el.repeat?.pitch ?? rect.width) * scale;
         const axis = el.repeat?.axis ?? "x";
         const dir = el.repeat?.direction === "backward" ? -1 : 1;
+        const elevation = Math.max(1, el.layer?.elevation ?? 1);
+        const sort = el.layer?.sort ?? 0;
         for (let i = 0; i < count; i++) {
           list.push({
             kind: "tile",
@@ -195,6 +199,8 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
             w: tileSize,
             h: tileSize,
             src,
+            elevation,
+            sort,
             // Row coordinates are visible top-left coordinates. Keep the
             // texture anchor at the top-left as well; Foundry otherwise
             // centers the image.
@@ -488,7 +494,7 @@ export function computeLayoutDocs(layout, resolved, options = {}) {
         fillColor: fill.color ?? "#ffffff",
         fillAlpha: fill.alpha ?? 1,
         texture: texture || null,
-        elevation: bg?.layer?.elevation ?? -10,
+        elevation: bg?.layer?.elevation ?? 0,
         sort: bg?.layer?.sort ?? -1000,
         text: "",
       };

@@ -115,15 +115,12 @@ export async function handleStressBoxClick(doc, event) {
     const resolved = await resolveBoxActor(doc);
     const actor = resolved?.actor;
     if (!actor) return;
-    if (
-      !actor.testUserPermission?.(
-        game.user,
-        CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER,
-      )
-    ) {
-      ui.notifications.warn(
-        game.i18n.localize("fate-on-the-table.stressBoxes.notOwner"),
-      );
+    if (!canEditActor(actor)) {
+      if (typeof ui !== "undefined") {
+        try {
+          ui.notifications.warn(game.i18n.localize("fate-on-the-table.stressBoxes.notOwner"));
+        } catch {}
+      }
       return;
     }
     await toggleStressBox(actor, index, resolved?.token ?? null);
@@ -189,6 +186,26 @@ async function resolveConflictCardActor(doc) {
 }
 
 /**
+ * True when the current user may edit the actor (GM or OWNER). Node tests
+ * (no global `game`) are treated as allowed.
+ * @param {object} actor
+ * @returns {boolean}
+ */
+function canEditActor(actor) {
+  if (typeof game === "undefined" || !game?.user) return true;
+  if (game.user.isGM === true) return true;
+  try {
+    const level = globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 3;
+    if (typeof actor?.testUserPermission === "function") {
+      if (actor.testUserPermission(game.user, level)) return true;
+      if (actor.testUserPermission(game.user, "OWNER")) return true;
+    }
+  } catch {}
+  if (actor?.isOwner) return true;
+  return false;
+}
+
+/**
  * Toggles the checked state of a stress box on the actor.
  * @param {object} actor
  * @param {number} flatIndex  Flat box index (the drawing's `index` flag).
@@ -197,6 +214,14 @@ async function resolveConflictCardActor(doc) {
  * @returns {Promise<boolean>}  True when a box was toggled.
  */
 export async function toggleStressBox(actor, flatIndex, token = null) {
+  if (!canEditActor(actor)) {
+    if (typeof ui !== "undefined" && typeof game !== "undefined") {
+      try {
+        ui.notifications.warn(game.i18n.localize("fate-on-the-table.stressBoxes.notOwner"));
+      } catch {}
+    }
+    return false;
+  }
   const target = stressBoxTarget(actor, flatIndex);
   if (!target) return false;
   const tracks = foundry.utils.duplicate(actor.system.tracks);

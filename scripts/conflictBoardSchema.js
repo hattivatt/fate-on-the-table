@@ -1,6 +1,6 @@
 /**
  * conflictBoardSchema — validation and normalization of the conflict board
- * scene flag (schema v1) for feature 5 ("Розыгрыш конфликта на столе").
+ * scene flag (schema v2) for feature 5 ("Розыгрыш конфликта на столе").
  *
  * Persisted under `scene.flags["fate-on-the-table"].conflictBoard`. This
  * module is pure: no `game`, `canvas`, `CONFIG` or other Foundry runtime
@@ -257,6 +257,12 @@ export const analyzeConflictBoard = function analyzeConflictBoard(input) {
   if (doc.sizePreset !== undefined && !SIZE_PRESETS.includes(doc.sizePreset)) {
     err("$.sizePreset", `Expected one of: ${SIZE_PRESETS.join(", ")}.`);
   }
+  if (
+    doc.eliminatedSeq !== undefined &&
+    (typeof doc.eliminatedSeq !== "number" || !Number.isInteger(doc.eliminatedSeq) || doc.eliminatedSeq < 0)
+  ) {
+    warn("$.eliminatedSeq", "Expected an integer >= 0.");
+  }
   for (const key of Object.keys(doc)) {
     if (!TOP_LEVEL_KEYS.has(key)) warn(`$.${key}`, "Unknown field (kept as-is).");
   }
@@ -383,6 +389,12 @@ export const analyzeConflictBoard = function analyzeConflictBoard(input) {
       if (record.eliminated !== undefined && typeof record.eliminated !== "boolean") {
         warn(`${p}.eliminated`, "Expected a boolean.");
       }
+      if (
+        record.eliminatedAt !== undefined &&
+        (typeof record.eliminatedAt !== "number" || !Number.isInteger(record.eliminatedAt) || record.eliminatedAt < 1)
+      ) {
+        warn(`${p}.eliminatedAt`, "Expected an integer >= 1.");
+      }
     }
   }
 
@@ -419,10 +431,11 @@ const TOP_LEVEL_KEYS = new Set([
   "zones",
   "cards",
   "tokenZones",
+  "eliminatedSeq",
 ]);
 const BOARD_KEYS = new Set(["origin", "boardSize", "background"]);
 const ZONE_KEYS = new Set(["id", "name", "rect", "style", "sort"]);
-const CARD_RECORD_KEYS = new Set(["side", "area", "order", "acted", "eliminated"]);
+const CARD_RECORD_KEYS = new Set(["side", "area", "order", "acted", "eliminated", "eliminatedAt"]);
 
 function isObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -506,12 +519,22 @@ function normalizeDocument(input) {
     else delete next.acted;
     if (next.eliminated === true) next.eliminated = true;
     else delete next.eliminated;
+    // eliminatedAt: integer >=1, only when eliminated
+    if (next.eliminated === true && Number.isInteger(next.eliminatedAt) && next.eliminatedAt >= 1) {
+      next.eliminatedAt = next.eliminatedAt;
+    } else {
+      delete next.eliminatedAt;
+    }
     // ensure side/order are coerced even if ...record overwrote with invalid
     next.side = side;
     next.order = order;
     cards[combatantId] = next;
   }
   doc.cards = cards;
+
+  if (doc.eliminatedSeq !== undefined) {
+    if (!(Number.isInteger(doc.eliminatedSeq) && doc.eliminatedSeq >= 0)) delete doc.eliminatedSeq;
+  }
 
   if (!isObject(doc.tokenZones)) doc.tokenZones = {};
   return doc;
@@ -711,6 +734,33 @@ export function applyCombatTurnStateToCards(state, combatantStates = {}, options
   const cards = {};
   const changed = [];
   const currentId = options?.currentCombatantId ?? null;
+  let seq = Number.isInteger(state?.eliminatedSeq) && state.eliminatedSeq >= 0 ? state.eliminatedSeq : 0;
+  let seqChanged = false;
+  // Deterministic backfill: collect ids needing eliminatedAt before the main
+  // loop, sorted by `order` asc then combatantId. This makes the assigned
+  // sequence independent of Object.entries insertion order and keeps already
+  // valid eliminatedAt values untouched.
+  const backfillMap = new Map();
+  const candidates = [];
+  for (const [combatantId, record] of Object.entries(state?.cards ?? {})) {
+    if (!isObject(record)) continue;
+    const entry = combatantStates[combatantId];
+    if (entry == null || typeof entry !== "object") continue;
+    if (entry.defeated !== true) continue;
+    const oldAt = record.eliminatedAt;
+    if (Number.isInteger(oldAt) && oldAt >= 1) continue;
+    const ord = Number.isInteger(record.order) && record.order >= 0 ? record.order : 0;
+    candidates.push({ combatantId, order: ord });
+  }
+  candidates.sort((a, b) => {
+    if (a.order !== b.order) return a.order - b.order;
+    return a.combatantId < b.combatantId ? -1 : a.combatantId > b.combatantId ? 1 : 0;
+  });
+  for (const c of candidates) {
+    seq += 1;
+    seqChanged = true;
+    backfillMap.set(c.combatantId, seq);
+  }
   for (const [combatantId, record] of Object.entries(state?.cards ?? {})) {
     if (!isObject(record)) {
       cards[combatantId] = record;
@@ -733,6 +783,19 @@ export function applyCombatTurnStateToCards(state, combatantStates = {}, options
     const nextEliminated = defeated;
     const eliminatedChanged = oldEliminated !== nextEliminated;
 
+    const oldEliminatedAt = record.eliminatedAt;
+    let nextEliminatedAt = oldEliminatedAt;
+    let eliminatedAtChanged = false;
+    if (nextEliminated) {
+      if (!(Number.isInteger(oldEliminatedAt) && oldEliminatedAt >= 1)) {
+        nextEliminatedAt = backfillMap.get(combatantId);
+        eliminatedAtChanged = true;
+      }
+    } else if (oldEliminatedAt !== undefined) {
+      nextEliminatedAt = undefined;
+      eliminatedAtChanged = true;
+    }
+
     // (3)-(5) acted logic; defeated forces acted:false
     const isCurrent = currentId !== null && combatantId === currentId;
     let nextActed;
@@ -744,19 +807,70 @@ export function applyCombatTurnStateToCards(state, combatantStates = {}, options
     const actedChanged = oldActed !== nextActed;
     const areaChanged = record.area !== "side";
 
-    if (eliminatedChanged || actedChanged || areaChanged) {
+    if (eliminatedChanged || actedChanged || areaChanged || eliminatedAtChanged) {
       const nextRecord = { ...record, area: "side" };
       if (nextActed) nextRecord.acted = true;
       else delete nextRecord.acted;
       if (nextEliminated) nextRecord.eliminated = true;
       else delete nextRecord.eliminated;
-      if (eliminatedChanged || actedChanged) changed.push(combatantId);
+      if (nextEliminated) {
+        if (Number.isInteger(nextEliminatedAt) && nextEliminatedAt >= 1) nextRecord.eliminatedAt = nextEliminatedAt;
+        else delete nextRecord.eliminatedAt;
+      } else {
+        delete nextRecord.eliminatedAt;
+      }
+      if (eliminatedChanged || actedChanged || eliminatedAtChanged) changed.push(combatantId);
       cards[combatantId] = nextRecord;
     } else {
       cards[combatantId] = record;
     }
   }
-  return { state: { ...state, cards }, changed };
+  const nextState = { ...state, cards };
+  if (seqChanged) nextState.eliminatedSeq = seq;
+  else if (Number.isInteger(state?.eliminatedSeq) && state.eliminatedSeq >= 0) nextState.eliminatedSeq = state.eliminatedSeq;
+  // keep seq absent if never used and not present before
+  if (!seqChanged && (state?.eliminatedSeq === undefined || state?.eliminatedSeq === null)) {
+    delete nextState.eliminatedSeq;
+  }
+  return { state: nextState, changed };
+}
+
+/**
+ * Pure helper: next board state with `cards[combatantId].eliminated = true`
+ * and a deterministic `eliminatedAt` order number. Increments
+ * `state.eliminatedSeq` when a new eliminatedAt is needed and preserves
+ * existing order. Idempotent.
+ * @param {object|null} state
+ * @param {string} combatantId
+ * @returns {object|null}
+ */
+export function assignEliminatedAt(state, combatantId) {
+  if (!state || !combatantId) return state;
+  const rec = state.cards?.[combatantId];
+  if (!rec) return state;
+  const hasValidAt = Number.isInteger(rec.eliminatedAt) && rec.eliminatedAt >= 1;
+  if (rec.eliminated === true && hasValidAt) return state;
+  const seq = Number.isInteger(state.eliminatedSeq) && state.eliminatedSeq >= 0 ? state.eliminatedSeq : 0;
+  const nextSeq = seq + 1;
+  const nextRec = { ...rec, eliminated: true, eliminatedAt: nextSeq };
+  // acted is cleared for eliminated (mirrors apply logic)
+  if (nextRec.acted !== undefined) delete nextRec.acted;
+  return {
+    ...state,
+    eliminatedSeq: nextSeq,
+    cards: { ...state.cards, [combatantId]: nextRec },
+  };
+}
+
+/**
+ * Legacy alias for assignEliminatedAt — kept for backward compatibility
+ * and for the "Leave combat" menu path.
+ * @param {object|null} state
+ * @param {string} combatantId
+ * @returns {object|null}
+ */
+export function markEliminatedInState(state, combatantId) {
+  return assignEliminatedAt(state, combatantId);
 }
 
 /**

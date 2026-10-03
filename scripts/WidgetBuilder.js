@@ -567,6 +567,8 @@ export function buildTileRow({
   oy = 0,
   scale = 1,
   direction = "ltr",
+  elevation = 1,
+  sort = 0,
 }) {
   const docs = [];
   const n = Math.max(0, Number(count) || 0);
@@ -578,6 +580,8 @@ export function buildTileRow({
   const hScaled = h * scale;
   const dirX = direction === "rtl" ? -1 : direction === "ltr" ? 1 : 0;
   const dirY = direction === "ttb" ? 1 : direction === "btt" ? -1 : 0;
+  const elev = Math.max(1, Number.isFinite(Number(elevation)) ? Number(elevation) : 1);
+  const s = Number(sort) || 0;
   for (let i = 0; i < n; i++) {
     docs.push({
       kind: "tile",
@@ -588,6 +592,8 @@ export function buildTileRow({
       w: wScaled,
       h: hScaled,
       src,
+      elevation: elev,
+      sort: s,
       // Row coordinates are visible top-left coordinates. Keep the texture
       // anchor at the top-left as well; Foundry otherwise centers the image.
       textureAnchor: { x: 0, y: 0 },
@@ -683,6 +689,8 @@ export function toDocumentData(doc, flags) {
       y: Math.round(doc.y),
       width: Math.round(doc.w),
       height: Math.round(doc.h),
+      elevation: Math.max(1, doc.elevation ?? 1),
+      sort: doc.sort ?? 0,
       flags: { "fate-on-the-table": flags },
     };
   }

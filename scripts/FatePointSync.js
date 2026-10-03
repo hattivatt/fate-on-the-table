@@ -17,6 +17,7 @@ import {
   GM_FP_FRAME_PART,
   GM_OWNER_TYPE,
 } from "./constants.js";
+import { existingDocumentIds, safeDeleteEmbeddedDocuments } from "./utils.js";
 
 const TILE_FIELDS = [
   "x",
@@ -26,6 +27,8 @@ const TILE_FIELDS = [
   "texture.src",
   "texture.anchorX",
   "texture.anchorY",
+  "elevation",
+  "sort",
 ];
 
 const FRAME_FIELDS = [
@@ -161,6 +164,7 @@ export function buildGmRowDocs() {
     h: opts.fatePointTileSize,
     step: opts.fatePointStep,
     direction: opts.gmFatePointDirection,
+    elevation: 1,
   });
 }
 
@@ -181,6 +185,7 @@ export function buildGmRowDocs() {
  * @returns {Promise<boolean>}  True when the scene has a live box.
  */
 export async function syncGmFatePointRow(scene = canvas?.scene) {
+  if (typeof game !== "undefined" && game?.user?.isGM === false) return false;
   if (!scene) return false;
   const gm = activeGm();
   if (!gm) {
@@ -246,11 +251,7 @@ export async function syncGmFatePointRow(scene = canvas?.scene) {
   //    stays, the box remains visible.
   if (!src) {
     if (existingTiles.length) {
-      await scene.deleteEmbeddedDocuments(
-        "Tile",
-        existingTiles.map((t) => t.id),
-        { fateOnTheTableSync: true },
-      );
+      await safeDeleteEmbeddedDocuments(scene, "Tile", existingDocumentIds(scene, "Tile", existingTiles.map((t) => t.id)), { fateOnTheTableSync: true });
     }
     return true;
   }
@@ -258,11 +259,7 @@ export async function syncGmFatePointRow(scene = canvas?.scene) {
   // 3. Zero is a normal state: keep registry + anchor + frame, no tiles.
   if (count === 0) {
     if (existingTiles.length) {
-      await scene.deleteEmbeddedDocuments(
-        "Tile",
-        existingTiles.map((t) => t.id),
-        { fateOnTheTableSync: true },
-      );
+      await safeDeleteEmbeddedDocuments(scene, "Tile", existingDocumentIds(scene, "Tile", existingTiles.map((t) => t.id)), { fateOnTheTableSync: true });
     }
     return true;
   }
@@ -314,11 +311,7 @@ export async function syncGmFatePointRow(scene = canvas?.scene) {
     await scene.updateEmbeddedDocuments("Tile", updates, syncOptions);
   }
   if (extras.length) {
-    await scene.deleteEmbeddedDocuments(
-      "Tile",
-      extras.map((t) => t.id),
-      syncOptions,
-    );
+    await safeDeleteEmbeddedDocuments(scene, "Tile", existingDocumentIds(scene, "Tile", extras.map((t) => t.id)), syncOptions);
   }
   if (creations.length) {
     await scene.createEmbeddedDocuments("Tile", creations);
@@ -340,11 +333,11 @@ export async function removeGmFatePointRow(scene = canvas?.scene) {
     const drawIds = gmRowFrame(scene, registry.widgetId).map((d) => d.id);
     const tileIds = gmRowTiles(scene, registry.widgetId).map((t) => t.id);
     if (drawIds.length) {
-      await scene.deleteEmbeddedDocuments("Drawing", drawIds, { fateOnTheTableSync: true });
+      await safeDeleteEmbeddedDocuments(scene, "Drawing", existingDocumentIds(scene, "Drawing", drawIds), { fateOnTheTableSync: true });
       removed += drawIds.length;
     }
     if (tileIds.length) {
-      await scene.deleteEmbeddedDocuments("Tile", tileIds, { fateOnTheTableSync: true });
+      await safeDeleteEmbeddedDocuments(scene, "Tile", existingDocumentIds(scene, "Tile", tileIds), { fateOnTheTableSync: true });
       removed += tileIds.length;
     }
     await scene.unsetFlag(FLAG_SCOPE, GM_FP_WIDGET_FLAG);

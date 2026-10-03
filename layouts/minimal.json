@@ -38,7 +38,7 @@
       "whenEmpty": "fill"
     },
     "layer": {
-      "elevation": -10,
+      "elevation": 0,
       "sort": -1000
     }
   },
@@ -120,7 +120,7 @@
         }
       },
       "layer": {
-        "elevation": 0,
+        "elevation": 1,
         "sort": 0
       }
     },
@@ -196,7 +196,7 @@
         }
       },
       "layer": {
-        "elevation": 0,
+        "elevation": 2,
         "sort": 0
       }
     },
@@ -272,7 +272,7 @@
         }
       },
       "layer": {
-        "elevation": 0,
+        "elevation": 2,
         "sort": 0
       }
     },
@@ -349,7 +349,7 @@
         }
       },
       "layer": {
-        "elevation": 0,
+        "elevation": 2,
         "sort": 0
       }
     }

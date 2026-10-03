@@ -77,14 +77,21 @@ import {
 } from "./conflictUi.js";
 import { pickNewName } from "./nameGenerator.js";
 import {
+  NAME_GEN_LANGUAGES,
   resolveLanguage,
   loadNameGenDict,
+  getCachedNameGenDict,
+  preloadNameGenDicts,
+  resolveNameGenLanguageKeys,
 } from "./nameGenLanguages.js";
 import {
   isNameGenEnabled,
   getNameGenOptions,
 } from "./settings.js";
 import { correctedAlias } from "./chatSpeaker.js";
+
+// Track warned cache-miss languages to avoid spam
+const warnedMissingDictLangs = new Set();
 
 // Canvas interaction patches must be applied on every module load (page
 // reloads included), so this runs at top level — not inside a one-shot hook.
@@ -95,32 +102,32 @@ console.log("[fate-on-the-table] module loaded");
 
 // Random token name generation for unlinked tokens (adapted from Token Mold — trigram model).
 // Pure logic lives in nameGenerator.js / nameGenLanguages.js; this hook only wires Foundry.
-Hooks.on("preCreateToken", async (tokenDoc, data) => {
+// NOTE: handler must be SYNC — Foundry does not await async preCreate* handlers.
+// Dicts are preloaded on `ready`; on cache-miss we warm the cache for next token.
+Hooks.on("preCreateToken", (tokenDoc, data) => {
   try {
     if (typeof game !== "undefined" && game?.user?.isGM === false) return;
     if (!isNameGenEnabled()) return;
-    const doc = tokenDoc ?? data;
     // In preCreateToken the TokenDocument has `actorLink`; creation data may also carry it.
     const actorLink =
       tokenDoc?.actorLink ?? tokenDoc?.getFlag?.("fate-on-the-table", "actorLink") ?? data?.actorLink;
     // Only unlinked tokens (actorLink === false). Linked tokens keep their actor name.
-    // When actorLink is undefined (no actor) we treat as unlinked? But spec says strictly === false.
-    if (actorLink !== false) {
-      // Fallback: if both are undefined, the token has no actor — skip to avoid naming actor-less tokens.
-      // However Foundry typically sets actorLink explicitly; we obey strict false check.
-      return;
-    }
+    if (actorLink !== false) return;
     const opts = getNameGenOptions();
-    const langKey = resolveLanguage(opts.language);
-    let dict = null;
-    try {
-      dict = await loadNameGenDict(langKey);
-    } catch (err) {
-      console.warn("[fate-on-the-table] name dict load failed:", err);
-      return;
+    let langKey;
+    if (opts.language === "random") {
+      const keys = Object.keys(NAME_GEN_LANGUAGES);
+      langKey = keys[Math.floor(Math.random() * keys.length)];
+    } else {
+      langKey = resolveLanguage(opts.language);
     }
+    const dict = getCachedNameGenDict(langKey);
     if (!dict) {
-      console.warn("[fate-on-the-table] name dict not available for", langKey);
+      void loadNameGenDict(langKey).catch(() => {});
+      if (!warnedMissingDictLangs.has(langKey)) {
+        warnedMissingDictLangs.add(langKey);
+        console.warn(`[fate-on-the-table] name dict not cached for "${langKey}" — will use default name, warming cache for next token`);
+      }
       return;
     }
     let newName = "";
@@ -316,6 +323,19 @@ Hooks.once("ready", () => {
     initSheetButton();
   } catch (err) {
     console.error("[fate-on-the-table] failed to init sheet button:", err);
+  }
+  // Preload name generation dicts (fire-and-forget) — ensures the first
+  // unlinked token after F5 gets a generated name synchronously.
+  try {
+    if (isNameGenEnabled()) {
+      const opts = getNameGenOptions();
+      const keys = resolveNameGenLanguageKeys(opts);
+      void preloadNameGenDicts(keys).catch((err) =>
+        console.warn("[fate-on-the-table] name dict preload failed:", err),
+      );
+    }
+  } catch (err) {
+    console.warn("[fate-on-the-table] name dict preload check failed:", err);
   }
   initWidgetDrag();
   Hooks.on("updateActor", scheduleActorSync);
@@ -683,6 +703,7 @@ function combatIdOfCombatant(combatant) {
 
 /** Combat document updated (turn/round/started): re-project the board. */
 function onUpdateCombat(combat, changed, options) {
+  if (typeof game !== "undefined" && game?.user?.isGM === false) return;
   if (options?.fateOnTheTableSync) return;
   if (combatDeleteInProgress) return;
   if (!combat?.id || !hasActiveBoardForCombat(combat.id)) return;
@@ -697,6 +718,7 @@ function onUpdateCombat(combat, changed, options) {
 
 /** Combatant updated (hasActed, sort, flags): re-project the board. */
 function onUpdateCombatant(combatant, changed, options) {
+  if (typeof game !== "undefined" && game?.user?.isGM === false) return;
   if (options?.fateOnTheTableSync) return;
   if (combatDeleteInProgress) return;
   const combatId = combatIdOfCombatant(combatant);
@@ -727,6 +749,7 @@ function onUpdateCombatant(combatant, changed, options) {
  *   `fateOnTheTableSync` marker from other module writes).
  */
 function onCreateCombatant(combatant, options) {
+  if (typeof game !== "undefined" && game?.user?.isGM === false) return;
   if (options?.fateOnTheTableSync) return;
   if (combatDeleteInProgress) return;
   const combatId = combatIdOfCombatant(combatant);
@@ -854,6 +877,7 @@ export async function maybeEnableTurnMarkersForCombat(scene, combat) {
 
 /** Combatant removed: prune its orphan card/zone projections (module-owned). */
 function onDeleteCombatant(combatant, options) {
+  if (typeof game !== "undefined" && game?.user?.isGM === false) return;
   if (options?.fateOnTheTableSync) return;
   if (combatDeleteInProgress) return;
   const combatId = combatIdOfCombatant(combatant);
