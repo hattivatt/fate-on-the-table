@@ -20,12 +20,28 @@
  * is re-projected by the existing updateActor/updateToken hooks.
  */
 
-import { FLAG_SCOPE, CONFLICT_CARD_OWNER_TYPE } from "./constants.js";
+import {
+  FLAG_SCOPE,
+  CONFLICT_CARD_OWNER_TYPE,
+  STRESS_BOX_PART,
+} from "./constants.js";
+import { isStressBoxWidget } from "./widgetInteractionRouter.js";
 import { stressBoxTarget } from "./WidgetBuilder.js";
 
-export const STRESS_BOX_PART = "stressBoxRows";
+export { STRESS_BOX_PART };
 
 let interactionsPatched = false;
+
+/**
+ * Resolves the Foundry v14 canvas placeable classes from
+ * `foundry.canvas.placeables`. Returns `null` under Node (no `foundry`), so
+ * callers can bail out and prototype patching is skipped.
+ * @returns {{Drawing?: Function, Tile?: Function, Token?: Function}|null}
+ */
+function resolvePlaceables() {
+  if (typeof foundry === "undefined") return null;
+  return foundry.canvas?.placeables ?? null;
+}
 
 /**
  * Patches Drawing#_onClickLeft. Runs at module load (top level), so it
@@ -37,7 +53,10 @@ let interactionsPatched = false;
 export function initStressBoxInteractions() {
   if (interactionsPatched) return;
   interactionsPatched = true;
-  if (typeof Drawing === "undefined") return;
+  // Foundry v14: resolve the placeable class from the namespace (the bare
+  // `Drawing` global is deprecated, removed in v15). Under Node this is null.
+  const { Drawing } = resolvePlaceables() ?? {};
+  if (!Drawing) return;
   const proto = Drawing.prototype;
   if (proto.__fateOnTheTableStressClick) return;
   proto.__fateOnTheTableStressClick = true;
@@ -66,17 +85,7 @@ export function initStressBoxInteractions() {
  * @returns {boolean}
  */
 export function isBoxDrawing(doc) {
-  const part = doc?.getFlag?.(FLAG_SCOPE, "part");
-  if (part !== STRESS_BOX_PART) return false;
-  const index = Number(doc.getFlag?.(FLAG_SCOPE, "index") ?? -1);
-  if (!Number.isInteger(index) || index < 0) return false;
-  const ownerType = doc?.getFlag?.(FLAG_SCOPE, "ownerType");
-  if (ownerType === CONFLICT_CARD_OWNER_TYPE) {
-    // Only the stress box rows of a conflict card toggle on a single click;
-    // the consequence cost rows are double-click text input.
-    return true;
-  }
-  return !!doc?.getFlag?.(FLAG_SCOPE, "actorUuid");
+  return isStressBoxWidget(doc);
 }
 
 /**

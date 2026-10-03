@@ -363,6 +363,13 @@ Hooks.once("ready", () => {
     // ConflictInteractions/ConflictZoneEditor). Players get the read-only
     // interactions (sheets, no GM menus); GM-only paths are gated internally.
     registerConflictInteractions();
+    // First-scene DOM click fallback: Foundry fires the very first
+    // `canvasReady` BEFORE `ready`, so the hook subscription in `onCanvasReady`
+    // misses it and the widget listeners would only attach after a scene
+    // switch. Mirror ConflictInteractions' eager attach here on the already
+    // present view; the idempotent `dataset.cttClickFallback` guard keeps the
+    // later `canvasReady` subscription safe (needed for every next scene).
+    if (canvas?.app?.view) initCanvasClickFallback();
     injectConflictManager(ConflictManager);
     Hooks.on("renderCombatTracker", onRenderCombatTracker);
     Hooks.on("updateCombat", onUpdateCombat);

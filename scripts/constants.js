@@ -49,3 +49,8 @@ export const CONFLICT_ROUND_NUMBER_PART = "conflictRoundNumber";
 
 // QoL — auto-enable of TokenDocument.turnMarker for combat on an active board.
 export const TURN_MARKER_SETTING = "autoTurnMarker";
+
+// Interactive widget part names shared by the pure interaction router and the
+// per-feature handlers (single source of truth, avoids literal drift).
+export const STRESS_BOX_PART = "stressBoxRows";
+export const CONSEQUENCE_COST_ROWS_PART = "consequenceCostRows";

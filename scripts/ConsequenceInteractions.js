@@ -20,7 +20,7 @@
  * FatePointManager call `handleConsequenceCostDoubleClick` first.
  */
 
-import { FLAG_SCOPE, CONFLICT_CARD_OWNER_TYPE } from "./constants.js";
+import { FLAG_SCOPE, CONFLICT_CARD_OWNER_TYPE, CONSEQUENCE_COST_ROWS_PART } from "./constants.js";
 import {
   SITUATION_ASPECTS_SCOPE,
   SITUATION_ASPECTS_KEY,
@@ -29,8 +29,9 @@ import { consequenceCostTarget } from "./WidgetBuilder.js";
 import { syncConflictBoard } from "./ConflictBoardSync.js";
 import { buildConsequenceMeta } from "./situationAspectConsequences.js";
 import { escapeHtml, dialogField, toArray } from "./utils.js";
+import { isConsequenceCostWidget } from "./widgetInteractionRouter.js";
 
-export const CONSEQUENCE_COST_ROWS_PART = "consequenceCostRows";
+export { CONSEQUENCE_COST_ROWS_PART };
 
 const OWNER = globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 2;
 
@@ -58,14 +59,7 @@ function canEditActor(actor) {
  * @returns {boolean}
  */
 export function isConsequenceCostPart(doc) {
-  const d = doc?.document ?? doc;
-  if (!d?.getFlag) return false;
-  if (d.getFlag(FLAG_SCOPE, "part") !== CONSEQUENCE_COST_ROWS_PART) return false;
-  const index = Number(d.getFlag(FLAG_SCOPE, "index") ?? -1);
-  if (!Number.isInteger(index) || index < 0) return false;
-  const ownerType = d.getFlag(FLAG_SCOPE, "ownerType");
-  if (ownerType === CONFLICT_CARD_OWNER_TYPE) return true;
-  return !!d.getFlag(FLAG_SCOPE, "actorUuid");
+  return isConsequenceCostWidget(doc);
 }
 
 /**

@@ -46,21 +46,22 @@ import {
   SITUATION_ASPECTS_KEY,
 } from "./constants.js";
 import {
-  isConflictDocument,
-  isTurnMarkerDocument,
   handleConflictDocumentDoubleClick,
   handleConflictContextMenu,
   hitTestConflictPart,
-  findTopConflictCardDocAtPoint,
+  buildSkillMenuItems,
+  buildStuntMenuItems,
   CONFLICT_OWNER_PRIORITY,
 } from "./ConflictInteractions.js";
-import { isStressBoxDrawing, handleStressBoxClick } from "./StressBoxes.js";
-import {
-  isConsequenceCostPart,
-  handleConsequenceCostDoubleClick,
-} from "./ConsequenceInteractions.js";
+import { handleStressBoxClick } from "./StressBoxes.js";
+import { handleConsequenceCostDoubleClick } from "./ConsequenceInteractions.js";
 import { escapeHtml, canvasWorldPosition } from "./utils.js";
 import { showCttMenu, closeCttMenu, getActiveMenu } from "./menu.js";
+import {
+  WIDGET_ROUTE,
+  WIDGET_EVENT_KINDS,
+  resolveWidgetRoute,
+} from "./widgetInteractionRouter.js";
 
 const OWNER = CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
 const LIMITED = CONST.DOCUMENT_OWNERSHIP_LEVELS.LIMITED;
@@ -157,6 +158,17 @@ class FatePointManagerDialog extends foundry.applications.api.ApplicationV2 {
 let interactionsPatched = false;
 
 /**
+ * Resolves the Foundry v14 canvas placeable classes from
+ * `foundry.canvas.placeables`. Returns `null` under Node (no `foundry`), so
+ * callers can bail out and prototype patching is skipped.
+ * @returns {{Drawing?: Function, Tile?: Function, Token?: Function}|null}
+ */
+function resolvePlaceables() {
+  if (typeof foundry === "undefined") return null;
+  return foundry.canvas?.placeables ?? null;
+}
+
+/**
  * Canvas interactions for fate-on-the-table widgets:
  * - double-click on a GM fate point box (or its tokens) opens the Fate Point
  *   Manager; double-click on the situation aspects widget opens its manager;
@@ -169,7 +181,12 @@ let interactionsPatched = false;
 export function initWidgetInteractions() {
   if (interactionsPatched) return;
   interactionsPatched = true;
-  if (typeof Drawing === "undefined" || typeof Tile === "undefined") return;
+  // Foundry v14 moved the placeable classes under `foundry.canvas.placeables`;
+  // the bare `Drawing`/`Tile` globals are deprecated (removed in v15). Resolve
+  // at init time (never at import time) and bail out under Node, where
+  // `foundry` is absent.
+  const { Drawing, Tile } = resolvePlaceables() ?? {};
+  if (!Drawing || !Tile) return;
   patchDoubleClick(Drawing.prototype);
   patchDoubleClick(Tile.prototype);
   patchRightClick(Drawing.prototype);
@@ -189,115 +206,62 @@ function patchDoubleClick(proto) {
     if (!widgetId) {
       return original?.call(this, event);
     }
-    const ownerType = doc?.getFlag?.(FLAG_SCOPE, "ownerType");
-    if (ownerType === GM_OWNER_TYPE) {
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
-      FatePointManager.open();
-      return;
+    // The shared router decides the exact handler; when it does not claim the
+    // event (foreign widget shape) the native flow is untouched.
+    const route = resolveWidgetRoute(doc, WIDGET_EVENT_KINDS.DOUBLE_CLICK);
+    if (route === WIDGET_ROUTE.NONE) {
+      return original?.call(this, event);
     }
-    if (ownerType === SA_OWNER_TYPE) {
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
-      SituationAspectManager.open();
-      return;
-    }
-    // Consequence cost rows edit the consequence on double-click; this MUST
-    // run before the general conflict-card / actor-widget sheet open.
-    if (isConsequenceCostPart(doc)) {
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
-      handleConsequenceCostDoubleClick(doc, event);
-      return;
-    }
-    if (isConflictDocument(doc)) {
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
-      handleConflictDocumentDoubleClick(doc, event);
-      return;
-    }
-    const actorUuid = doc?.getFlag?.(FLAG_SCOPE, "actorUuid");
-    if (actorUuid) {
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
-      try {
-        const actor = await fromUuid(actorUuid);
-        if (
-          actor?.testUserPermission?.(game.user, LIMITED)
-        ) {
-          actor.sheet.render(true);
-        }
-      } catch (err) {
-        console.warn("[fate-on-the-table] actor sheet open failed:", err);
-      }
-      return;
-    }
-    return original?.call(this, event);
+    return routeWidgetInteractions({
+      doc,
+      event,
+      kind: WIDGET_EVENT_KINDS.DOUBLE_CLICK,
+      source: "pixi",
+    });
   };
 }
 
 /**
- * Right-click on an actor widget part opens the module's own menu
- * (give/take fate points, remove widget). The menu is GM-only; for other
- * users the standard config behaviour is suppressed on widget parts.
+ * Right-click routing for module widget parts on the ACTIVE layer. Delegates
+ * to the same shared router as the DOM fallback:
+ * - conflict documents -> owner-aware conflict menu;
+ * - situation aspects (GM only) -> per-aspect / widget menu;
+ * - actor widget parts -> owner-aware menu (GM give/take/remove, actor owner's
+ *   "Roll Skill" submenu, everyone else consumed without a menu).
+ * Anything else falls through to the native behaviour.
  */
 function patchRightClick(proto) {
   if (proto.__fateOnTheTableRightClick) return;
   proto.__fateOnTheTableRightClick = true;
   const original = proto._onClickRight;
   const original2 = proto._onClickRight2;
-  const handler = function (event) {
+  proto._onClickRight = function (event) {
     const doc = this.document ?? this;
-    if (isConflictDocument(doc)) {
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
-      handleConflictContextMenu(doc, event);
-      return;
+    const route = resolveWidgetRoute(doc, WIDGET_EVENT_KINDS.CONTEXT_MENU);
+    if (route === WIDGET_ROUTE.NONE) return original?.call(this, event);
+    // The situation aspects menu stays GM-only; a player keeps the native
+    // behaviour (no module menu is offered).
+    if (route === WIDGET_ROUTE.SA && !isGMUser()) {
+      return original?.call(this, event);
     }
-    // GM right-click on the situation aspects widget: aspect row under the
-    // cursor gets the per-aspect menu, any other part of the widget the
-    // widget menu. Non-GM users keep the native behaviour.
-    if (
-      doc?.getFlag?.(FLAG_SCOPE, "ownerType") === SA_OWNER_TYPE &&
-      game.user.isGM
-    ) {
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
-      handleSaContextMenu(doc, event);
-      return;
-    }
-    if (doc?.getFlag?.(FLAG_SCOPE, "actorUuid")) {
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
-      if (game.user.isGM) openWidgetMenu(event, doc);
-      return;
-    }
-    return original?.call(this, event);
+    return routeWidgetInteractions({
+      doc,
+      event,
+      kind: WIDGET_EVENT_KINDS.CONTEXT_MENU,
+      source: "pixi",
+    });
   };
-  proto._onClickRight = handler;
   proto._onClickRight2 = function (event) {
     const doc = this.document ?? this;
-    if (isConflictDocument(doc)) {
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
-      return;
-    }
-    // Second right-click must not fall through to the native config sheet
+    const route = resolveWidgetRoute(doc, WIDGET_EVENT_KINDS.CONTEXT_MENU);
+    if (route === WIDGET_ROUTE.NONE) return original2?.call(this, event);
+    // The second right-click must not fall through to the native config sheet
     // when the first one was answered with a module menu.
-    if (
-      doc?.getFlag?.(FLAG_SCOPE, "ownerType") === SA_OWNER_TYPE &&
-      game.user.isGM
-    ) {
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
-      return;
+    if (route === WIDGET_ROUTE.SA && !isGMUser()) {
+      return original2?.call(this, event);
     }
-    if (doc?.getFlag?.(FLAG_SCOPE, "actorUuid")) {
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
-      return;
-    }
-    return original2?.call(this, event);
+    consumeEvent(event);
+    return true;
   };
 }
 
@@ -412,6 +376,182 @@ function openWidgetMenu(event, doc) {
     });
   }
   openModuleMenu(items, event);
+}
+
+/**
+ * Owner-aware right-click router for an actor widget part.
+ *
+ * - GM: the full give/take/remove-widget menu (unchanged).
+ * - Non-GM user who owns the widget's actor: a single "Roll Skill" submenu
+ *   built from `buildStuntMenuItems(actor)` (stunts first, `fa-bolt`) followed
+ *   by a separator and `buildSkillMenuItems(actor)` (skills, `fa-dice-d20`).
+ *   When the actor exposes neither stunts nor skills no menu is shown — the
+ *   event is simply consumed.
+ * - Everybody else: event consumed with no menu.
+ * @param {Event|null} event  Pointer event.
+ * @param {object} doc  Drawing/Tile document with the actor-widget flags.
+ */
+function handleActorWidgetContextMenu(event, doc) {
+  const actorUuid = doc?.getFlag?.(FLAG_SCOPE, "actorUuid");
+  if (!actorUuid) return;
+  if (game.user.isGM) {
+    openWidgetMenu(event, doc);
+    return;
+  }
+  let actor = null;
+  try {
+    actor = fromUuidSync(actorUuid);
+  } catch (err) {
+    actor = null;
+  }
+  if (!actor || !canEditActor(actor)) return; // consume, no menu
+  // Stunts first, then a separator (only when both sections are non-empty),
+  // then skills. `menu.js` renders `sep` items at any nesting level.
+  const stuntChildren = buildStuntMenuItems(actor);
+  const skillChildren = buildSkillMenuItems(actor);
+  const children = [...stuntChildren];
+  if (skillChildren.length) {
+    if (children.length) children.push({ sep: true, label: "", icon: "" });
+    children.push(...skillChildren);
+  }
+  if (!children.length) return; // nothing to offer — consume without a menu
+  openModuleMenu(
+    [{ icon: "fa-dice", label: ctxT("rollSkill"), children }],
+    event,
+  );
+}
+
+/* --- Shared interaction router (PIXI patches + DOM fallback) --- */
+
+/** True when the current user is the GM (safe under Node). */
+function isGMUser() {
+  return typeof game !== "undefined" && game?.user?.isGM === true;
+}
+
+/** Prevents the native Foundry/browser handling of a consumed event. */
+function consumeEvent(event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+}
+
+/**
+ * Opens the character sheet of an actor widget's actor (permission-gated).
+ * @param {object} doc  Drawing/Tile document with an `actorUuid` flag.
+ */
+async function openActorWidgetSheet(doc) {
+  const actorUuid = doc?.getFlag?.(FLAG_SCOPE, "actorUuid");
+  if (!actorUuid) return;
+  try {
+    const actor = await fromUuid(actorUuid);
+    if (actor?.testUserPermission?.(game.user, LIMITED)) {
+      actor.sheet.render(true);
+    }
+  } catch (err) {
+    console.warn("[fate-on-the-table] actor sheet open failed:", err);
+  }
+}
+
+/**
+ * Single Foundry-glue dispatcher for every module widget interaction. Both the
+ * PIXI placeable patches (active layer) and the DOM canvas fallback (any layer)
+ * call this, so a widget always answers with the same handler regardless of
+ * which path reached it. The routing DECISION is pure
+ * (`resolveWidgetRoute` in widgetInteractionRouter.js); this function only
+ * executes it.
+ *
+ * Returns true when the event was consumed by a module handler; false means
+ * the caller must leave the event to Foundry's native flow.
+ *
+ * @param {object} input
+ * @param {object} input.doc  Drawing/Tile document (or placeable).
+ * @param {Event|null} [input.event]  Pointer/context event.
+ * @param {string} input.kind  One of `WIDGET_EVENT_KINDS`.
+ * @param {"pixi"|"dom"} [input.source]  Caller, for diagnostics only.
+ * @returns {Promise<boolean>}
+ */
+export async function routeWidgetInteractions({
+  doc,
+  event = null,
+  kind,
+  source = "dom",
+} = {}) {
+  const route = resolveWidgetRoute(doc, kind);
+
+  switch (route) {
+    case WIDGET_ROUTE.CONFLICT:
+      // Conflict handlers consume the event themselves and cover the turn
+      // marker overlay (they resolve the underlying card).
+      if (kind === WIDGET_EVENT_KINDS.CONTEXT_MENU) {
+        await handleConflictContextMenu(doc, event);
+        return true;
+      }
+      if (kind === WIDGET_EVENT_KINDS.DOUBLE_CLICK) {
+        await handleConflictDocumentDoubleClick(doc, event);
+        return true;
+      }
+      return false;
+
+    case WIDGET_ROUTE.GM_ROW:
+      if (kind === WIDGET_EVENT_KINDS.DOUBLE_CLICK) {
+        consumeEvent(event);
+        FatePointManager.open();
+        return true;
+      }
+      // Right-click on the GM row keeps the native behaviour (no module menu).
+      return false;
+
+    case WIDGET_ROUTE.SA:
+      if (kind === WIDGET_EVENT_KINDS.DOUBLE_CLICK) {
+        consumeEvent(event);
+        SituationAspectManager.open();
+        return true;
+      }
+      if (kind === WIDGET_EVENT_KINDS.CONTEXT_MENU) {
+        if (!isGMUser()) return false; // GM-only, players keep native
+        consumeEvent(event);
+        handleSaContextMenu(doc, event);
+        return true;
+      }
+      return false;
+
+    case WIDGET_ROUTE.CONSEQUENCE:
+      if (kind === WIDGET_EVENT_KINDS.DOUBLE_CLICK) {
+        consumeEvent(event);
+        await handleConsequenceCostDoubleClick(doc, event);
+        return true;
+      }
+      return false;
+
+    case WIDGET_ROUTE.ACTOR:
+      if (kind === WIDGET_EVENT_KINDS.CONTEXT_MENU) {
+        consumeEvent(event);
+        handleActorWidgetContextMenu(event, doc);
+        return true;
+      }
+      if (kind === WIDGET_EVENT_KINDS.DOUBLE_CLICK) {
+        consumeEvent(event);
+        await openActorWidgetSheet(doc);
+        return true;
+      }
+      return false;
+
+    case WIDGET_ROUTE.STRESS_BOX:
+      if (kind === WIDGET_EVENT_KINDS.SINGLE_CLICK) {
+        await handleStressBoxClick(doc, event);
+        return true;
+      }
+      return false;
+
+    case WIDGET_ROUTE.SELECT:
+      if (kind === WIDGET_EVENT_KINDS.SINGLE_CLICK) {
+        selectWidgetPart(doc);
+        return true;
+      }
+      return false;
+
+    default:
+      return false;
+  }
 }
 
 /* --- Situation aspects widget context menus (GM) --- */
@@ -1153,10 +1293,14 @@ async function clearFleetingStress(scene) {
 /*  active. Players without drawing/tile tools cannot activate those   */
 /*  layers, so widget parts are unreachable for them through PIXI.     */
 /*  This DOM listener on the canvas view handles clicks on widget      */
-/*  parts regardless of the active layer: single click selects the     */
-/*  part, double click opens the actor sheet (or the manager for the   */
-/*  GM fate point box). When the part's own layer IS active, the       */
-/*  normal PIXI flow takes over (with the permission patches above).   */
+/*  parts regardless of the active layer. Its routing decision comes   */
+/*  from the SAME pure router as the PIXI patches (resolveWidgetRoute  */
+/*  in widgetInteractionRouter.js) and it executes the SAME handlers   */
+/*  through routeWidgetInteractions, so a widget never behaves         */
+/*  differently depending on the active layer. When the part's own     */
+/*  layer IS active the PIXI flow owns the event (the layerActive      */
+/*  guard only prevents double-handling) — all other layers are fully  */
+/*  served here.                                                       */
 /* ------------------------------------------------------------------ */
 
 let lastWidgetClick = null;
@@ -1172,8 +1316,9 @@ export function initCanvasClickFallback() {
 
 function onCanvasPointerDown(event) {
   if (PlacementManager.active) return;
-  // GM right-clicks on situation aspects widget parts work through the same
-  // DOM fallback (players / inactive layers never reach the PIXI patch).
+  // Right-clicks on situation aspects (GM) and actor (owner-aware) widget
+  // parts work through the same DOM fallback (players / inactive layers never
+  // reach the PIXI patch).
   if (event.button === 2) {
     onCanvasRightPointerDown(event);
     return;
@@ -1198,35 +1343,46 @@ function onCanvasPointerDown(event) {
   const isDouble =
     lastWidgetClick?.id === part.id && now - lastWidgetClick.time <= 300;
   lastWidgetClick = { id: part.id, time: now };
-  if (isDouble) {
-    handleWidgetDoubleClick(part, event);
-    return;
-  }
-  // Interactive stress boxes toggle on a single owner click through the same
-  // path as the native Drawing layer — the DOM fallback must reach players,
-  // whose canvas layer is the token layer, not the drawing layer.
-  if (isStressBoxDrawing(part)) {
-    handleStressBoxClick(part, event);
-    return;
-  }
-  selectWidgetPart(part);
+  // Double click first, then single click: the SAME shared router as the PIXI
+  // path decides between manager/sheet opening, stress-box toggling and
+  // selection, so both paths can never diverge.
+  routeWidgetInteractions({
+    doc: part,
+    event,
+    kind: isDouble
+      ? WIDGET_EVENT_KINDS.DOUBLE_CLICK
+      : WIDGET_EVENT_KINDS.SINGLE_CLICK,
+    source: "dom",
+  });
 }
 
 /**
- * DOM fallback for GM RIGHT-clicks on situation aspects widget parts — the
- * mirror of the conflict fallback (`onConflictCanvasPointerDown` in
- * ConflictInteractions.js): where the PIXI `_onClickRight` patch never fires
- * (players, inactive layers), the raw view event routes here. Same
- * aspect / empty-place split and the same menus as the PIXI path. Double
- * clicks are untouched; conflict documents keep their own routing.
+ * DOM fallback for RIGHT-clicks on module widget parts where the PIXI
+ * `_onClickRight` patch never fires (inactive layers, layers players cannot
+ * activate): the raw view event routes here — the mirror of the conflict
+ * fallback (`onConflictCanvasPointerDown` in ConflictInteractions.js).
+ *
+ * - Actor widget parts go through the SAME owner-aware router as the PIXI
+ *   path (`handleActorWidgetContextMenu`): GM give/take/remove menu, an
+ *   actor owner's "Roll Skill" submenu, or consumed-without-menu.
+ * - Situation aspects widget parts keep their GM-only menu (same
+ *   aspect / empty-place split as the PIXI path).
+ * - Every other part (conflict docs, GM row, foreign widgets) keeps its own
+ *   routing; conflict documents are handled by `onConflictCanvasPointerDown`.
+ * Double clicks are untouched.
  */
 function onCanvasRightPointerDown(event) {
-  if (!game.user.isGM) return;
   // Never steal right-clicks that carry normal token interactions (HUD).
   if (tokenUnderPointer(event)) return;
   const part = hitTestWidgetPart(event);
   if (!part) return;
-  if (part.getFlag?.(FLAG_SCOPE, "ownerType") !== SA_OWNER_TYPE) return;
+  const route = resolveWidgetRoute(part, WIDGET_EVENT_KINDS.CONTEXT_MENU);
+  // Conflict documents are handled by the conflict fallback listener
+  // (`onConflictCanvasPointerDown`) so they are never double-handled here; the
+  // GM row keeps the native context menu.
+  if (route !== WIDGET_ROUTE.ACTOR && route !== WIDGET_ROUTE.SA) return;
+  // Situation aspects stay GM-only; actor widgets are owner-aware.
+  if (route === WIDGET_ROUTE.SA && !isGMUser()) return;
   // When the part's own layer is active the PIXI patch path handles it —
   // do not double-handle.
   const layerActive =
@@ -1234,19 +1390,25 @@ function onCanvasRightPointerDown(event) {
       ? canvas.drawings?.active
       : canvas.tiles?.active;
   if (layerActive) return;
-  // Conflict parts outrank SA parts in hitTestWidgetPart already; skip when
-  // a conflict document would answer this click itself.
+  // Conflict parts outrank SA/actor parts in hitTestWidgetPart already; skip
+  // when a conflict document would answer this click itself.
   const point = canvasWorldPosition(event);
   if (point && hitTestConflictPart(point, canvas.scene)) return;
-  event.preventDefault();
-  event.stopPropagation();
-  handleSaContextMenu(part, event);
+  // The shared router consumes the event and calls the exact same handler as
+  // the PIXI path.
+  routeWidgetInteractions({
+    doc: part,
+    event,
+    kind: WIDGET_EVENT_KINDS.CONTEXT_MENU,
+    source: "dom",
+  });
 }
 
 /**
  * Keeps the native browser context menu off the module's right-click targets
- * in the fallback: while one of the module menus is open, and over situation
- * aspects widget parts answered by the GM fallback (the PIXI patch path
+ * in the fallback: while one of the module menus is open, over situation
+ * aspects widget parts answered by the GM fallback, and over actor widget parts
+ * answered by the owner-aware fallback for EVERY user (the PIXI patch path
  * prevents default on its own).
  */
 function onCanvasContextMenu(event) {
@@ -1254,10 +1416,12 @@ function onCanvasContextMenu(event) {
     event.preventDefault();
     return;
   }
-  if (!game.user.isGM) return;
   if (PlacementManager.active) return;
   const part = hitTestWidgetPart(event);
-  if (part?.getFlag?.(FLAG_SCOPE, "ownerType") !== SA_OWNER_TYPE) return;
+  if (!part) return;
+  const route = resolveWidgetRoute(part, WIDGET_EVENT_KINDS.CONTEXT_MENU);
+  if (route !== WIDGET_ROUTE.ACTOR && route !== WIDGET_ROUTE.SA) return;
+  if (route === WIDGET_ROUTE.SA && !isGMUser()) return;
   const layerActive =
     part.documentName === "Drawing"
       ? canvas.drawings?.active
@@ -1359,48 +1523,4 @@ function selectWidgetPart(part) {
   } catch (err) {
     console.warn("[fate-on-the-table] widget select failed:", err);
   }
-}
-
-/** Double click on a widget part: actor sheet or the GM managers. */
-function handleWidgetDoubleClick(part, event = null) {
-  // Turn marker overlay is board-level but visually sits on the active card.
-  // For the DOM fallback the hit is the marker Drawing; resolve to the
-  // underlying card at the cursor point so the sheet (or consequence editor)
-  // opens as if the card itself was double-clicked.
-  if (isTurnMarkerDocument(part)) {
-    const p = event ? canvasWorldPosition(event) : null;
-    const cardDoc = p ? findTopConflictCardDocAtPoint(canvas?.scene, p) : null;
-    if (cardDoc) {
-      handleConflictDocumentDoubleClick(cardDoc, event);
-      return;
-    }
-    handleConflictDocumentDoubleClick(part, event);
-    return;
-  }
-  const ownerType = part.getFlag?.(FLAG_SCOPE, "ownerType");
-  if (ownerType === GM_OWNER_TYPE) {
-    FatePointManager.open();
-    return;
-  }
-  if (ownerType === SA_OWNER_TYPE) {
-    SituationAspectManager.open();
-    return;
-  }
-  if (isConsequenceCostPart(part)) {
-    handleConsequenceCostDoubleClick(part, event);
-    return;
-  }
-  if (isConflictDocument(part)) {
-    handleConflictDocumentDoubleClick(part, event);
-    return;
-  }
-  const actorUuid = part.getFlag?.(FLAG_SCOPE, "actorUuid");
-  if (!actorUuid) return;
-  fromUuid(actorUuid)
-    .then((actor) => {
-      if (actor?.testUserPermission?.(game.user, LIMITED)) {
-        actor.sheet.render(true);
-      }
-    })
-    .catch((err) => console.warn("[fate-on-the-table] actor sheet open failed:", err));
 }

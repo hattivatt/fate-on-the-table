@@ -9,13 +9,15 @@
  *  - handleConflictDocumentDoubleClick(document, event): opens the character
  *    sheet of the token/actor behind a `conflictCard` projection (linked AND
  *    unlinked tokens); never touches TokenDocument, ignores foreign docs.
- *  - handleConflictContextMenu(document, event): GM-only. A card offers the
- *    "Pass turn" action (only for a target that is not current and has not
- *    acted — executed immediately, WITHOUT a confirmation dialog) and/or the
- *    "Return turn" action (for a target marked `hasActed` that is not
- *    defeated/eliminated — it only clears the `fate-core-official.hasActed`
- *    flag through `ConflictManager.returnTurn`, the FU `unact` analogue, and
- *    never moves the turn marker); a zone offers localized "Rename" / "Remove"
+ *  - handleConflictContextMenu(document, event): owner-aware. For the GM a card
+ *    offers "Pass turn" (only for a target that is not current and has not
+ *    acted — executed immediately, WITHOUT a confirmation dialog), "Return
+ *    turn" (for a target marked `hasActed` that is not defeated/eliminated — it
+ *    only clears the `fate-core-official.hasActed` flag through
+ *    `ConflictManager.returnTurn`, the FU `unact` analogue, and never moves the
+ *    turn marker) and "Leave combat". Pass/Return/Leave are GM-only; a player
+ *    sees only "Roll" on a card they own (see the pure `cardMenuCapabilities`
+ *    matrix). A zone offers localized "Rename" / "Remove"
  *    actions (delete asks for confirmation, clears `tokenZones` entries and
  *    re-syncs the projection); the central field offers "Add zone" and "New
  *    round" (with the documented constraints) plus a separated "Remove board"
@@ -105,17 +107,11 @@ import {
 } from "./ConsequenceInteractions.js";
 import { escapeHtml, dialogField, canvasWorldPosition, toArray } from "./utils.js";
 import { showCttMenu, closeCttMenu, getActiveMenu } from "./menu.js";
+import { CONFLICT_OWNER_TYPES, isConflictWidget } from "./widgetInteractionRouter.js";
 
 /** System flag scope + key carrying `hasActed` on Combatants. */
 const SYSTEM_FLAG_SCOPE = GM_FP_SCOPE;
 const HAS_ACTED_KEY = "hasActed";
-
-/** The board-level ownerType of the projection (background/areas/labels). */
-const CONFLICT_OWNER_TYPES = [
-  CONFLICT_ZONE_OWNER_TYPE,
-  CONFLICT_CARD_OWNER_TYPE,
-  CONFLICT_BOARD_OWNER_TYPE,
-];
 
 /** Hit-test priority: cards > zones > board-level parts. */
 const OWNER_PRIORITY = {
@@ -324,6 +320,17 @@ function onConflictCanvasContextMenu(event) {
  * ------------------------------------------------------------------ */
 
 /**
+ * Resolves the Foundry v14 canvas placeable classes from
+ * `foundry.canvas.placeables`. Returns `null` under Node (no `foundry`), so
+ * callers can bail out and prototype patching is skipped.
+ * @returns {{Drawing?: Function, Tile?: Function, Token?: Function}|null}
+ */
+function resolvePlaceables() {
+  if (typeof foundry === "undefined") return null;
+  return foundry.canvas?.placeables ?? null;
+}
+
+/**
  * Idempotently wraps `Token.prototype._onDragLeftDrop` — the stable point in
  * Foundry v13/v14 where a native token drag flow completes. The wrapper:
  *
@@ -342,7 +349,10 @@ function onConflictCanvasContextMenu(event) {
  * `updateToken` hook reconciliation stays the fallback.
  */
 function patchTokenDragDrop() {
-  if (typeof Token === "undefined") return;
+  // Foundry v14: resolve the placeable class from the namespace (the bare
+  // `Token` global is deprecated, removed in v15). Under Node this is null.
+  const { Token } = resolvePlaceables() ?? {};
+  if (!Token) return;
   const proto = Token.prototype;
   if (proto.__fateOnTheTableTokenDrag) return;
   proto.__fateOnTheTableTokenDrag = true;
@@ -413,10 +423,7 @@ function prepareConflictTokenDrop(token) {
  * @returns {boolean}
  */
 export function isConflictDocument(doc) {
-  const d = doc?.document ?? doc;
-  if (!d?.getFlag) return false;
-  const ownerType = d.getFlag(FLAG_SCOPE, "ownerType");
-  return CONFLICT_OWNER_TYPES.includes(ownerType);
+  return isConflictWidget(doc);
 }
 
 /**
@@ -520,15 +527,18 @@ export async function handleConflictDocumentDoubleClick(document, event) {
 }
 
 /**
- * Context menu on a conflict document (GM-only). A card offers "Pass turn"
+ * Context menu on a conflict document (owner-aware). A card offers "Pass turn"
  * (only when the target is not current and has not acted — executed
  * immediately without confirmation) and/or "Return turn" (only for a target
  * marked `hasActed` that is not defeated/eliminated — it clears just the
  * `fate-core-official.hasActed` flag and never moves the turn marker); a zone
  * offers the localized "Rename" / "Remove" actions; the central field
  * (detected through the pure geometry, not foreign doc coordinates) offers
- * "Add zone" and "New round" with their constraints. Players always get the
- * event consumed without any menu.
+ * "Add zone" and "New round" with their constraints. Card visibility is
+ * decided by the pure `cardMenuCapabilities` matrix: the GM sees the full set
+ * (Pass/Return/Leave/Roll), a player only "Roll" (on a card they own) — Pass
+ * turn and the other GM actions are never offered to players; every other
+ * event is consumed without a menu.
  * @param {object} document  Drawing/Tile document.
  * @param {Event|null} event  DOM/MIM event (optional).
  * @returns {boolean|Promise<boolean>}  True when the event was consumed (Promise when card menu resolves actor).
@@ -959,6 +969,64 @@ export function buildSkillMenuItems(actor) {
   }));
 }
 
+/**
+ * Pure: sorted stunt menu items for an actor.
+ *
+ * A stunt is rollable when it has a non-empty `name` AND a `linked_skill`
+ * that is neither the sentinel `"None"` nor its localized form. Mirrors the
+ * system template check (`eq this.linked_skill (localize '...None')`) with an
+ * explicit English fallback and a `game`-existence guard so the function stays
+ * importable/callable under Node. `linked_skill === "Special"` is rollable —
+ * the system's `Actor.rollStunt` pops up a skill picker for it.
+ *
+ * Sort: by `name` alphabetically. Label:
+ * `${name}` + (` (+${bonus})` when bonus is truthy) +
+ * (` (${linked_skill})` unless the linked skill is "Special"); icon `fa-bolt`
+ * so stunts are visually distinct from skills.
+ * @param {object|null} actor
+ * @returns {Array<{icon:string,label:string,onClick:Function}>}
+ */
+export function buildStuntMenuItems(actor) {
+  const stuntsObj = actor?.system?.stunts;
+  if (!stuntsObj || typeof stuntsObj !== "object") return [];
+  let localizedNone = null;
+  try {
+    // System key, resolved indirectly so the module's own i18n-contract test
+    // (which scans literal localize arguments) does not mistake this external
+    // namespace for a missing module key.
+    const localizedNoneKey = "fate-core-official.None";
+    if (typeof game !== "undefined" && game?.i18n?.localize) {
+      localizedNone = game.i18n.localize(localizedNoneKey);
+    }
+  } catch (err) {
+    localizedNone = null;
+  }
+  const entries = Object.values(stuntsObj).filter((s) => {
+    if (!s || typeof s.name !== "string" || s.name.trim() === "") return false;
+    const linked = s.linked_skill;
+    if (typeof linked !== "string" || linked.trim() === "") return false;
+    if (linked === "None") return false;
+    if (localizedNone != null && linked === localizedNone) return false;
+    return true;
+  });
+  entries.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  return entries.map((s) => {
+    const bonusPart = s.bonus ? ` (+${s.bonus})` : "";
+    const skillPart = s.linked_skill !== "Special" ? ` (${s.linked_skill})` : "";
+    return {
+      icon: "fa-bolt",
+      label: `${s.name}${bonusPart}${skillPart}`,
+      onClick: async () => {
+        try {
+          await actor.rollStunt(s.name);
+        } catch (err) {
+          console.warn("[fate-on-the-table] stunt roll failed:", err);
+        }
+      },
+    };
+  });
+}
+
 /** Re-exported from conflictBoardSchema.js — single source of truth for eliminatedAt. */
 export { markEliminatedInState };
 
@@ -968,8 +1036,76 @@ export { resolveCardActor };
  * Context menus
  * ------------------------------------------------------------------ */
 
+/**
+ * Owner (or GM) permission for an actor. Mirrors `FatePointManager.canEditActor`
+ * and resolves `CONST` lazily so this module stays importable under Node.
+ * @param {object|null} actor
+ * @returns {boolean}
+ */
+function canEditActor(actor) {
+  if (typeof game === "undefined" || !game?.user) return true;
+  if (game.user.isGM === true) return true;
+  try {
+    const owner =
+      (typeof CONST !== "undefined"
+        ? CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER
+        : null) ?? 3;
+    if (typeof actor?.testUserPermission === "function") {
+      if (actor.testUserPermission(game.user, owner)) return true;
+      if (actor.testUserPermission(game.user, "OWNER")) return true;
+    }
+  } catch (err) {
+    /* fall through to actor.isOwner */
+  }
+  if (actor?.isOwner) return true;
+  return false;
+}
+
+/**
+ * Pure capability matrix: which card-context-menu actions a user may see.
+ *
+ * The GM keeps the full action set, each entry gated only by its own
+ * availability flag. A non-GM (player) gets exactly ONE possible action:
+ *  - `roll`: only for the card whose actor the player owns (and only when the
+ *    actor actually exposes skills/stunts).
+ * `passTurn` / `returnTurn` / `leave` are GM-only administrative actions and
+ * are never offered to players (the player Pass-turn socket relay was removed,
+ * so players only roll on their own card). No `game`/`canvas` access — the
+ * caller derives the booleans.
+ * @param {object} [input]
+ * @param {boolean} [input.isGM]
+ * @param {boolean} [input.ownsCardActor]
+ * @param {boolean} [input.canPassTo]
+ * @param {boolean} [input.canReturn]
+ * @param {boolean} [input.canLeave]
+ * @param {boolean} [input.hasSkills]
+ * @returns {{passTurn: boolean, returnTurn: boolean, roll: boolean, leave: boolean}}
+ */
+export function cardMenuCapabilities({
+  isGM = false,
+  ownsCardActor = false,
+  canPassTo = false,
+  canReturn = false,
+  canLeave = false,
+  hasSkills = false,
+} = {}) {
+  if (isGM) {
+    return {
+      passTurn: !!canPassTo,
+      returnTurn: !!canReturn,
+      roll: !!hasSkills,
+      leave: !!canLeave,
+    };
+  }
+  return {
+    passTurn: false,
+    returnTurn: false,
+    roll: !!hasSkills && !!ownsCardActor,
+    leave: false,
+  };
+}
+
 async function showCardContextMenu(doc, state, event) {
-  if (!game?.user?.isGM) return true; // players never receive the menu
   if (!state) return true;
   const scene = canvas?.scene;
   const combat = resolveCombat(state, scene);
@@ -978,10 +1114,51 @@ async function showCardContextMenu(doc, state, event) {
   if (!targetCombatantId) return true;
   const combatant = combatantOf(combat, targetCombatantId);
   if (!combatant) return true; // orphan card — no actions
+
+  // Derive every availability flag, then let the pure matrix decide what the
+  // CURRENT user may see (GM: full set; player: roll only on an owned card).
+  const canPassTo = canPassTurnTo(targetCombatantId, combat, state);
+  const canReturn = hasActed(combatant) && !isCardDisqualified(state, combatant);
+  const canLeave =
+    !combatant.defeated &&
+    state.cards?.[targetCombatantId]?.eliminated !== true;
+
+  // Resolve the card actor once: it backs both the Roll submenu and the
+  // ownership check (`ownsCardActor`).
+  let cardActor = null;
+  try {
+    const tokenUuid = doc.getFlag(FLAG_SCOPE, "tokenUuid");
+    cardActor = await resolveCardActor(state, scene, targetCombatantId, tokenUuid);
+  } catch (err) {
+    cardActor = null;
+  }
+  const skillChildren = cardActor ? buildSkillMenuItems(cardActor) : [];
+  const stuntChildren = cardActor ? buildStuntMenuItems(cardActor) : [];
+  // Roll submenu is offered when the actor exposes at least one rollable
+  // entry (stunt or skill).
+  const hasRolls = stuntChildren.length + skillChildren.length > 0;
+  // Stunts first, then a separator (only when both sections are non-empty),
+  // then skills. `menu.js` renders `sep` items at any nesting level.
+  const rollChildren = [...stuntChildren];
+  if (skillChildren.length) {
+    if (rollChildren.length) rollChildren.push({ sep: true, label: "", icon: "" });
+    rollChildren.push(...skillChildren);
+  }
+
+  const caps = cardMenuCapabilities({
+    isGM: game?.user?.isGM === true,
+    ownsCardActor: canEditActor(cardActor),
+    canPassTo,
+    canReturn,
+    canLeave,
+    hasSkills: hasRolls,
+  });
+
   const items = [];
-  // "Pass turn": available target (not current, has not acted, not defeated).
-  // Executed immediately — no DialogV2 confirmation on the card path.
-  if (canPassTurnTo(targetCombatantId, combat, state)) {
+  // "Pass turn": GM-only (the capability matrix hides it from players).
+  // Available for a target that is not current / has not acted / not defeated;
+  // executed immediately — no DialogV2 confirmation on the card path.
+  if (caps.passTurn) {
     items.push({
       icon: "fa-forward",
       label: game.i18n.localize(`${MODULE_ID}.conflict.card.passTurn`),
@@ -989,32 +1166,24 @@ async function showCardContextMenu(doc, state, event) {
     });
   }
   // "Return turn": acted target that is not defeated/eliminated — the FU
-  // `unact` analogue. Clears only the hasActed flag; combat.turn/marker never
-  // move (a current combatant with hasActed that sits on the side area is
-  // still allowed — returning just clears the flag).
-  if (hasActed(combatant) && !isCardDisqualified(state, combatant)) {
+  // `unact` analogue, GM-only. Clears only the hasActed flag;
+  // combat.turn/marker never move (a current combatant with hasActed that sits
+  // on the side area is still allowed — returning just clears the flag).
+  if (caps.returnTurn) {
     items.push({
       icon: "fa-undo",
       label: game.i18n.localize(`${MODULE_ID}.conflict.card.returnTurn`),
       onClick: () => runCardTurnAction("returnTurn", targetCombatantId),
     });
   }
-  // "Roll" submenu: all skills of the actor behind the card (ranked first, then zero/negatives)
-  let skillChildren = [];
-  try {
-    const tokenUuid = doc.getFlag(FLAG_SCOPE, "tokenUuid");
-    const actor = await resolveCardActor(state, scene, targetCombatantId, tokenUuid);
-    if (actor) skillChildren = buildSkillMenuItems(actor);
-  } catch (err) {
-    skillChildren = [];
-  }
-  const hasSkills = skillChildren.length > 0;
-  if (hasSkills) {
+  // "Roll" submenu: stunts then skills of the actor behind the card. Players
+  // only see it on a card they own.
+  if (caps.roll) {
     if (items.length) items.push({ sep: true, label: "", icon: "" });
     items.push({
       icon: "fa-dice",
       label: game.i18n.localize(`${MODULE_ID}.conflict.card.roll`),
-      children: skillChildren,
+      children: rollChildren,
     });
   }
   // "Leave combat": GM-only destructive action. We keep both
@@ -1023,8 +1192,7 @@ async function showCardContextMenu(doc, state, event) {
   // the double write is idempotent with the new "eliminated mirrors defeated"
   // sync; keeping it avoids a transient flash where the strike is missing
   // until the next reconcile, while removing it would add no benefit.
-  const canLeave = !combatant.defeated && state.cards?.[targetCombatantId]?.eliminated !== true;
-  if (canLeave) {
+  if (caps.leave) {
     if (items.length) items.push({ sep: true, label: "", icon: "" });
     items.push({
       icon: "fa-skull",
@@ -1350,6 +1518,10 @@ export function promptZoneRename(currentName) {
 }
 
 async function runCardTurnAction(action, targetCombatantId) {
+  // Pass turn / Return turn are GM-only: the pure `cardMenuCapabilities`
+  // matrix never offers them to a player, and a non-GM client must never
+  // invoke the GM-gated ConflictManager.
+  if (game?.user?.isGM !== true) return;
   const scene = canvas?.scene;
   const state = scene ? readConflictBoard(scene) : null;
   const combat = state ? resolveCombat(state, scene) : null;

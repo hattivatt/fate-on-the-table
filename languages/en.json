@@ -141,6 +141,7 @@
   "fate-on-the-table.context.removeWidget": "Remove widget",
   "fate-on-the-table.context.removeWidgetTitle": "Remove widget",
   "fate-on-the-table.context.removeWidgetConfirm": "Remove the widget of \"{name}\" from the scene? All its drawings and tiles will be deleted.",
+  "fate-on-the-table.context.rollSkill": "Roll skill",
   "fate-on-the-table.settings.situationAspectsWidth": "Situation aspects widget width",
   "fate-on-the-table.settings.situationAspectsWidthHint": "Width of the situation aspects widget on the scene.",
   "fate-on-the-table.settings.situationAspectsHeight": "Situation aspects widget height",

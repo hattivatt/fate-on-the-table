@@ -17,6 +17,7 @@ import {
   CONFLICT_ZONE_LABEL_PART,
 } from "../scripts/constants.js";
 import { createConflictBoard } from "../scripts/conflictBoardSchema.js";
+import * as interactionRouter from "../scripts/widgetInteractionRouter.js";
 
 globalThis.foundry = {
   applications: { api: { ApplicationV2: class ApplicationV2 {} } },
@@ -102,6 +103,27 @@ test("isConflictDocument recognizes only module-owned conflict docs", () => {
   assert.equal(mod.isConflictDocument({ getFlag: () => undefined }), false);
   assert.equal(mod.isConflictDocument(null), false);
   assert.equal(mod.isConflictDocument({}), false);
+});
+
+test("conflict-document detection is the single pure router predicate (drift guard)", () => {
+  // The router (used by both interaction paths) and ConflictInteractions must
+  // never disagree on what a conflict document is, and the conflict priority
+  // map must cover exactly the router's owner types.
+  assert.deepEqual(
+    [...interactionRouter.CONFLICT_OWNER_TYPES].sort(),
+    Object.keys(mod.CONFLICT_OWNER_PRIORITY).sort(),
+  );
+  const zone = mockConflictDoc("z1", "Drawing", CONFLICT_ZONE_OWNER_TYPE, { x: 0, y: 0, width: 10, height: 10 });
+  const card = mockConflictDoc("c1", "Tile", CONFLICT_CARD_OWNER_TYPE, { x: 0, y: 0, width: 10, height: 10 });
+  const gm = mockConflictDoc("g1", "Drawing", "gm", { x: 0, y: 0, width: 10, height: 10 });
+  const foreign = { getFlag: () => undefined };
+  for (const d of [zone, card, gm, foreign, null, {}]) {
+    assert.equal(
+      mod.isConflictDocument(d),
+      interactionRouter.isConflictWidget(d),
+      `disagreement for ${JSON.stringify(d?.id ?? d)}`,
+    );
+  }
 });
 
 /* ------------------------------------------------------------------ *
@@ -1728,6 +1750,127 @@ test("buildSkillMenuItems onClick for zero-rank skill calls rollSkill with its n
   assert.equal(called, "Lore");
 });
 
+/* ------------------------------------------------------------------ *
+ * Pure helper: buildStuntMenuItems
+ * ------------------------------------------------------------------ */
+
+test("buildStuntMenuItems filters unrollable stunts and formats labels", () => {
+  const actor = {
+    system: {
+      stunts: {
+        a: { name: "Mighty Blow", linked_skill: "Fight", bonus: 2 },
+        b: { name: "Too Generic", linked_skill: "None", bonus: 1 },
+        c: { name: "Sharp Eyes", linked_skill: "Notice", bonus: 0 },
+        d: { name: "Flexible", linked_skill: "Special", bonus: 3 },
+        e: { name: "", linked_skill: "Fight", bonus: 1 },
+        f: { name: "No Link", linked_skill: "", bonus: 1 },
+        g: { name: "Missing Link" },
+      },
+    },
+    rollStunt: async () => {},
+  };
+  const items = mod.buildStuntMenuItems(actor);
+  // Sort by name: Flexible, Mighty Blow, Sharp Eyes.
+  assert.deepEqual(items.map((it) => it.label), [
+    "Flexible (+3)",
+    "Mighty Blow (+2) (Fight)",
+    "Sharp Eyes (Notice)",
+  ]);
+  assert.ok(items.every((it) => it.icon === "fa-bolt"));
+  assert.ok(items.every((it) => typeof it.onClick === "function"));
+  // linked_skill "None"/empty/missing are excluded.
+  assert.equal(items.some((it) => it.label.includes("Too Generic")), false);
+  assert.equal(items.some((it) => it.label.includes("No Link")), false);
+  assert.equal(items.some((it) => it.label.includes("Missing Link")), false);
+  // bonus 0 adds no suffix.
+  assert.equal(items.some((it) => it.label.includes("(+-0)")), false);
+});
+
+test("buildStuntMenuItems returns [] for missing/empty/blank stunts", () => {
+  assert.deepEqual(mod.buildStuntMenuItems(null), []);
+  assert.deepEqual(mod.buildStuntMenuItems({}), []);
+  assert.deepEqual(mod.buildStuntMenuItems({ system: {} }), []);
+  assert.deepEqual(mod.buildStuntMenuItems({ system: { stunts: {} } }), []);
+  const actorEmpty = {
+    system: { stunts: { a: { name: "  ", linked_skill: "Fight" }, b: null } },
+    rollStunt: async () => {},
+  };
+  assert.deepEqual(mod.buildStuntMenuItems(actorEmpty), []);
+});
+
+test("buildStuntMenuItems accepts an array-shaped stunts collection and sorts alphabetically", () => {
+  const actor = {
+    system: {
+      stunts: [
+        { name: "Zeta", linked_skill: "Fight", bonus: 1 },
+        { name: "Alpha", linked_skill: "Athletics", bonus: 1 },
+        { name: "Mu", linked_skill: "Special", bonus: 1 },
+      ],
+    },
+    rollStunt: async () => {},
+  };
+  const items = mod.buildStuntMenuItems(actor);
+  assert.deepEqual(items.map((it) => it.label), [
+    "Alpha (+1) (Athletics)",
+    "Mu (+1)",
+    "Zeta (+1) (Fight)",
+  ]);
+});
+
+test("buildStuntMenuItems onClick calls actor.rollStunt and warns on throw", async () => {
+  let called = null;
+  const actor = {
+    system: { stunts: { a: { name: "Mighty Blow", linked_skill: "Fight", bonus: 2 } } },
+    rollStunt: async (name) => {
+      called = name;
+      throw new Error("boom");
+    },
+  };
+  const items = mod.buildStuntMenuItems(actor);
+  assert.equal(items.length, 1);
+  let warned = null;
+  const origWarn = console.warn;
+  console.warn = (...args) => { warned = args.join(" "); };
+  try {
+    await items[0].onClick();
+    assert.equal(called, "Mighty Blow");
+    assert.ok(warned && warned.includes("stunt roll failed"));
+  } finally {
+    console.warn = origWarn;
+  }
+  // success path
+  called = null;
+  const actor2 = {
+    system: { stunts: { a: { name: "Flexible", linked_skill: "Special", bonus: 1 } } },
+    rollStunt: async (name) => { called = name; },
+  };
+  const items2 = mod.buildStuntMenuItems(actor2);
+  await items2[0].onClick();
+  assert.equal(called, "Flexible");
+});
+
+test("buildStuntMenuItems excludes the localized None but keeps Special", () => {
+  globalThis.game = {
+    i18n: { localize: (key) => (key === "fate-core-official.None" ? "Нет" : key) },
+  };
+  try {
+    const actor = {
+      system: {
+        stunts: {
+          a: { name: "Localized None", linked_skill: "Нет", bonus: 1 },
+          b: { name: "Plain None", linked_skill: "None", bonus: 1 },
+          c: { name: "Still Special", linked_skill: "Special", bonus: 1 },
+        },
+      },
+      rollStunt: async () => {},
+    };
+    const labels = mod.buildStuntMenuItems(actor).map((it) => it.label);
+    assert.deepEqual(labels, ["Still Special (+1)"]);
+  } finally {
+    delete globalThis.game;
+  }
+});
+
 test("markEliminatedInState clones correctly and is pure", () => {
   const state = boardState({ cards: { c1: { side: "friendly", area: "side", order: 0 }, c2: { side: "hostile", area: "side", order: 1 } } });
   const next = mod.markEliminatedInState(state, "c1");
@@ -1796,6 +1939,45 @@ test("card context menu shows Roll submenu when actor has skills (sorted, with i
   const idxLeave = labels.findIndex((h) => h.includes("fate-on-the-table.conflict.card.leaveCombat"));
   assert.ok(idxPass >= 0 && idxRoll >= 0 && idxLeave >= 0);
   assert.ok(idxPass < idxRoll && idxRoll < idxLeave, "Order must be Pass -> Roll -> Leave");
+});
+
+test("card context menu shows Roll submenu when actor has only stunts", async () => {
+  const dom = installMenuDomStub();
+  const actor = {
+    system: {
+      skills: {},
+      stunts: { a: { name: "Mighty Blow", linked_skill: "Fight", bonus: 2 } },
+    },
+    rollSkill: async () => {},
+    rollStunt: async () => {},
+  };
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [
+      menuCombatant("c1"),
+      {
+        id: "c2",
+        name: "c2",
+        defeated: false,
+        token: { actor },
+        actor,
+        getFlag: (scope, key) =>
+          scope === "fate-core-official" && key === "hasActed" ? false : undefined,
+      },
+    ],
+  };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  installMenuCombat({}, combat, scene);
+  const handled = await mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  assert.equal(handled, true);
+  const labels = dom.createdButtons.map((b) => b.innerHTML);
+  const rollBtn = dom.createdButtons.find((b) =>
+    b.innerHTML.includes("fate-on-the-table.conflict.card.roll"),
+  );
+  assert.ok(rollBtn, "Roll item must be present when the actor has stunts even without skills");
+  assert.ok(rollBtn.innerHTML.includes("fa-chevron-right"), "Roll with children shows a chevron");
+  assert.ok(labels.some((h) => h.includes("fate-on-the-table.conflict.card.roll")));
 });
 
 test("card context menu hides Roll when actor has no skills or no actor", async () => {
@@ -2113,4 +2295,185 @@ test("turn marker context menu falls through to board menu when cursor is over m
   } finally {
     delete globalThis.PIXI;
   }
+});
+
+/* ------------------------------------------------------------------ *
+ * cardMenuCapabilities (pure ownership-aware matrix) + player card menu
+ * ------------------------------------------------------------------ */
+
+test("cardMenuCapabilities: GM sees the full set, each entry gated by its flag", () => {
+  assert.deepEqual(mod.cardMenuCapabilities({ isGM: true }), {
+    passTurn: false,
+    returnTurn: false,
+    roll: false,
+    leave: false,
+  });
+  assert.deepEqual(
+    mod.cardMenuCapabilities({
+      isGM: true,
+      canPassTo: true,
+      canReturn: true,
+      canLeave: true,
+      hasSkills: true,
+    }),
+    { passTurn: true, returnTurn: true, roll: true, leave: true },
+  );
+});
+
+test("cardMenuCapabilities: player never gets passTurn (GM-only) even with canPassTo/ownership flags", () => {
+  // `ownsCurrentActor` is no longer consulted for players; passing it true
+  // must not leak the GM-only Pass turn item.
+  assert.deepEqual(
+    mod.cardMenuCapabilities({ canPassTo: true, ownsCurrentActor: true }),
+    { passTurn: false, returnTurn: false, roll: false, leave: false },
+  );
+  assert.deepEqual(
+    mod.cardMenuCapabilities({ canPassTo: false, ownsCurrentActor: true }),
+    { passTurn: false, returnTurn: false, roll: false, leave: false },
+  );
+  assert.deepEqual(
+    mod.cardMenuCapabilities({ canPassTo: true }),
+    { passTurn: false, returnTurn: false, roll: false, leave: false },
+  );
+});
+
+test("cardMenuCapabilities: player roll needs ownership; return/leave are always GM-only", () => {
+  assert.deepEqual(
+    mod.cardMenuCapabilities({ hasSkills: true, ownsCardActor: true }),
+    { passTurn: false, returnTurn: false, roll: true, leave: false },
+  );
+  assert.deepEqual(
+    mod.cardMenuCapabilities({ hasSkills: true, ownsCardActor: false }),
+    { passTurn: false, returnTurn: false, roll: false, leave: false },
+  );
+  // GM-only flags never leak to a player even when the input flags are true.
+  assert.deepEqual(
+    mod.cardMenuCapabilities({
+      canReturn: true,
+      canLeave: true,
+      hasSkills: true,
+      ownsCardActor: true,
+    }),
+    { passTurn: false, returnTurn: false, roll: true, leave: false },
+  );
+});
+
+/** Actor owned by the given user ids (testUserPermission by id). */
+function ownedPlayerActor(ownerIds, skills = {}) {
+  const ids = new Set(ownerIds);
+  return {
+    name: "Owned",
+    isOwner: false,
+    system: { skills },
+    testUserPermission: (user, level) => ids.has(user?.id),
+    rollSkill: async () => {},
+  };
+}
+
+/** A conflictant with a token actor (ownership-aware tests). */
+function actorCombatant(id, actor) {
+  return {
+    id,
+    name: id,
+    defeated: false,
+    token: { actor },
+    actor,
+    getFlag: () => false,
+  };
+}
+
+test("player card menu never offers Pass turn (GM-only) even when they own the current actor", async () => {
+  const dom = installMenuDomStub();
+  const currentActor = ownedPlayerActor(["p1"], { a: { name: "Fight", rank: 1 } });
+  const otherActor = ownedPlayerActor(["p2"], { a: { name: "Shoot", rank: 1 } });
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [actorCombatant("c1", currentActor), actorCombatant("c2", otherActor)],
+  };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  globalThis.CONST = { DOCUMENT_OWNERSHIP_LEVELS: { LIMITED: 1, OWNER: 2 } };
+  installMenuCombat({ user: { isGM: false, id: "p1" } }, combat, scene);
+
+  const handled = await mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  assert.equal(handled, true);
+  // A player never sees the GM-only Pass turn item, even while they own the
+  // current actor: the player Pass-turn socket relay was removed, so c2 (a
+  // foreign card) offers them nothing at all.
+  assert.equal(
+    dom.createdButtons.some((b) =>
+      b.innerHTML.includes("fate-on-the-table.conflict.card.passTurn"),
+    ),
+    false,
+  );
+  assert.equal(
+    dom.createdButtons.some((b) =>
+      b.innerHTML.includes("fate-on-the-table.conflict.card.returnTurn"),
+    ),
+    false,
+  );
+  assert.equal(
+    dom.createdButtons.some((b) =>
+      b.innerHTML.includes("fate-on-the-table.conflict.card.leaveCombat"),
+    ),
+    false,
+  );
+  // c2's actor belongs to another player -> no Roll, so no menu is shown.
+  assert.equal(dom.createdButtons.length, 0);
+});
+
+test("player card menu offers Roll skill on a card they own but not Pass turn on a foreign turn", async () => {
+  const dom = installMenuDomStub();
+  const mine = ownedPlayerActor(["p1"], { a: { name: "Fight", rank: 2 } });
+  const theirs = ownedPlayerActor(["p2"], { a: { name: "Shoot", rank: 3 } });
+  // c2 (another player's actor) is the current combatant.
+  const combat = {
+    id: "combat-abc",
+    turn: 1,
+    combatants: [actorCombatant("c1", mine), actorCombatant("c2", theirs)],
+  };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  globalThis.CONST = { DOCUMENT_OWNERSHIP_LEVELS: { LIMITED: 1, OWNER: 2 } };
+  installMenuCombat({ user: { isGM: false, id: "p1" } }, combat, scene);
+
+  const handled = await mod.handleConflictContextMenu(cardContextDoc("c1"), fakeMenuEvent());
+  assert.equal(handled, true);
+  const rollBtn = dom.createdButtons.find((b) =>
+    b.innerHTML.includes("fate-on-the-table.conflict.card.roll"),
+  );
+  assert.ok(rollBtn, "owner sees Roll skill on their card");
+  assert.ok(rollBtn.innerHTML.includes("fa-chevron-right"), "Roll is a submenu");
+  // Not the player's turn -> no Pass turn.
+  assert.equal(
+    dom.createdButtons.some((b) =>
+      b.innerHTML.includes("fate-on-the-table.conflict.card.passTurn"),
+    ),
+    false,
+  );
+  assert.equal(
+    dom.createdButtons.some((b) =>
+      b.innerHTML.includes("fate-on-the-table.conflict.card.leaveCombat"),
+    ),
+    false,
+  );
+});
+
+test("player card menu shows nothing on a foreign card when it is not their turn", async () => {
+  const dom = installMenuDomStub();
+  const theirs = ownedPlayerActor(["p2"], { a: { name: "Shoot", rank: 1 } });
+  const other = ownedPlayerActor(["p3"], { a: { name: "Fight", rank: 1 } });
+  const combat = {
+    id: "combat-abc",
+    turn: 0,
+    combatants: [actorCombatant("c1", theirs), actorCombatant("c2", other)],
+  };
+  const scene = menuScene("combat-abc", ["c1", "c2"]);
+  globalThis.CONST = { DOCUMENT_OWNERSHIP_LEVELS: { LIMITED: 1, OWNER: 2 } };
+  // p1 owns neither actor: no Roll, and Pass turn is GM-only.
+  installMenuCombat({ user: { isGM: false, id: "p1" } }, combat, scene);
+
+  const handled = await mod.handleConflictContextMenu(cardContextDoc("c2"), fakeMenuEvent());
+  assert.equal(handled, true);
+  assert.equal(dom.body.children.length, 0, "no menu is shown");
+  assert.equal(dom.createdButtons.length, 0);
 });

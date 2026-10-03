@@ -141,6 +141,7 @@
   "fate-on-the-table.context.removeWidget": "Удалить виджет",
   "fate-on-the-table.context.removeWidgetTitle": "Удалить виджет",
   "fate-on-the-table.context.removeWidgetConfirm": "Убрать виджет «{name}» со сцены? Все его рисунки и тайлы будут удалены.",
+  "fate-on-the-table.context.rollSkill": "Бросок навыка",
   "fate-on-the-table.settings.situationAspectsWidth": "Ширина виджета ситуативных аспектов",
   "fate-on-the-table.settings.situationAspectsWidthHint": "Ширина виджета ситуативных аспектов на сцене.",
   "fate-on-the-table.settings.situationAspectsHeight": "Высота виджета ситуативных аспектов",
