@@ -9,7 +9,9 @@
  *  - флип у краёв окна: Math.min(x, innerWidth - rect.width - 8) (объединённая логика обеих реализаций);
  *  - закрытие по Escape / outside pointerdown (capture) / scroll / resize — надмножество поведения обеих.
  *
- * Форма элемента: { icon, label, disabled?, sep?, onClick, children?: array }
+ * Форма элемента: { icon, label, disabled?, sep?, iconColor?, onClick, children?: array }
+ *  - iconColor — опциональный CSS-цвет иконки (inline style color на <i>),
+ *    напр. зелёный для успеха / красный для провала.
  *  - children — массив таких же items; пункт с children открывает вложенное меню
  *    справа от пункта (при нехватке места — слева; вертикально флип у краёв).
  *    Закрытие вложенного: mouseleave с delay ~250мс, клик вне, закрытие родителя.
@@ -89,10 +91,18 @@ function renderLevel(menuEl, items, menuClass) {
     if (item.disabled) btn.disabled = true;
     const hasChildren = Array.isArray(item.children) && item.children.length > 0;
     const canOpen = hasChildren && !item.disabled;
+    const labelHtml = escapeHtml(item.label ?? "");
+    // Optional per-item icon color (inline style on the <i>), used by the
+    // challenge status submenu for the green success / red failure icons.
+    const iconStyle =
+      item.iconColor != null && item.iconColor !== ""
+        ? ` style="color:${escapeHtml(item.iconColor)}"`
+        : "";
+    const iconHtml = `<i class="fas ${escapeHtml(item.icon ?? "")}"${iconStyle}></i>`;
     if (canOpen) {
-      btn.innerHTML = `<i class="fas ${escapeHtml(item.icon ?? "")}"></i> ${escapeHtml(item.label ?? "")} <i class="fas fa-chevron-right" style="float:right;margin-left:8px;opacity:0.6"></i>`;
+      btn.innerHTML = `${iconHtml} ${labelHtml} <i class="fas fa-chevron-right" style="float:right;margin-left:8px;opacity:0.6"></i>`;
     } else {
-      btn.innerHTML = `<i class="fas ${escapeHtml(item.icon ?? "")}"></i> ${escapeHtml(item.label ?? "")}`;
+      btn.innerHTML = `${iconHtml} ${labelHtml}`;
     }
     if (canOpen) {
       let submenu = null;

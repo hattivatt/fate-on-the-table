@@ -16,6 +16,8 @@ import {
   SA_OWNER_TYPE,
   CONFLICT_CARD_OWNER_TYPE,
   CONFLICT_ZONE_OWNER_TYPE,
+  CHALLENGE_OWNER_TYPE,
+  CONTEST_OWNER_TYPE,
   STRESS_BOX_PART,
   CONSEQUENCE_COST_ROWS_PART,
 } from "../scripts/constants.js";
@@ -28,6 +30,8 @@ import {
   isSaWidget,
   isActorWidget,
   isConflictWidget,
+  isChallengeWidget,
+  isContestWidget,
   isStressBoxWidget,
   isConsequenceCostWidget,
 } from "../scripts/widgetInteractionRouter.js";
@@ -56,6 +60,13 @@ test("predicates identify the module widget families by flags", () => {
 
   assert.equal(isSaWidget(doc({ ownerType: SA_OWNER_TYPE, widgetId: "w1" })), true);
   assert.equal(isSaWidget(doc({ ownerType: GM_OWNER_TYPE })), false);
+
+  assert.equal(isChallengeWidget(doc({ ownerType: CHALLENGE_OWNER_TYPE, widgetId: "w1" })), true);
+  assert.equal(isChallengeWidget(doc({ ownerType: CONTEST_OWNER_TYPE })), false);
+  assert.equal(isContestWidget(doc({ ownerType: CONTEST_OWNER_TYPE, widgetId: "w1" })), true);
+  assert.equal(isContestWidget(doc({ ownerType: CHALLENGE_OWNER_TYPE })), false);
+  assert.equal(isChallengeWidget(null), false);
+  assert.equal(isContestWidget({}), false);
 
   assert.equal(isActorWidget(doc({ actorUuid: "Actor.a" })), true);
   assert.equal(isActorWidget(doc({ ownerType: SA_OWNER_TYPE })), false);
@@ -197,6 +208,41 @@ test("context menu routes conflict > SA > actor and leaves the GM row native", (
   assert.equal(
     resolveWidgetRoute(doc({ ownerType: GM_OWNER_TYPE, widgetId: "w1" }), CONTEXT_MENU),
     WIDGET_ROUTE.NONE,
+  );
+});
+
+test("challenge / contest drawings route their context menu to CHALLENGE_CONTEST", () => {
+  for (const ownerType of [CHALLENGE_OWNER_TYPE, CONTEST_OWNER_TYPE]) {
+    assert.equal(
+      resolveWidgetRoute(doc({ ownerType, widgetId: "w1" }), CONTEXT_MENU),
+      WIDGET_ROUTE.CHALLENGE_CONTEST,
+      `${ownerType} context menu`,
+    );
+    // Double click has no special meaning: the native select/open flow stays.
+    assert.equal(
+      resolveWidgetRoute(doc({ ownerType, widgetId: "w1" }), DOUBLE_CLICK),
+      WIDGET_ROUTE.NONE,
+      `${ownerType} double click`,
+    );
+    // Single click uses the generic widget selection.
+    assert.equal(
+      resolveWidgetRoute(doc({ ownerType, widgetId: "w1" }), SINGLE_CLICK),
+      WIDGET_ROUTE.SELECT,
+      `${ownerType} single click`,
+    );
+  }
+});
+
+test("a legacy challenge row still routes its context menu to CHALLENGE_CONTEST", () => {
+  // A legacy challenge row (`part: "taskRow"`, state on index 0) still routes
+  // to the same handler: the route is ownerType-based, so an existing
+  // multi-drawing block keeps its menu.
+  assert.equal(
+    resolveWidgetRoute(
+      doc({ ownerType: CHALLENGE_OWNER_TYPE, part: "taskRow", index: 0, widgetId: "w1" }),
+      CONTEXT_MENU,
+    ),
+    WIDGET_ROUTE.CHALLENGE_CONTEST,
   );
 });
 

@@ -24,7 +24,7 @@
  *  - double click: GM row -> situation aspects -> consequence cost row ->
  *    conflict document -> actor widget;
  *  - context menu: conflict document -> situation aspects (GM-gated) ->
- *    actor widget;
+ *    challenge/contest macro drawing (GM-gated) -> actor widget;
  *  - single click: interactive stress box -> widget selection.
  */
 
@@ -34,6 +34,8 @@ import {
   SA_OWNER_TYPE,
   CONFLICT_ZONE_OWNER_TYPE,
   CONFLICT_CARD_OWNER_TYPE,
+  CHALLENGE_OWNER_TYPE,
+  CONTEST_OWNER_TYPE,
   STRESS_BOX_PART,
   CONSEQUENCE_COST_ROWS_PART,
 } from "./constants.js";
@@ -66,6 +68,7 @@ export const WIDGET_ROUTE = Object.freeze({
   CONFLICT: "conflict",
   GM_ROW: "gmRow",
   SA: "sa",
+  CHALLENGE_CONTEST: "challengeContest",
   CONSEQUENCE: "consequence",
   ACTOR: "actor",
   STRESS_BOX: "stressBox",
@@ -110,6 +113,18 @@ export function isGmRowWidget(doc) {
 export function isSaWidget(doc) {
   const d = documentOf(doc);
   return !!d && ownerTypeOf(d) === SA_OWNER_TYPE;
+}
+
+/** True for a macro-created challenge drawing (ownerType `challenge`). */
+export function isChallengeWidget(doc) {
+  const d = documentOf(doc);
+  return !!d && ownerTypeOf(d) === CHALLENGE_OWNER_TYPE;
+}
+
+/** True for a macro-created contest drawing (ownerType `contest`). */
+export function isContestWidget(doc) {
+  const d = documentOf(doc);
+  return !!d && ownerTypeOf(d) === CONTEST_OWNER_TYPE;
 }
 
 /** True for an actor widget part (carries an `actorUuid`). */
@@ -187,6 +202,15 @@ export function resolveWidgetRoute(doc, kind) {
     // fallback is the reference behaviour and works from any layer).
     if (CONFLICT_OWNER_TYPES.includes(ownerType)) return WIDGET_ROUTE.CONFLICT;
     if (ownerType === SA_OWNER_TYPE) return WIDGET_ROUTE.SA;
+    // Challenge / Contest macro drawings: right-click opens their GM task /
+    // side menu. Double-click / single-click carry no special meaning (the
+    // generic widgetId branch below handles selection).
+    if (
+      ownerType === CHALLENGE_OWNER_TYPE ||
+      ownerType === CONTEST_OWNER_TYPE
+    ) {
+      return WIDGET_ROUTE.CHALLENGE_CONTEST;
+    }
     if (actorUuidOf(d)) return WIDGET_ROUTE.ACTOR;
     return WIDGET_ROUTE.NONE;
   }

@@ -44,8 +44,8 @@ import {
   SA_TEXT_PART,
   SITUATION_ASPECTS_SCOPE,
   SITUATION_ASPECTS_KEY,
-} from "./constants.js";
-import {
+  CONTEST_OWNER_TYPE,
+} from "./constants.js";import {
   handleConflictDocumentDoubleClick,
   handleConflictContextMenu,
   hitTestConflictPart,
@@ -55,6 +55,7 @@ import {
 } from "./ConflictInteractions.js";
 import { handleStressBoxClick } from "./StressBoxes.js";
 import { handleConsequenceCostDoubleClick } from "./ConsequenceInteractions.js";
+import { handleChallengeContestContextMenu } from "./challengeContestInteractions.js";
 import { escapeHtml, canvasWorldPosition } from "./utils.js";
 import { showCttMenu, closeCttMenu, getActiveMenu } from "./menu.js";
 import {
@@ -239,9 +240,9 @@ function patchRightClick(proto) {
     const doc = this.document ?? this;
     const route = resolveWidgetRoute(doc, WIDGET_EVENT_KINDS.CONTEXT_MENU);
     if (route === WIDGET_ROUTE.NONE) return original?.call(this, event);
-    // The situation aspects menu stays GM-only; a player keeps the native
-    // behaviour (no module menu is offered).
-    if (route === WIDGET_ROUTE.SA && !isGMUser()) {
+    // The situation aspects AND challenge/contest menus stay GM-only; a player
+    // keeps the native behaviour (no module menu is offered).
+    if (isGmOnlyContextRoute(route) && !isGMUser()) {
       return original?.call(this, event);
     }
     return routeWidgetInteractions({
@@ -257,7 +258,7 @@ function patchRightClick(proto) {
     if (route === WIDGET_ROUTE.NONE) return original2?.call(this, event);
     // The second right-click must not fall through to the native config sheet
     // when the first one was answered with a module menu.
-    if (route === WIDGET_ROUTE.SA && !isGMUser()) {
+    if (isGmOnlyContextRoute(route) && !isGMUser()) {
       return original2?.call(this, event);
     }
     consumeEvent(event);
@@ -266,13 +267,16 @@ function patchRightClick(proto) {
 }
 
 /**
- * Canvas control permissions for actor widget parts:
+ * Canvas control permissions for actor widget parts and the macro-created
+ * contest drawing:
  * - everyone can click (hover/control) the widget;
- * - only the GM can drag/move it.
+ * - only the GM can drag/move the actor widget / contest block.
  * Both the public `can(user, action)` (used by the mouse interaction
  * manager via CONFIG.Canvas.interactionPermissions) and the protected
  * `_canXxx` helpers are patched, so selection works for every user while
  * dragging stays GM-only. GM fate point boxes keep the default permissions.
+ * A challenge block is now ONE drawing: move stays fully native, and resize is
+ * normalised to independent axes by drawingFreeResize.js.
  */
 function patchControlPermissions(proto) {
   if (proto.__fateOnTheTableControl) return;
@@ -280,6 +284,12 @@ function patchControlPermissions(proto) {
   const isPlayerWidget = (obj) =>
     !!obj?.document?.getFlag?.(FLAG_SCOPE, "actorUuid") ||
     !!obj?.getFlag?.(FLAG_SCOPE, "actorUuid");
+  // A macro-created contest drawing may only be controlled/dragged by the GM
+  // (its menu is GM-only). A challenge block is not special-cased here: its
+  // single drawing uses the native drawing permissions and interaction.
+  const isContestWidget = (obj) =>
+    (obj?.document ?? obj)?.getFlag?.(FLAG_SCOPE, "ownerType") ===
+    CONTEST_OWNER_TYPE;
 
   const origCan = proto.can;
   proto.can = function (user, action) {
@@ -288,6 +298,19 @@ function patchControlPermissions(proto) {
         return true;
       }
       if (action === "drag" || action === "configure") {
+        return user?.isGM === true;
+      }
+    }
+    if (isContestWidget(this)) {
+      // Hover/view are open to everyone so the menu resolves from any layer;
+      // control/drag/configure are GM-only.
+      if (action === "hover" || action === "view") return true;
+      if (
+        action === "control" ||
+        action === "drag" ||
+        action === "configure" ||
+        action === "HUD"
+      ) {
         return user?.isGM === true;
       }
     }
@@ -303,18 +326,21 @@ function patchControlPermissions(proto) {
   const origHover = proto._canHover;
   proto._canHover = function (user, event) {
     if (isPlayerWidget(this)) return true;
+    if (isContestWidget(this)) return true;
     return origHover?.call(this, user, event);
   };
 
   const origDrag = proto._canDrag;
   proto._canDrag = function (user, event) {
     if (isPlayerWidget(this)) return user?.isGM === true;
+    if (isContestWidget(this)) return user?.isGM === true;
     return origDrag?.call(this, user, event);
   };
 
   const origDragStart = proto._canDragLeftStart;
   proto._canDragLeftStart = function (user, event, options) {
     if (isPlayerWidget(this)) return user?.isGM === true;
+    if (isContestWidget(this)) return user?.isGM === true;
     return origDragStart?.call(this, user, event, options);
   };
 }
@@ -428,6 +454,16 @@ function isGMUser() {
   return typeof game !== "undefined" && game?.user?.isGM === true;
 }
 
+/**
+ * True for context-menu routes whose menu is GM-only: the situation aspects
+ * widget and the challenge/contest macro drawings. A non-GM user keeps the
+ * native Foundry behaviour for these (no module menu, nothing consumed).
+ * @param {string} route  A `WIDGET_ROUTE` value.
+ */
+function isGmOnlyContextRoute(route) {
+  return route === WIDGET_ROUTE.SA || route === WIDGET_ROUTE.CHALLENGE_CONTEST;
+}
+
 /** Prevents the native Foundry/browser handling of a consumed event. */
 function consumeEvent(event) {
   event?.preventDefault?.();
@@ -511,6 +547,16 @@ export async function routeWidgetInteractions({
         consumeEvent(event);
         handleSaContextMenu(doc, event);
         return true;
+      }
+      return false;
+
+    case WIDGET_ROUTE.CHALLENGE_CONTEST:
+      if (kind === WIDGET_EVENT_KINDS.CONTEXT_MENU) {
+        // GM-only: a non-GM does NOT consume the event (native menu stays).
+        // The handler owns `consumeEvent` and returns whether a menu was
+        // shown, so an empty challenge/contest leaves the native event
+        // untouched instead of swallowing it.
+        return await handleChallengeContestContextMenu(doc, event);
       }
       return false;
 
@@ -1380,9 +1426,16 @@ function onCanvasRightPointerDown(event) {
   // Conflict documents are handled by the conflict fallback listener
   // (`onConflictCanvasPointerDown`) so they are never double-handled here; the
   // GM row keeps the native context menu.
-  if (route !== WIDGET_ROUTE.ACTOR && route !== WIDGET_ROUTE.SA) return;
-  // Situation aspects stay GM-only; actor widgets are owner-aware.
-  if (route === WIDGET_ROUTE.SA && !isGMUser()) return;
+  if (
+    route !== WIDGET_ROUTE.ACTOR &&
+    route !== WIDGET_ROUTE.SA &&
+    route !== WIDGET_ROUTE.CHALLENGE_CONTEST
+  ) {
+    return;
+  }
+  // Situation aspects AND challenge/contest menus stay GM-only; actor widgets
+  // are owner-aware.
+  if (isGmOnlyContextRoute(route) && !isGMUser()) return;
   // When the part's own layer is active the PIXI patch path handles it —
   // do not double-handle.
   const layerActive =
@@ -1420,8 +1473,14 @@ function onCanvasContextMenu(event) {
   const part = hitTestWidgetPart(event);
   if (!part) return;
   const route = resolveWidgetRoute(part, WIDGET_EVENT_KINDS.CONTEXT_MENU);
-  if (route !== WIDGET_ROUTE.ACTOR && route !== WIDGET_ROUTE.SA) return;
-  if (route === WIDGET_ROUTE.SA && !isGMUser()) return;
+  if (
+    route !== WIDGET_ROUTE.ACTOR &&
+    route !== WIDGET_ROUTE.SA &&
+    route !== WIDGET_ROUTE.CHALLENGE_CONTEST
+  ) {
+    return;
+  }
+  if (isGmOnlyContextRoute(route) && !isGMUser()) return;
   const layerActive =
     part.documentName === "Drawing"
       ? canvas.drawings?.active

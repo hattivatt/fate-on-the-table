@@ -15,6 +15,7 @@ import {
   SA_OWNER_TYPE,
   CONFLICT_ZONE_OWNER_TYPE,
   CONFLICT_CARD_OWNER_TYPE,
+  CONTEST_OWNER_TYPE,
 } from "./constants.js";
 import { allWidgetDocs } from "./widgetDocs.js";
 import {
@@ -52,6 +53,17 @@ function onPartPreUpdate(document, change, options, userId) {
   // the move is rejected for non-GM users.
   if (
     ownerType === CONFLICT_ZONE_OWNER_TYPE &&
+    typeof game !== "undefined" &&
+    game?.user &&
+    !game.user.isGM
+  ) {
+    return false;
+  }
+  // Contest stays a GM-only widget; a challenge block is now ONE drawing. Move
+  // is native (nothing is intercepted here); resize is normalised to free axes
+  // by drawingFreeResize.js.
+  if (
+    ownerType === CONTEST_OWNER_TYPE &&
     typeof game !== "undefined" &&
     game?.user &&
     !game.user.isGM
