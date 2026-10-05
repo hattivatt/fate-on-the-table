@@ -89,6 +89,7 @@ import {
   getNameGenOptions,
 } from "./settings.js";
 import { correctedAlias } from "./chatSpeaker.js";
+import { runChallengeContest } from "./challengeContestMacro.js";
 
 // Track warned cache-miss languages to avoid spam
 const warnedMissingDictLangs = new Set();
@@ -1114,6 +1115,11 @@ function registerPublicApi() {
         enterConflictZoneEditMode,
         exitConflictZoneEditMode,
         isConflictEditModeActive,
+      },
+      challengeContest: {
+        run() {
+          return runChallengeContest();
+        },
       },
     };
   } catch (err) {

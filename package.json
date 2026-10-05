@@ -4,6 +4,10 @@
   "type": "module",
   "description": "Dev tooling for the fate-on-the-table Foundry module (pure logic tests only; not part of the module package).",
   "scripts": {
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "build:packs": "node scripts/buildPacks.js"
+  },
+  "devDependencies": {
+    "@foundryvtt/foundryvtt-cli": "^3.0.4"
   }
 }

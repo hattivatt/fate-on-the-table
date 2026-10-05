@@ -36,6 +36,14 @@
   "styles": [
     "styles/module.css"
   ],
+  "packs": [
+    {
+      "name": "challenge-contest",
+      "label": "Challenge / Contest",
+      "path": "packs/challenge-contest",
+      "type": "Macro"
+    }
+  ],
   "languages": [
     {
       "lang": "en",

@@ -8,6 +8,11 @@ import { resolveFont } from "./WidgetBuilder.js";
 import { LayoutImportExport } from "./LayoutImportExport.js";
 import { BOARD_SIZE_PRESETS } from "./conflictBoardGeometry.js";
 import { TURN_MARKER_SETTING } from "./constants.js";
+import {
+  CHALLENGE_SETTING_DEFAULTS,
+  CONTEST_SETTING_DEFAULTS,
+  CHALLENGE_CONTEST_SETTING_DEFAULTS,
+} from "./challengeContest.js";
 
 export const MODULE_ID = "fate-on-the-table";
 
@@ -547,6 +552,109 @@ export function registerSettings() {
     range: { min: 3, max: 15, step: 1 },
   });
 
+  // Challenge / Contest macro (shipped in the `challenge-contest` Macro pack).
+  // These replace the legacy journal-page settings of the standalone macro;
+  // the old journal data is intentionally NOT migrated. Defaults mirror the
+  // old `ChallengeContestManager` page (see challengeContest.js). Font size is
+  // intentionally NOT configurable: one fixed constant multiplied by the
+  // module-wide `scale` setting.
+  game.settings.register(MODULE_ID, "challengeFontFamily", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.challengeFontFamily`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.challengeFontFamilyHint`),
+    scope: "world",
+    config: true,
+    type: String,
+    default: CHALLENGE_SETTING_DEFAULTS.challengeFontFamily,
+    choices: {},
+  });
+
+  game.settings.register(MODULE_ID, "challengeAddBackground", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.challengeAddBackground`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.challengeAddBackgroundHint`),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: CHALLENGE_SETTING_DEFAULTS.challengeAddBackground,
+  });
+
+  game.settings.register(MODULE_ID, "challengeBackgroundColor", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.challengeBackgroundColor`),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.challengeBackgroundColorHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: String,
+    default: CHALLENGE_SETTING_DEFAULTS.challengeBackgroundColor,
+  });
+
+  game.settings.register(MODULE_ID, "challengeTextColor", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.challengeTextColor`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.challengeTextColorHint`),
+    scope: "world",
+    config: true,
+    type: String,
+    default: CHALLENGE_SETTING_DEFAULTS.challengeTextColor,
+  });
+
+  game.settings.register(MODULE_ID, "contestFontFamily", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.contestFontFamily`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.contestFontFamilyHint`),
+    scope: "world",
+    config: true,
+    type: String,
+    default: CONTEST_SETTING_DEFAULTS.contestFontFamily,
+    choices: {},
+  });
+
+  game.settings.register(MODULE_ID, "contestAddBackground", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.contestAddBackground`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.contestAddBackgroundHint`),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: CONTEST_SETTING_DEFAULTS.contestAddBackground,
+  });
+
+  game.settings.register(MODULE_ID, "contestBackgroundColor", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.contestBackgroundColor`),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.contestBackgroundColorHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: String,
+    default: CONTEST_SETTING_DEFAULTS.contestBackgroundColor,
+  });
+
+  game.settings.register(MODULE_ID, "contestTextColor", {
+    name: game.i18n.localize(`${MODULE_ID}.settings.contestTextColor`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.contestTextColorHint`),
+    scope: "world",
+    config: true,
+    type: String,
+    default: CONTEST_SETTING_DEFAULTS.contestTextColor,
+  });
+
+  // Shared background texture of the Challenge / Contest macro: one setting
+  // drives BOTH kinds of drawing. When set, each drawing is filled with the
+  // texture (PATTERN fill, the background color is ignored); when empty the
+  // `challengeAddBackground` / `contestAddBackground` color rule applies.
+  // Registered like the other file-picker texture settings.
+  game.settings.register(MODULE_ID, "challengeContestBackgroundTexture", {
+    name: game.i18n.localize(
+      `${MODULE_ID}.settings.challengeContestBackgroundTexture`,
+    ),
+    hint: game.i18n.localize(
+      `${MODULE_ID}.settings.challengeContestBackgroundTextureHint`,
+    ),
+    scope: "world",
+    config: true,
+    type: String,
+    default:
+      CHALLENGE_CONTEST_SETTING_DEFAULTS.challengeContestBackgroundTexture,
+  });
+
   Hooks.on("renderSettingsConfig", onRenderSettingsConfig);
   Hooks.on("closeSettingsConfig", () => {
     openSettingsConfig = null;
@@ -722,7 +830,12 @@ function getFontList() {
  */
 function onRenderSettingsConfig(app, html) {
   openSettingsConfig = app;
-  for (const key of ["fontFamily", "situationAspectsFontFamily"]) {
+  for (const key of [
+    "fontFamily",
+    "situationAspectsFontFamily",
+    "challengeFontFamily",
+    "contestFontFamily",
+  ]) {
     const fontInput = html.querySelector?.(
       `[name="${MODULE_ID}.${key}"]`,
     );
@@ -734,11 +847,24 @@ function onRenderSettingsConfig(app, html) {
     empty.textContent = "—";
     if (!current) empty.selected = true;
     fontInput.append(empty);
+    let hasCurrent = false;
     for (const font of getFontList()) {
       const option = document.createElement("option");
       option.value = font;
       option.textContent = font;
-      if (font === current) option.selected = true;
+      if (font === current) {
+        option.selected = true;
+        hasCurrent = true;
+      }
+      fontInput.append(option);
+    }
+    // Keep a configured font selectable even when it is not a registered game
+    // font (e.g. the legacy Montserrat default of the Challenge/Contest macro).
+    if (current && !hasCurrent) {
+      const option = document.createElement("option");
+      option.value = current;
+      option.textContent = current;
+      option.selected = true;
       fontInput.append(option);
     }
   }
@@ -748,6 +874,10 @@ function onRenderSettingsConfig(app, html) {
     "situationAspectsTextColor",
     "situationAspectsBackgroundColor",
     "conflictBoardBackgroundColor",
+    "challengeTextColor",
+    "challengeBackgroundColor",
+    "contestTextColor",
+    "contestBackgroundColor",
   ]) {
     const colorInput = html.querySelector?.(
       `[name="${MODULE_ID}.${key}"]`,
@@ -760,6 +890,7 @@ function onRenderSettingsConfig(app, html) {
     "backgroundTexture",
     "situationAspectsBackgroundTexture",
     "conflictBoardBackgroundTexture",
+    "challengeContestBackgroundTexture",
   ]) {
     const input = html.querySelector?.(`[name="${MODULE_ID}.${key}"]`);
     const fields = input?.closest(".form-fields");

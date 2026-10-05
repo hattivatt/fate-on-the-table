@@ -50,6 +50,14 @@ export const CONFLICT_ROUND_NUMBER_PART = "conflictRoundNumber";
 // QoL — auto-enable of TokenDocument.turnMarker for combat on an active board.
 export const TURN_MARKER_SETTING = "autoTurnMarker";
 
+// Challenge / Contest macro widget ownerTypes: set on the drawings created by
+// the shipped macro so the context-menu router can recognize them. Both the
+// challenge state (tasks with a status) and the contest state (sides with a
+// done counter) live in the module flags of the SINGLE drawing each block is
+// projected as.
+export const CHALLENGE_OWNER_TYPE = "challenge";
+export const CONTEST_OWNER_TYPE = "contest";
+
 // Interactive widget part names shared by the pure interaction router and the
 // per-feature handlers (single source of truth, avoids literal drift).
 export const STRESS_BOX_PART = "stressBoxRows";

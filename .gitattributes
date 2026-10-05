@@ -1,0 +1,4 @@
+# LevelDB compendium packs are binary-encoded; never let git (or a Windows
+# checkout) mangle their bytes with CRLF conversion. See Foundry's v11 pack
+# migration guide.
+packs/challenge-contest/** binary

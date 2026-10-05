@@ -105,7 +105,7 @@ export class PlacementManager {
     }
 
     const manager = new PlacementManager(
-      { docs, bounds, label, options, hintKey, commit },
+      { docs, bounds, label, options, hintKey, successKey, commit },
       canvas.scene,
     );
     this.active = manager;
