@@ -15,6 +15,7 @@ import {
 } from "./WidgetSync.js";
 import { initSheetButton } from "./sheetButton.js";
 import { initWidgetDrag } from "./widgetDrag.js";
+import { initDrawingFreeResize } from "./drawingFreeResize.js";
 import {
   FatePointManager,
   initWidgetInteractions,
@@ -97,6 +98,10 @@ const warnedMissingDictLangs = new Set();
 // Canvas interaction patches must be applied on every module load (page
 // reloads included), so this runs at top level — not inside a one-shot hook.
 initWidgetInteractions();
+// Challenge / contest blocks are ONE Drawing each; v14's DrawingShapeControls
+// corner handle locks the aspect ratio. This wrapper (idempotent) restores an
+// independent-axis resize for our drawings only.
+initDrawingFreeResize();
 initStressBoxInteractions();
 
 console.log("[fate-on-the-table] module loaded");
@@ -339,6 +344,8 @@ Hooks.once("ready", () => {
     console.warn("[fate-on-the-table] name dict preload check failed:", err);
   }
   initWidgetDrag();
+  // Retry: idempotent, and the canvas classes are guaranteed present by `ready`.
+  initDrawingFreeResize();
   Hooks.on("updateActor", scheduleActorSync);
   // Distinct purpose: actor data changes that drive CONFLICT cards (stress,
   // consequences, aspects, skills, items) re-project the active board through
