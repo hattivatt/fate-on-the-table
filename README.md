@@ -81,7 +81,7 @@
 В Foundry: **Add-on Modules → Install Module → Manifest URL**:
 
 ```
-https://github.com/<user>/<repo>/releases/latest/download/module.json
+https://github.com/hattivatt/fate-on-the-table/releases/latest/download/module.json
 ```
 
 Либо скопируйте папку модуля в `Data/modules/fate-on-the-table`.
@@ -99,8 +99,20 @@ https://github.com/<user>/<repo>/releases/latest/download/module.json
 
 ## Credits
 
-Token name generation is adapted from Token Mold by Moerill (MIT License, © 2020 Moerill).
+Token name generation is adapted from Token Mold by Moerill (MIT License, © 2020 Moerill). Полный текст лицензии — в [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ## Разработка
 
-Подробный план и зафиксированные решения — в [PLAN.md](PLAN.md).
+- Окружение, тесты, живой запуск в Foundry и сборка паков — в [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+- Порядок выпуска версии — в [docs/RELEASE.md](docs/RELEASE.md).
+- Внешние зависимости и их версии — в [docs/UPSTREAM.md](docs/UPSTREAM.md).
+- Подробный план и зафиксированные решения — в [PLAN.md](PLAN.md).
+
+Быстрый старт:
+
+```sh
+devenv shell
+npm ci
+npm test
+npm run dev:link
+```

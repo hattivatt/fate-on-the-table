@@ -51,7 +51,9 @@ jobs:
           STAGING="_staging"
           rm -rf "$STAGING"
           mkdir -p "$STAGING/$MODULE_DIR"
-          rsync -a --exclude ".git" --exclude ".github" --exclude "AGENTS.md" --exclude ".gitignore" --exclude "tests" --exclude "PLAN.md" --exclude "package.json" --exclude "package-lock.json" --exclude "node_modules" --exclude "LAYOUT-FORMAT.md" --exclude "$STAGING" ./ "$STAGING/$MODULE_DIR/"
+          for entry in module.json LICENSE README.md scripts styles layouts languages packs; do
+            cp -R "$entry" "$STAGING/$MODULE_DIR/"
+          done
           (cd "$STAGING" && zip -r module.zip "$MODULE_DIR")
           mv "$STAGING/module.zip" module.zip
           rm -rf "$STAGING"

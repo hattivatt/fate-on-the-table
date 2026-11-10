@@ -61,6 +61,14 @@ Guidelines for AI agents working in this repository.
 
 - Use bare names from `PATH` (`node` / `npm` / `jq` / `git` — provided by
   `devenv`). Never hard-code absolute binary paths.
+- `devenv shell` from the repository root; the environment is defined by
+  `devenv.nix` / `devenv.yaml` / `devenv.lock`.
+- `npm run build:packs` rebuilds `packs/challenge-contest/` from the JSONL
+  source. Foundry mutates the LevelDB directory at runtime, so rebuild before
+  committing pack changes. `LOCK`, `LOG` and `LOG.old` are ignored.
+- `npm run dev:link` / `npm run dev:unlink` manage the symlink in the Foundry
+  data directory (`FOUNDRY_DATA`, default v14 path). See
+  `docs/DEVELOPMENT.md`.
 
 ## Git
 
@@ -72,14 +80,17 @@ Guidelines for AI agents working in this repository.
 ## External references
 
 - `fate-core-official` — read-only reference (separate repo, do not modify).
-- `layout-editor` — separate repo with its own tests and drift-guard
-  contracts. Text metric constants are synced between the module and the editor;
-  `tests/moduleCompatibility` asserts parity.
+  System install and versions are documented in `docs/UPSTREAM.md`.
+- `layout-editor` — separate sibling repo (`../layout-editor`), needed only for
+  layout-format work. Its `tests/moduleCompatibility.test.ts` and
+  `tests/moduleGeometry.test.ts` read this checkout through
+  `../fate-on-the-table`; text metric constants are kept in sync.
 
 ## Release
 
 - Pushing a `v*` tag triggers `.github/workflows/release.yml`: it validates
   that `module.json` `version` / `manifest` / `download` contain the tag,
-  builds `module.zip` (excludes `tests`, `PLAN.md`, `AGENTS.md`, `package.json`,
-  etc.) and creates the GitHub release. `module.json` placeholders are part of
-  the user's release cycle.
+  builds `module.zip` from an explicit runtime allowlist
+  (`module.json`, `LICENSE`, `README.md`, `scripts/`, `styles/`, `layouts/`,
+  `languages/`, `packs/`) and creates the GitHub release. `module.json`
+  placeholders are part of the user's release cycle; see `docs/RELEASE.md`.

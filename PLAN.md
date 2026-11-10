@@ -324,7 +324,7 @@ fate-on-the-table/
   PLAN.md
   README.md
   LICENSE
-  LAYOUT-FORMAT.md            # локально, ignored, спецификация JSON
+  LAYOUT-FORMAT.md            # спецификация JSON-раскладок
   layouts/                    # built-in JSON layouts
   languages/{en,ru}.json
   styles/module.css

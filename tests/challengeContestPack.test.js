@@ -11,7 +11,7 @@
  * Human-readable source of truth:
  *   - `packs/challenge-contest.macro.js` — the readable thin-launcher source;
  *   - `packs/challenge-contest.jsonl`    — one serialized Macro document per
- *     line, the input to `scripts/buildPacks.js` (`npm run build:packs`).
+ *     line, the input to `tools/buildPacks.js` (`npm run build:packs`).
  *
  * Architecture contract (regression guard for the time-capsule desync):
  *   - the PACKED macro is a thin launcher that only calls
@@ -32,7 +32,7 @@
  *     key it reads is registered in `settings.js`;
  *   - check every `challenge.*` i18n key used by the macro AND the API resolves
  *     in both language files;
- *   - assert the release workflow includes `packs/` and excludes dev tooling.
+ *   - assert the release workflow ships only runtime files.
  */
 
 import { test } from "node:test";
@@ -47,7 +47,7 @@ const LEVELDB_DIR = join(ROOT, "packs/challenge-contest");
 const LEGACY_DB = join(ROOT, "packs/challenge-contest.db");
 const JSONL_PATH = join(ROOT, "packs/challenge-contest.jsonl");
 const SRC_PATH = join(ROOT, "packs/challenge-contest.macro.js");
-const BUILD_PATH = join(ROOT, "scripts/buildPacks.js");
+const BUILD_PATH = join(ROOT, "tools/buildPacks.js");
 const API_PATH = join(ROOT, "scripts/challengeContestMacro.js");
 const MODULE_PATH = join(ROOT, "scripts/module.js");
 const SETTINGS_PATH = join(ROOT, "scripts/settings.js");
@@ -157,7 +157,7 @@ test("buildPacks compiles the JSONL source into the LevelDB pack", () => {
   const build = readFileSync(BUILD_PATH, "utf8");
   assert.ok(
     build.includes("compilePack"),
-    "scripts/buildPacks.js uses @foundryvtt/foundryvtt-cli compilePack",
+    "tools/buildPacks.js uses @foundryvtt/foundryvtt-cli compilePack",
   );
   assert.ok(
     build.includes("challenge-contest.jsonl"),
@@ -169,7 +169,7 @@ test("buildPacks compiles the JSONL source into the LevelDB pack", () => {
   );
   assert.equal(
     packageJson.scripts?.["build:packs"],
-    "node scripts/buildPacks.js",
+    "node tools/buildPacks.js",
     "package.json exposes `npm run build:packs`",
   );
   assert.ok(
@@ -277,17 +277,27 @@ test("every challenge.* key used by the macro and the API resolves in both langu
   assert.deepEqual(problems, [], problems.join("\n"));
 });
 
-test("the release workflow includes packs/ and excludes dev tooling", () => {
+test("the release workflow ships only runtime files", () => {
   const workflow = readFileSync(
     join(ROOT, ".github/workflows/release.yml"),
     "utf8",
   );
   assert.ok(
-    !/--exclude\s+["']?packs/.test(workflow),
-    "release.yml must not exclude packs/",
+    /for entry in module\.json LICENSE README\.md scripts styles layouts languages packs/.test(
+      workflow,
+    ),
+    "release.yml must copy the runtime file allowlist",
   );
   assert.ok(
-    /--exclude\s+["']?node_modules/.test(workflow),
-    "release.yml must exclude node_modules/ from module.zip",
+    !workflow.includes("--exclude"),
+    "release.yml must not rely on a blacklist",
+  );
+  assert.ok(
+    !workflow.includes("tests"),
+    "release.yml must not ship tests",
+  );
+  assert.ok(
+    !workflow.includes("tools"),
+    "release.yml must not ship dev tools",
   );
 });

@@ -1,5 +1,15 @@
-# Local layout format draft; keep it available in the workspace without tracking it.
-/LAYOUT-FORMAT.md
+# devenv / direnv state.
+/.devenv/
+/.direnv/
 
 # Dev tooling (foundryvtt-cli) — needed to build the LevelDB packs, never shipped.
 /node_modules/
+/dist/
+
+# Foundry runtime artifacts inside the compiled LevelDB pack.
+/packs/challenge-contest/LOCK
+/packs/challenge-contest/LOG
+/packs/challenge-contest/LOG.old
+
+# Local Foundry console dump.
+/console.txt
