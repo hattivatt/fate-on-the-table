@@ -100,5 +100,3 @@ npm run dev
 ```sh
 npm test
 ```
-
-CI на GitHub Actions запускает те же Node-тесты на Node 24.
