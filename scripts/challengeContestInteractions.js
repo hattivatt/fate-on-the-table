@@ -168,7 +168,8 @@ export function buildChallengeMenuItems(doc, scene = doc?.parent, labels = {}) {
   const success = labels.success ?? "Success";
   const failed = labels.failed ?? "Failed";
   const reset = labels.reset ?? "Reset";
-  const removeBlock = labels.removeBlock ?? "Delete block";
+  const editLabel = labels.edit ?? "Edit";
+  const removeBlockLabel = labels.removeBlock ?? "Delete block";
   // Normalize ONCE and let every onClick capture that exact array, so the index
   // shown in the menu is applied to the same sequence the executor mutates.
   const tasks = normalizeTaskState(resolveChallengeState(scene, doc));
@@ -206,15 +207,21 @@ export function buildChallengeMenuItems(doc, scene = doc?.parent, labels = {}) {
     };
   });
   if (items.length) {
-    items.push(
-      { sep: true },
-      {
-        icon: "fa-trash",
-        label: removeBlock,
-        onClick: () => removeBlockConfirm(doc, scene),
-      },
-    );
+    items.push({ sep: true });
   }
+  const legacy = doc?.getFlag?.(FLAG_SCOPE, "part") === LEGACY_TASK_ROW_PART;
+  if (!legacy) {
+    items.push({
+      icon: "fa-pen-to-square",
+      label: editLabel,
+      onClick: () => openBlockEditor(doc, scene),
+    });
+  }
+  items.push({
+    icon: "fa-trash",
+    label: removeBlockLabel,
+    onClick: () => removeBlock(doc, scene),
+  });
   return items;
 }
 
@@ -234,7 +241,8 @@ export function buildChallengeMenuItems(doc, scene = doc?.parent, labels = {}) {
 export function buildContestMenuItems(doc, labels = {}, scene = doc?.parent) {
   const advanceForward = labels.advanceForward ?? "Advance forward";
   const advanceBack = labels.advanceBack ?? "Advance back";
-  const removeBlock = labels.removeBlock ?? "Delete block";
+  const editLabel = labels.edit ?? "Edit";
+  const removeBlockLabel = labels.removeBlock ?? "Delete block";
   const items = normalizeSideState(contestStateOf(doc)).map((side, index) => ({
     icon: "fa-bolt",
     label: side.name,
@@ -254,15 +262,20 @@ export function buildContestMenuItems(doc, labels = {}, scene = doc?.parent) {
     ],
   }));
   if (items.length) {
-    items.push(
-      { sep: true },
-      {
-        icon: "fa-trash",
-        label: removeBlock,
-        onClick: () => removeBlockConfirm(doc, scene),
-      },
-    );
+    items.push({ sep: true });
   }
+  items.push(
+    {
+      icon: "fa-pen-to-square",
+      label: editLabel,
+      onClick: () => openBlockEditor(doc, scene),
+    },
+    {
+      icon: "fa-trash",
+      label: removeBlockLabel,
+      onClick: () => removeBlock(doc, scene),
+    },
+  );
   return items;
 }
 
@@ -363,6 +376,14 @@ async function setStatusChallengeTaskAndSync(
   });
 }
 
+/** Glue: open the shared editor for a challenge/contest block. */
+async function openBlockEditor(doc, scene = doc?.parent) {
+  const { editChallengeContestDocument } = await import(
+    "./challengeContestMacro.js"
+  );
+  await editChallengeContestDocument(doc, scene);
+}
+
 /** Glue: advance one contest side (clamped) and persist text + state. */
 async function advanceSideAndSync(doc, index, delta) {
   const next = advanceSide(contestStateOf(doc), index, delta);
@@ -374,28 +395,14 @@ async function advanceSideAndSync(doc, index, delta) {
 }
 
 /**
- * Glue: confirm then delete every drawing/tile of the block in ONE marked
- * batch. The group is resolved by `widgetId` (legacy multi-drawing blocks
- * included); a single drawing without a `widgetId` deletes only itself.
- * DialogV2 is accessed lazily so the module still imports in Node.
+ * Glue: delete every drawing/tile of the block in ONE marked batch, IMMEDIATELY
+ * (no confirmation dialog — the context-menu action is the confirmation). The
+ * group is resolved by `widgetId` (legacy multi-drawing blocks included); a
+ * single drawing without a `widgetId` deletes only itself.
  * @param {object} doc  Any Drawing of the block.
  * @param {object} [scene]  Scene holding the block (defaults to `doc.parent`).
  */
-async function removeBlockConfirm(doc, scene = doc?.parent) {
-  const DIALOG = globalThis.foundry?.applications?.api?.DialogV2;
-  if (!DIALOG?.confirm) return;
-  let confirmed = false;
-  try {
-    confirmed = await DIALOG.confirm({
-      window: { title: ccT("removeBlock") },
-      content: ccT("removeConfirm"),
-      rejectClose: false,
-    });
-  } catch (err) {
-    console.warn("[fate-on-the-table] delete-block confirm failed:", err);
-    return;
-  }
-  if (!confirmed) return;
+async function removeBlock(doc, scene = doc?.parent) {
   const targetScene =
     scene ?? (typeof canvas !== "undefined" ? canvas?.scene : undefined);
   if (!targetScene?.deleteEmbeddedDocuments) return;
@@ -436,6 +443,7 @@ export async function handleChallengeContestContextMenu(doc, event) {
       success: ccT("success"),
       failed: ccT("failed"),
       reset: ccT("reset"),
+      edit: ccT("edit"),
       removeBlock: ccT("removeBlock"),
     });
     if (!items.length) return false;
@@ -454,6 +462,7 @@ export async function handleChallengeContestContextMenu(doc, event) {
       {
         advanceForward: ccT("advanceForward"),
         advanceBack: ccT("advanceBack"),
+        edit: ccT("edit"),
         removeBlock: ccT("removeBlock"),
       },
       scene,

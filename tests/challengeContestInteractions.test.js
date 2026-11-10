@@ -92,20 +92,6 @@ function challengeRow(scene, { index, id }) {
   );
 }
 
-/** Stubs the lazy DialogV2.confirm access used by "Delete block". */
-function installDialogConfirm(value) {
-  const prev = globalThis.foundry;
-  globalThis.foundry = {
-    applications: { api: { DialogV2: { confirm: async () => value } } },
-  };
-  return {
-    restore() {
-      if (prev === undefined) delete globalThis.foundry;
-      else globalThis.foundry = prev;
-    },
-  };
-}
-
 function withGm(fn) {
   const prev = globalThis.game;
   globalThis.game = { user: { isGM: true }, i18n: { localize: (k) => k } };
@@ -143,10 +129,11 @@ test("buildChallengeMenuItems: marks, icons, iconColor and status submenu", () =
     { text: "Lost", difficulty: 4, status: "failed" },
   ]);
   const items = buildChallengeMenuItems(doc);
-  // One item per task + separator + delete block.
-  assert.equal(items.length, 5);
+  // One item per task + separator + edit + delete block.
+  assert.equal(items.length, 6);
   assert.equal(items[3].sep, true);
-  assert.equal(items[4].icon, "fa-trash");
+  assert.equal(items[4].icon, "fa-pen-to-square");
+  assert.equal(items[5].icon, "fa-trash");
 
   assert.equal(items[0].icon, "fa-minus");
   assert.equal(items[0].label, "Open +1");
@@ -180,12 +167,14 @@ test("buildChallengeMenuItems: marks, icons, iconColor and status submenu", () =
     success: "Успешна",
     failed: "Провалена",
     reset: "Сбросить",
+    edit: "Редактировать",
     removeBlock: "Удалить блок",
   });
   assert.equal(localized[0].children[0].label, "Успешна");
   assert.equal(localized[0].children[1].label, "Провалена");
   assert.equal(localized[0].children[2].label, "Сбросить");
-  assert.equal(localized[4].label, "Удалить блок");
+  assert.equal(localized[4].label, "Редактировать");
+  assert.equal(localized[5].label, "Удалить блок");
 });
 
 test("challenge menu onClick: sets status, derives text, preserves ADT flags", async () => {
@@ -269,11 +258,15 @@ test("challenge menu onClick: legacy done boolean renders a check on first set",
   ]);
 });
 
-test("challenge menu onClick: invalid index / empty menu is a no-op", async () => {
+test("challenge menu onClick: empty state still offers edit and delete", async () => {
   const doc = makeDoc({ widgetId: "w", ownerType: "challenge", tasks: [] });
   const items = buildChallengeMenuItems(doc);
-  assert.deepEqual(items, []);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].icon, "fa-pen-to-square");
+  assert.equal(items[1].icon, "fa-trash");
+  await items[1].onClick();
   assert.equal(doc.parent.updates.length, 0);
+  assert.equal(doc.parent.deleted.length, 1);
 });
 
 test("challenge menu: normalized index sets the VISIBLE task, not a hidden blank row", async () => {
@@ -286,7 +279,7 @@ test("challenge menu: normalized index sets the VISIBLE task, not a hidden blank
     ],
   });
   const items = buildChallengeMenuItems(doc);
-  assert.equal(items.length, 3, "blank row is not shown (task + sep + delete)");
+  assert.equal(items.length, 4, "blank row is not shown (task + sep + edit + delete)");
   assert.equal(items[0].label, "A +2");
 
   await items[0].children[0].onClick();
@@ -376,46 +369,35 @@ test("legacy multi-drawing block: setting status updates the task row text", asy
  * Delete block
  * ------------------------------------------------------------------ */
 
-test("challenge 'Delete block' confirms then deletes every group drawing", async () => {
-  await withGm(async () => {
-    const scene = makeScene();
-    const doc = challengeDoc([{ text: "A", difficulty: 1, status: "pending" }], {
-      scene,
-      id: "row-0",
-    });
-    challengeRow(scene, { index: 1, id: "row-1" }); // legacy sibling
-    const dialog = installDialogConfirm(true);
-    try {
-      const items = buildChallengeMenuItems(doc, scene);
-      const remove = items[items.length - 1];
-      await remove.onClick();
-      assert.equal(scene.deleted.length, 1);
-      assert.equal(scene.deleted[0].name, "Drawing");
-      assert.deepEqual([...scene.deleted[0].ids].sort(), ["row-0", "row-1"]);
-      assert.equal(scene.deleted[0].options.fateOnTheTableSync, true);
-    } finally {
-      dialog.restore();
-    }
+test("challenge 'Delete block' deletes every group drawing immediately", async () => {
+  const scene = makeScene();
+  const doc = challengeDoc([{ text: "A", difficulty: 1, status: "pending" }], {
+    scene,
+    id: "row-0",
   });
+  challengeRow(scene, { index: 1, id: "row-1" }); // legacy sibling
+  const items = buildChallengeMenuItems(doc, scene);
+  const remove = items[items.length - 1];
+  await remove.onClick();
+  assert.equal(scene.deleted.length, 1);
+  assert.equal(scene.deleted[0].name, "Drawing");
+  assert.deepEqual([...scene.deleted[0].ids].sort(), ["row-0", "row-1"]);
+  assert.equal(scene.deleted[0].options.fateOnTheTableSync, true);
 });
 
-test("contest 'Delete block' is cancelled by the confirm dialog", async () => {
-  await withGm(async () => {
-    const scene = makeScene();
-    const doc = contestDoc([{ name: "S", boxes: 2, done: 0 }]);
-    // Re-parent the contest doc onto the recording scene.
-    doc.parent = scene;
-    scene.drawings.push(doc);
-    const dialog = installDialogConfirm(false);
-    try {
-      const items = buildContestMenuItems(doc, {}, scene);
-      const remove = items[items.length - 1];
-      await remove.onClick();
-      assert.equal(scene.deleted.length, 0);
-    } finally {
-      dialog.restore();
-    }
-  });
+test("contest 'Delete block' deletes its drawing immediately (no dialog)", async () => {
+  const scene = makeScene();
+  const doc = contestDoc([{ name: "S", boxes: 2, done: 0 }]);
+  // Re-parent the contest doc onto the recording scene.
+  doc.parent = scene;
+  scene.drawings.push(doc);
+  const items = buildContestMenuItems(doc, {}, scene);
+  const remove = items[items.length - 1];
+  await remove.onClick();
+  assert.equal(scene.deleted.length, 1);
+  assert.equal(scene.deleted[0].name, "Drawing");
+  assert.deepEqual(scene.deleted[0].ids, [doc.id]);
+  assert.equal(scene.deleted[0].options.fateOnTheTableSync, true);
 });
 
 /* ------------------------------------------------------------------ *
@@ -478,17 +460,25 @@ function installDomStub() {
   };
 }
 
-test("handleChallengeContestContextMenu: empty menu returns false and does NOT consume the event", async () => {
-  await withGm(async () => {
-    const consumed = [];
-    const event = {
-      preventDefault: () => consumed.push("preventDefault"),
-      stopPropagation: () => consumed.push("stopPropagation"),
-    };
-    const doc = challengeDoc([]);
-    assert.equal(await handleChallengeContestContextMenu(doc, event), false);
-    assert.deepEqual(consumed, [], "native context menu must survive an empty menu");
-  });
+test("handleChallengeContestContextMenu: an empty block still shows edit/delete and consumes the event", async () => {
+  const { restore } = installDomStub();
+  try {
+    await withGm(async () => {
+      const consumed = [];
+      const event = {
+        clientX: 10,
+        clientY: 20,
+        preventDefault: () => consumed.push("preventDefault"),
+        stopPropagation: () => consumed.push("stopPropagation"),
+      };
+      const doc = challengeDoc([]);
+      assert.equal(await handleChallengeContestContextMenu(doc, event), true);
+      assert.deepEqual(consumed, ["preventDefault", "stopPropagation"]);
+      closeCttMenu();
+    });
+  } finally {
+    restore();
+  }
 });
 
 test("handleChallengeContestContextMenu: a shown menu consumes the event and returns true", async () => {
@@ -522,10 +512,11 @@ test("buildContestMenuItems: parent enabled, boundary child options disabled", (
     { name: "Villains", boxes: 3, done: 3 },
   ]);
   const items = buildContestMenuItems(doc);
-  // Two sides + separator + delete block.
-  assert.equal(items.length, 4);
+  // Two sides + separator + edit + delete block.
+  assert.equal(items.length, 5);
   assert.equal(items[2].sep, true);
-  assert.equal(items[3].icon, "fa-trash");
+  assert.equal(items[3].icon, "fa-pen-to-square");
+  assert.equal(items[4].icon, "fa-trash");
 
   // Parent must NOT be disabled (menu.js only opens submenus for enabled items).
   assert.equal(items[0].disabled, undefined);
@@ -547,11 +538,13 @@ test("buildContestMenuItems: localized child labels are used", () => {
   const items = buildContestMenuItems(doc, {
     advanceForward: "FW",
     advanceBack: "BW",
+    edit: "ED",
     removeBlock: "RB",
   });
   assert.equal(items[0].children[0].label, "FW");
   assert.equal(items[0].children[1].label, "BW");
-  assert.equal(items[2].label, "RB");
+  assert.equal(items[2].label, "ED");
+  assert.equal(items[3].label, "RB");
 });
 
 test("contest menu forward/back onClick: clamped state + derived text", async () => {

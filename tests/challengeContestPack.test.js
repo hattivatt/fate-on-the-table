@@ -230,6 +230,11 @@ test("the API glue imports cleanly in Node and exports runChallengeContest", asy
     "function",
     "runChallengeContest is exported as an async function",
   );
+  assert.equal(
+    typeof glue.editChallengeContestDocument,
+    "function",
+    "editChallengeContestDocument is exported for the context menu",
+  );
 });
 
 test("every settings key the API reads is registered in settings.js", async () => {

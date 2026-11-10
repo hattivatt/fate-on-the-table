@@ -786,3 +786,44 @@
    and the Cycle-to-next-conflict controls and matches the neighbouring
    35px icon buttons of the conflict pane (styles are inline, like the
    system's own buttons). */
+
+/* --- Challenge / Contest editor dialog --- */
+
+.ctt-challenge-contest-editor .ctt-editor-head,
+.ctt-challenge-contest-editor .ctt-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 34px;
+  gap: 6px;
+  align-items: center;
+}
+
+.ctt-challenge-contest-editor .ctt-editor-head {
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.ctt-challenge-contest-editor .ctt-editor-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ctt-challenge-contest-editor .ctt-editor-row input {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+}
+
+.ctt-challenge-contest-editor .ctt-editor-row input[type="number"] {
+  text-align: right;
+}
+
+.ctt-challenge-contest-editor .ctt-editor-remove,
+.ctt-challenge-contest-editor .ctt-editor-add {
+  margin: 0;
+  cursor: pointer;
+}
+
+.ctt-challenge-contest-editor .ctt-editor-add {
+  margin-top: 8px;
+}

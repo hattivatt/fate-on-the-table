@@ -18,8 +18,20 @@ import {
   CHALLENGE_CONTEST_SETTING_KEYS,
   DEFAULT_TASK_DIFFICULTY,
   DEFAULT_SIDE_BOXES,
+  DEFAULT_CHALLENGE_TASK_COUNT,
+  DEFAULT_CONTEST_SIDE_COUNT,
   DEFAULT_FONT_SIZE,
+  CHALLENGE_TEXT_WIDTH,
+  CHALLENGE_TEXT_HEIGHT_PER_TASK,
+  CONTEST_TEXT_WIDTH,
+  CONTEST_TEXT_HEIGHT,
+  CHALLENGE_CONTEST_PAD_X,
+  CHALLENGE_CONTEST_PAD_Y,
+  CHALLENGE_CONTEST_MIN_TEXT_WIDTH,
+  CHALLENGE_MARK_RESERVE,
   scaled,
+  linesFor,
+  widthFor,
   normalizeTasks,
   normalizeTaskState,
   normalizeTaskStatus,
@@ -36,6 +48,10 @@ import {
   advanceSide,
   checkFirstUncheckedTask,
   parseDrawingTasks,
+  defaultChallengeTaskRows,
+  defaultContestSideRows,
+  editorTasksFromRows,
+  editorSidesFromRows,
   challengeDrawingData,
   contestDrawingData,
 } from "../scripts/challengeContest.js";
@@ -44,6 +60,53 @@ import { FLAG_SCOPE, CHALLENGE_OWNER_TYPE, CONTEST_OWNER_TYPE } from "../scripts
 test("checkbox glyphs match the legacy macro", () => {
   assert.equal(CHECKBOX_UNCHECKED, "[   ]");
   assert.equal(CHECKBOX_CHECKED, "[ X ]");
+});
+
+test("legacy width constants stay exported for compatibility", () => {
+  assert.equal(CHALLENGE_TEXT_WIDTH, 500);
+  assert.equal(CONTEST_TEXT_WIDTH, 700);
+});
+
+test("default editor rows: three tasks and two sides", () => {
+  assert.equal(DEFAULT_CHALLENGE_TASK_COUNT, 3);
+  assert.equal(DEFAULT_CONTEST_SIDE_COUNT, 2);
+  assert.deepEqual(defaultChallengeTaskRows(), [
+    { text: "", difficulty: DEFAULT_TASK_DIFFICULTY, status: TASK_STATUS.PENDING },
+    { text: "", difficulty: DEFAULT_TASK_DIFFICULTY, status: TASK_STATUS.PENDING },
+    { text: "", difficulty: DEFAULT_TASK_DIFFICULTY, status: TASK_STATUS.PENDING },
+  ]);
+  assert.deepEqual(defaultContestSideRows(), [
+    { name: "", boxes: DEFAULT_SIDE_BOXES, done: 0 },
+    { name: "", boxes: DEFAULT_SIDE_BOXES, done: 0 },
+  ]);
+});
+
+test("editorRows: normalize entered values and keep per-row state", () => {
+  assert.deepEqual(
+    editorTasksFromRows([
+      { text: " A ", difficulty: "3", status: TASK_STATUS.SUCCESS },
+      { text: "   ", difficulty: 5, status: TASK_STATUS.FAILED },
+      { text: "B", difficulty: "bad", status: "unknown" },
+    ]),
+    [
+      { text: " A ", difficulty: 3, status: TASK_STATUS.SUCCESS },
+      { text: "B", difficulty: DEFAULT_TASK_DIFFICULTY, status: TASK_STATUS.PENDING },
+    ],
+  );
+  assert.deepEqual(
+    editorSidesFromRows(
+      [
+        { name: " Heroes ", boxes: "4", done: "2" },
+        { name: "   ", boxes: "99", done: "99" },
+      ],
+      (index) => `Side ${index + 1}`,
+    ),
+    [
+      { name: "Heroes", boxes: 4, done: 2 },
+      { name: "Side 2", boxes: 20, done: 20 },
+    ],
+  );
+  assert.deepEqual(editorSidesFromRows(null), []);
 });
 
 test("status marks are the color emoji check / cross", () => {
@@ -109,6 +172,57 @@ test("scaled: multiplies by scale, identity on 1 / invalid scale", () => {
   assert.equal(scaled(40), 40);
   assert.equal(scaled(40, "bad"), 40);
   assert.equal(scaled("bad", 2), 0);
+});
+
+test("linesFor: counts hard newlines including blank separator lines", () => {
+  // A single line that fits stays one line.
+  assert.equal(linesFor("hello world", 1000, 10), 1);
+  // "\n" -> two lines, "\n\n" -> three (the blank line is counted).
+  assert.equal(linesFor("a\nb", 1000, 10), 2);
+  assert.equal(linesFor("a\n\nb", 1000, 10), 3);
+  assert.equal(linesFor("a\n\n\nb", 1000, 10), 4);
+  // Empty text has no lines at all.
+  assert.equal(linesFor("", 1000, 10), 0);
+  assert.equal(linesFor(null, 1000, 10), 0);
+  assert.equal(linesFor(undefined, 1000, 10), 0);
+  // A lone newline is two empty lines.
+  assert.equal(linesFor("\n", 1000, 10), 2);
+});
+
+test("linesFor: word-wraps long lines and handles an unbreakable word", () => {
+  // maxWidth 100, fontSize 40 -> approx 24.8 chars per line; each "aaa" is
+  // 74.4 wide, so only one word fits per line -> 4 lines.
+  assert.equal(linesFor("aaa bbb ccc ddd", 100, 40), 4);
+  // No positive width means no wrapping (one line per hard newline).
+  assert.equal(linesFor("aaa bbb ccc", 0, 40), 1);
+  // An unbreakable word wider than the box still occupies one line.
+  assert.equal(linesFor("aaaaaaaaaaaa", 100, 40), 1);
+});
+
+test("widthFor: widest hard line, rounded up (no wrap by a fraction)", () => {
+  // fontSize 40 -> approx 24.8 per char; "abc" = 74.4 -> ceil 75.
+  assert.equal(widthFor("abc", 40), 75);
+  // The widest line wins across hard newlines; blank lines are 0.
+  assert.equal(widthFor("a\nbb\nccc", 40), 75);
+  assert.equal(widthFor("longest\n\nx", 40), Math.ceil(7 * 24.8));
+  // Empty / null / undefined -> 0.
+  assert.equal(widthFor("", 40), 0);
+  assert.equal(widthFor(null, 40), 0);
+  assert.equal(widthFor(undefined, 40), 0);
+  // Never below 4 units per char (fontSize 0 guard).
+  assert.equal(widthFor("abc", 0), 12);
+  assert.equal(widthFor("abc", NaN), 12);
+});
+
+test("widthFor: scales with fontSize and never wraps a long line", () => {
+  assert.equal(widthFor("abc", 80), Math.ceil(3 * 80 * 0.62));
+  assert.ok(widthFor("abc", 80) > widthFor("abc", 40), "font size grows width");
+  // A single very long line reports its FULL natural width (the dynamic block
+  // widens instead of wrapping).
+  assert.equal(widthFor("a".repeat(100), 40), Math.ceil(100 * 24.8));
+  // widthFor(x) equals the char count metric linesFor uses to fit a line.
+  const text = "alpha bravo charlie";
+  assert.equal(linesFor(text, widthFor(text, 40), 40), 1);
 });
 
 /* ------------------------------------------------------------------ *
@@ -454,7 +568,16 @@ test("challengeDrawingData: one payload, marked lines, flags, no fill", () => {
     { x: 10, y: 20 },
   );
   assert.equal(data.text, "A +1\n\n✅ B +2\n\n❌ C +3");
-  assert.deepEqual(data.shape, { width: 500, height: 270 });
+  const widest = widthFor(data.text, DEFAULT_FONT_SIZE);
+  assert.deepEqual(data.shape, {
+    width:
+      Math.max(CHALLENGE_CONTEST_MIN_TEXT_WIDTH, widest + CHALLENGE_MARK_RESERVE) +
+      2 * CHALLENGE_CONTEST_PAD_X,
+    height: 3 * CHALLENGE_TEXT_HEIGHT_PER_TASK + 2 * CHALLENGE_CONTEST_PAD_Y,
+  });
+  // Widest line "✅ B +2" (6 chars) -> ceil(6*24.8)=149; + reserve 70 = 219
+  // (> min 200) -> + 2*28 padding.
+  assert.deepEqual(data.shape, { width: 275, height: 306 });
   assert.equal(data.x, 10);
   assert.equal(data.y, 20);
   assert.equal(data.type, "r");
@@ -486,7 +609,7 @@ test("challengeDrawingData: legacy done + widgetId in flags", () => {
   ]);
 });
 
-test("challengeDrawingData: scale multiplies font, width and total height", () => {
+test("challengeDrawingData: scale multiplies font and total height; min scales", () => {
   const data = challengeDrawingData(
     [
       { text: "A", difficulty: 1 },
@@ -496,7 +619,10 @@ test("challengeDrawingData: scale multiplies font, width and total height", () =
     { scale: 2 },
   );
   assert.equal(data.fontSize, DEFAULT_FONT_SIZE * 2);
-  assert.deepEqual(data.shape, { width: 1000, height: 360 });
+  // At scale 2 the widest line (199) + reserve (140) = 339 is below the
+  // scaled minimum (400), so the min floor wins: 400 + 2*56 = 512. Height:
+  // 2 * (90*2) + 2 * (18*2) = 432.
+  assert.deepEqual(data.shape, { width: 512, height: 432 });
 });
 
 test("challengeDrawingData: center anchors the scaled block on the pivot", () => {
@@ -508,9 +634,9 @@ test("challengeDrawingData: center anchors the scaled block on the pivot", () =>
     undefined,
     { center: { x: 1000, y: 500 }, scale: 2 },
   );
-  // Block is 1000x360 at scale 2 -> top-left = center - half.
-  assert.equal(data.x, 500);
-  assert.equal(data.y, 320);
+  // Block is 512x432 at scale 2 -> top-left = center - half.
+  assert.equal(data.x, 744);
+  assert.equal(data.y, 284);
 });
 
 test("challengeDrawingData: texture / background fill rule (contest parity)", () => {
@@ -548,11 +674,83 @@ test("challengeDrawingData: style override and empty tasks", () => {
   assert.equal(data.textColor, "#abcdef");
   assert.equal(data.fontFamily, "Custom");
   assert.equal(challengeDrawingData([], { x: 0, y: 0 }).text, "");
+  // Empty input: width is pinned to the absolute min content width, height 0.
   assert.deepEqual(challengeDrawingData([], { x: 0, y: 0 }).shape, {
-    width: 500,
+    width: CHALLENGE_CONTEST_MIN_TEXT_WIDTH + 2 * CHALLENGE_CONTEST_PAD_X,
     height: 0,
   });
   assert.deepEqual(challengeDrawingData(null, null).text, "");
+});
+
+test("challengeDrawingData: width is dynamic — short narrow, long wide", () => {
+  const shortBlock = challengeDrawingData(
+    [{ text: "A", difficulty: 1 }],
+    { x: 0, y: 0 },
+  );
+  const longBlock = challengeDrawingData(
+    [{ text: "A very long task description", difficulty: 9 }],
+    { x: 0, y: 0 },
+  );
+  assert.ok(
+    shortBlock.shape.width < longBlock.shape.width,
+    "a long line widens the block",
+  );
+  // A short line + reserve (170) is under the min -> the min floor wins.
+  assert.deepEqual(shortBlock.shape, {
+    width: CHALLENGE_CONTEST_MIN_TEXT_WIDTH + 2 * CHALLENGE_CONTEST_PAD_X,
+    height: 1 * CHALLENGE_TEXT_HEIGHT_PER_TASK + 2 * CHALLENGE_CONTEST_PAD_Y,
+  });
+  // A long line drives the width: widest line + mark reserve + padding.
+  assert.deepEqual(longBlock.shape, {
+    width:
+      widthFor(longBlock.text, DEFAULT_FONT_SIZE) +
+      CHALLENGE_MARK_RESERVE +
+      2 * CHALLENGE_CONTEST_PAD_X,
+    height: 1 * CHALLENGE_TEXT_HEIGHT_PER_TASK + 2 * CHALLENGE_CONTEST_PAD_Y,
+  });
+});
+
+test("challengeDrawingData: mark reserve leaves room for a future ✅/❌ prefix", () => {
+  const pending = challengeDrawingData(
+    [{ text: "Task", difficulty: 2, status: "pending" }],
+    { x: 0, y: 0 },
+  );
+  // The mark the user may set later grows the rendered line...
+  const markedText = renderChallengeText([
+    { text: "Task", difficulty: 2, status: "success" },
+  ]);
+  assert.ok(
+    widthFor(markedText, DEFAULT_FONT_SIZE) >
+      widthFor(pending.text, DEFAULT_FONT_SIZE),
+    "a marked line is wider than its pending form",
+  );
+  // ...but the reserve already budgeted for it, so it never overflows the
+  // block created while the task was still pending.
+  const contentWidth = pending.shape.width - 2 * CHALLENGE_CONTEST_PAD_X;
+  assert.ok(
+    widthFor(markedText, DEFAULT_FONT_SIZE) <= contentWidth,
+    "the marked line fits the reserved content width",
+  );
+  // The failed cross renders at the same reserved width.
+  const failedText = renderChallengeText([
+    { text: "Task", difficulty: 2, status: "failed" },
+  ]);
+  assert.ok(widthFor(failedText, DEFAULT_FONT_SIZE) <= contentWidth);
+});
+
+test("challengeDrawingData: explicit textWidth is a floor, not a fixed width", () => {
+  const floored = challengeDrawingData([{ text: "A", difficulty: 1 }], { x: 0, y: 0 }, {
+    textWidth: 900,
+  });
+  assert.equal(floored.shape.width, 900 + 2 * CHALLENGE_CONTEST_PAD_X);
+  // A request below the min never shrinks the block past the min.
+  const tiny = challengeDrawingData([{ text: "A", difficulty: 1 }], { x: 0, y: 0 }, {
+    textWidth: 10,
+  });
+  assert.equal(
+    tiny.shape.width,
+    CHALLENGE_CONTEST_MIN_TEXT_WIDTH + 2 * CHALLENGE_CONTEST_PAD_X,
+  );
 });
 
 /* ------------------------------------------------------------------ *
@@ -568,7 +766,14 @@ test("contestDrawingData: one payload, all side lines, full block height", () =>
     { x: 10, y: 20 },
   );
   assert.equal(data.text, "A: [   ]\n\nB: [ X ][   ]");
-  assert.deepEqual(data.shape, { width: 700, height: 130 });
+  // n=2 sides joined by "\n\n" render 3 text lines (2 sides + 1 blank) and the
+  // widest side line drives the width.
+  assert.deepEqual(data.shape, {
+    width: widthFor(data.text, DEFAULT_FONT_SIZE) + 2 * CHALLENGE_CONTEST_PAD_X,
+    height: 3 * CONTEST_TEXT_HEIGHT + 2 * CHALLENGE_CONTEST_PAD_Y,
+  });
+  // Widest "B: [ X ][   ]" (13 chars) -> ceil(13*24.8)=323 -> + 56 padding.
+  assert.deepEqual(data.shape, { width: 379, height: 216 });
   assert.equal(data.x, 10);
   assert.equal(data.y, 20);
   assert.equal(data.fontFamily, "Montserrat");
@@ -600,8 +805,9 @@ test("contestDrawingData: scale multiplies font and total height", () => {
     { scale: 2 },
   );
   assert.equal(data.fontSize, DEFAULT_FONT_SIZE * 2);
-  // 2 rows * 120 + 1 gap * 20 = 260.
-  assert.deepEqual(data.shape, { width: 1400, height: 260 });
+  // Widest side (13 chars) at font 80 -> ceil(13*80*0.62)=645 + 2*56 padding.
+  // 3 text lines * 120 + 2 * scaled padding (36) = 432.
+  assert.deepEqual(data.shape, { width: 757, height: 432 });
 });
 
 test("contestDrawingData: center anchors the scaled block on the pivot", () => {
@@ -613,8 +819,9 @@ test("contestDrawingData: center anchors the scaled block on the pivot", () => {
     undefined,
     { center: { x: 1000, y: 500 }, scale: 2 },
   );
-  assert.equal(data.x, 300);
-  assert.equal(data.y, 370);
+  // Block is 757x432 at scale 2 -> top-left = center - half.
+  assert.equal(data.x, 621.5);
+  assert.equal(data.y, 284);
 });
 
 test("contestDrawingData: texture / background fill rule", () => {
@@ -644,6 +851,62 @@ test("contestDrawingData: texture / background fill rule", () => {
 test("contestDrawingData: empty sides -> empty text and zero height", () => {
   const data = contestDrawingData([], { x: 0, y: 0 });
   assert.equal(data.text, "");
-  assert.deepEqual(data.shape, { width: 700, height: 0 });
+  // Width is pinned to the absolute min content width, height 0.
+  assert.deepEqual(data.shape, {
+    width: CHALLENGE_CONTEST_MIN_TEXT_WIDTH + 2 * CHALLENGE_CONTEST_PAD_X,
+    height: 0,
+  });
   assert.deepEqual(contestDrawingData(null, null).text, "");
+});
+
+test("contestDrawingData: width is dynamic and a long side widens (no wrap)", () => {
+  // "alpha bravo charlie delta echo: [   ]" would overflow the old fixed 700;
+  // the dynamic width widens the block instead of wrapping it.
+  const long = contestDrawingData(
+    [{ name: "alpha bravo charlie delta echo", boxes: 3 }],
+    { x: 0, y: 0 },
+  );
+  const contentWidth = long.shape.width - 2 * CHALLENGE_CONTEST_PAD_X;
+  assert.equal(contentWidth, widthFor(long.text, DEFAULT_FONT_SIZE));
+  assert.equal(linesFor(long.text, contentWidth, DEFAULT_FONT_SIZE), 1, "no wrap");
+  assert.deepEqual(long.shape, {
+    width: widthFor(long.text, DEFAULT_FONT_SIZE) + 2 * CHALLENGE_CONTEST_PAD_X,
+    height: 1 * CONTEST_TEXT_HEIGHT + 2 * CHALLENGE_CONTEST_PAD_Y,
+  });
+
+  // A one-box side stays at the min-width floor.
+  const short = contestDrawingData([{ name: "A", boxes: 1 }], { x: 0, y: 0 });
+  assert.deepEqual(short.shape, {
+    width: CHALLENGE_CONTEST_MIN_TEXT_WIDTH + 2 * CHALLENGE_CONTEST_PAD_X,
+    height: 1 * CONTEST_TEXT_HEIGHT + 2 * CHALLENGE_CONTEST_PAD_Y,
+  });
+  assert.ok(long.shape.width > short.shape.width, "long side is wider");
+
+  // Two long sides: their hard lines plus the blank separator -> 3 rows, and
+  // the width is shared by the widest line.
+  const mixed = contestDrawingData(
+    [
+      { name: "alpha bravo charlie delta echo", boxes: 3 },
+      { name: "alpha bravo charlie delta echo", boxes: 3 },
+    ],
+    { x: 0, y: 0 },
+  );
+  assert.deepEqual(mixed.shape, {
+    width: widthFor(mixed.text, DEFAULT_FONT_SIZE) + 2 * CHALLENGE_CONTEST_PAD_X,
+    height: 3 * CONTEST_TEXT_HEIGHT + 2 * CHALLENGE_CONTEST_PAD_Y,
+  });
+});
+
+test("contestDrawingData: explicit textWidth is a floor, not a fixed width", () => {
+  const floored = contestDrawingData([{ name: "A", boxes: 1 }], { x: 0, y: 0 }, {
+    textWidth: 900,
+  });
+  assert.equal(floored.shape.width, 900 + 2 * CHALLENGE_CONTEST_PAD_X);
+  const tiny = contestDrawingData([{ name: "A", boxes: 1 }], { x: 0, y: 0 }, {
+    textWidth: 10,
+  });
+  assert.equal(
+    tiny.shape.width,
+    CHALLENGE_CONTEST_MIN_TEXT_WIDTH + 2 * CHALLENGE_CONTEST_PAD_X,
+  );
 });

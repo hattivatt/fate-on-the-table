@@ -28,7 +28,12 @@
  * The exported builders reproduce the geometry of the legacy standalone macro
  * (`foundry_macro/challenge.js`): the challenge block is one row per task (row
  * pitch `CHALLENGE_TEXT_HEIGHT_PER_TASK`), contest sides share one drawing with
- * the same 700-wide / 60-per-side layout.
+ * a 60-per-side row pitch. Both builders grow the shape by the fixed
+ * `CHALLENGE_CONTEST_PAD_X/Y` margins (the centered text never touches the
+ * border); the WIDTH is derived dynamically from the widest rendered line
+ * (`widthFor`) and the contest height from the REAL rendered line count
+ * (`linesFor`), so the blank `"\n\n"` separators fit and a long side name
+ * widens the block instead of wrapping.
  */
 
 import {
@@ -36,6 +41,7 @@ import {
   CHALLENGE_OWNER_TYPE,
   CONTEST_OWNER_TYPE,
 } from "./constants.js";
+import { TEXT_WIDTH_APPROX_FACTOR } from "./layoutGeometry.js";
 
 // Checkbox glyphs used by legacy drawings and by the contest box chart
 // (`[   ]` / `[ X ]`).
@@ -55,18 +61,47 @@ export const TASK_STATUS = Object.freeze({
   FAILED: "failed",
 });
 
-// Legacy unscaled geometry. Positions are intentionally NOT configurable: the
+// Legacy nominal geometry. Positions are intentionally NOT configurable: the
 // macro anchors every drawing block to the pivot of the current canvas stage
 // and the module `scale` setting multiplies the whole block (see `scaled`).
+// `CHALLENGE_TEXT_WIDTH` / `CONTEST_TEXT_WIDTH` were the fixed text bases; the
+// single-drawing builders now derive the width from the rendered text
+// (`widthFor` + `CHALLENGE_CONTEST_MIN_TEXT_WIDTH`) and only keep these as
+// legacy fallbacks (also accepted through `options.textWidth` as a floor).
 export const CHALLENGE_TEXT_WIDTH = 500;
 export const CHALLENGE_TEXT_HEIGHT_PER_TASK = 90;
 export const CONTEST_TEXT_WIDTH = 700;
 export const CONTEST_TEXT_HEIGHT = 60;
+// Legacy per-side gap. The block height is now derived from the real rendered
+// line count (the `"\n\n"` separator already occupies one row pitch), so this
+// constant is no longer used by `contestDrawingData`; kept for compatibility.
 export const CONTEST_TEXT_GAP = 10;
+
+// Fixed internal shape padding (NOT a setting). Foundry centers the Drawing
+// text horizontally/vertically inside `shape`, so the shape is grown by these
+// base (unscaled) margins on every side; the text itself is unchanged and now
+// keeps a border of air instead of touching the block edge. Both blocks share
+// the same visual frame, so one pair of constants covers challenge and contest.
+export const CHALLENGE_CONTEST_PAD_X = 28;
+export const CHALLENGE_CONTEST_PAD_Y = 18;
+
+// Dynamic-width guard rails. The block width is derived from the widest
+// RENDERED text line (the same `TEXT_WIDTH_APPROX_FACTOR` approximation the
+// layout engine uses in `wrapLinesForValue`), not from a fixed 500/700 base:
+// a short list yields a narrow block, a long line a wide one. `MIN_TEXT_WIDTH`
+// keeps a short (or still empty) block from collapsing to a point, and the
+// challenge-only `MARK_RESERVE` leaves room for a future ✅/❌ prefix: a PENDING
+// task carries no mark in the rendered text yet, but once the user sets a
+// status the line grows by the emoji + a space. At font 40 that prefix is
+// ~2 chars * 40 * 0.62 ≈ 50px; 70 base covers it and scales with `scale`.
+export const CHALLENGE_CONTEST_MIN_TEXT_WIDTH = 200;
+export const CHALLENGE_MARK_RESERVE = 70;
 
 // Legacy per-item defaults (used when a form field is left empty).
 export const DEFAULT_TASK_DIFFICULTY = 2;
 export const DEFAULT_SIDE_BOXES = 3;
+export const DEFAULT_CHALLENGE_TASK_COUNT = 3;
+export const DEFAULT_CONTEST_SIDE_COUNT = 2;
 
 // One fixed font size for both drawing types. This is deliberately NOT a
 // setting: the module-wide `scale` setting is the only size knob and it
@@ -132,6 +167,83 @@ function asNumber(value, fallback) {
  */
 export function scaled(value, scale = 1) {
   return asNumber(value, 0) * asNumber(scale, 1);
+}
+
+/**
+ * Estimates how many RENDERED text lines a Drawing text produces inside a
+ * `maxWidth`-wide box, using the same character-width approximation as the
+ * layout engine (`TEXT_WIDTH_APPROX_FACTOR`, mirroring
+ * `layoutGeometry.wrapLinesForValue`).
+ *
+ * Blank lines are counted, which is what makes the single-drawing heights
+ * correct: the `"\n\n"` separator between tasks/sides renders as one EMPTY
+ * line, so `n` joined blocks occupy `2n-1` text lines, not `n`.
+ *
+ * The estimate is a pure approximation for pure Node geometry tests; a real
+ * browser font may differ slightly, but the padded shape leaves headroom.
+ * @param {*} text  Raw drawing text (may contain `\n`; `"\n\n"` = blank line).
+ * @param {*} maxWidth  Available text width (same units as `fontSize`).
+ * @param {*} fontSize  Font size (same units as `maxWidth`).
+ * @returns {number}  Rendered line count (0 for an empty string).
+ */
+export function linesFor(text, maxWidth, fontSize) {
+  const source = String(text ?? "");
+  if (source === "") return 0;
+  const width = asNumber(maxWidth, 0);
+  const approx = Math.max(asNumber(fontSize, 0) * TEXT_WIDTH_APPROX_FACTOR, 4);
+  let count = 0;
+  for (const raw of source.split("\n")) {
+    if (width <= 0 || raw.length * approx <= width) {
+      count += 1;
+      continue;
+    }
+    // Word-wrap approximation: greedy fill, a word that no longer fits starts
+    // the next line. A single word wider than the box still takes one line.
+    let current = "";
+    let wrapped = 0;
+    for (const word of raw.split(" ")) {
+      const candidate = current ? `${current} ${word}` : word;
+      if (candidate.length * approx <= width) {
+        current = candidate;
+      } else if (current) {
+        wrapped += 1;
+        current = word;
+      } else {
+        wrapped += 1;
+        current = "";
+      }
+    }
+    if (current) wrapped += 1;
+    count += Math.max(1, wrapped);
+  }
+  return count;
+}
+
+/**
+ * Estimates the width (same units as `fontSize`) of the WIDEST rendered line
+ * of a Drawing text, using the SAME per-character approximation as `linesFor`
+ * (`charCount * fontSize * TEXT_WIDTH_APPROX_FACTOR`). This is the horizontal
+ * projection of that metric: the block is sized to hold the longest hard line,
+ * so no word-wrap happens and `linesFor` then counts the hard lines only.
+ *
+ * The result is rounded UP to a whole unit so the widest line always fits the
+ * computed content width (rounding down could push `linesFor` into a spurious
+ * wrap by a fraction of a pixel). Blank lines contribute width 0; an empty /
+ * `null` text yields 0.
+ * @param {*} text  Raw drawing text (may contain `\n`).
+ * @param {*} fontSize  Font size (same units as the returned width).
+ * @returns {number}  Approximate widest-line width (>= 0).
+ */
+export function widthFor(text, fontSize) {
+  const source = String(text ?? "");
+  if (source === "") return 0;
+  const approx = Math.max(asNumber(fontSize, 0) * TEXT_WIDTH_APPROX_FACTOR, 4);
+  let widest = 0;
+  for (const raw of source.split("\n")) {
+    const width = raw.length * approx;
+    if (width > widest) widest = width;
+  }
+  return Math.ceil(widest);
 }
 
 /**
@@ -255,6 +367,41 @@ export function normalizeSideState(sides) {
  */
 export function normalizeSides(sides) {
   return normalizeSideState(sides).map(({ name, boxes }) => ({ name, boxes }));
+}
+
+export function defaultChallengeTaskRows() {
+  return Array.from({ length: DEFAULT_CHALLENGE_TASK_COUNT }, () => ({
+    text: "",
+    difficulty: DEFAULT_TASK_DIFFICULTY,
+    status: TASK_STATUS.PENDING,
+  }));
+}
+
+export function defaultContestSideRows() {
+  return Array.from({ length: DEFAULT_CONTEST_SIDE_COUNT }, () => ({
+    name: "",
+    boxes: DEFAULT_SIDE_BOXES,
+    done: 0,
+  }));
+}
+
+export function editorTasksFromRows(rows) {
+  return normalizeTaskState(rows);
+}
+
+export function editorSidesFromRows(rows, fallbackName = () => "") {
+  if (!Array.isArray(rows)) return [];
+  return normalizeSideState(
+    rows.map((row, index) => {
+      const source = row && typeof row === "object" ? row : {};
+      const name = String(source.name ?? "").trim();
+      return {
+        name: name || String(fallbackName(index) ?? ""),
+        boxes: source.boxes,
+        done: source.done,
+      };
+    }),
+  );
 }
 
 /**
@@ -451,11 +598,17 @@ function resolveAnchor(position, center, width, height) {
  * `"<mark> <text> +<difficulty>"` line per task joined with blank lines (marks
  * are `✅`/`❌` prefixes; pending rows carry no mark). Mirrors
  * `contestDrawingData`: the block fill/texture is the drawing's own fill
- * (`fillType: texture ? 2 : addBackground ? 1 : 0`), the width is
- * `scaled(500)` and the block height is `count * scaled(90)`. The `tasks`
- * state lives in the module flags; the text is always DERIVED from it. When
- * `options.center` is given the (scaled) block is centered on that pivot and
- * `position` is ignored.
+ * (`fillType: texture ? 2 : addBackground ? 1 : 0`). The text is centered by
+ * Foundry inside the shape, so the shape is grown by the fixed
+ * `CHALLENGE_CONTEST_PAD_X/Y` margins. The width is DYNAMIC: the widest
+ * rendered line (`widthFor`) plus the challenge-only `CHALLENGE_MARK_RESERVE`
+ * (room for a future `✅`/`❌` prefix), floored by
+ * `CHALLENGE_CONTEST_MIN_TEXT_WIDTH` and any explicit `textWidth` request, then
+ * +2*padX. The height stays `count * scaled(90) + 2*padY` (the 90/row pitch
+ * already covers the blank `"\n\n"` separator line). The `tasks` state lives in
+ * the module flags; the text is always DERIVED from it. When `options.center`
+ * is given the (scaled, padded) block is centered on that pivot and `position`
+ * is ignored.
  * @param {Array<{text: string, difficulty: number, status?: string, done?: boolean}>} tasks
  * @param {{x?: number, y?: number}} [position]  Top-left of the drawing.
  * @param {object} [options]  `{ scale, center, type, widgetId, fontFamily,
@@ -467,19 +620,31 @@ export function challengeDrawingData(tasks, position, options = {}) {
   const list = normalizeTaskState(tasks);
   const scale = asNumber(options.scale, 1);
   const texture = options.backgroundTexture ?? "";
-  const width = scaled(asNumber(options.textWidth, CHALLENGE_TEXT_WIDTH), scale);
+  const padX = scaled(CHALLENGE_CONTEST_PAD_X, scale);
+  const padY = scaled(CHALLENGE_CONTEST_PAD_Y, scale);
+  const fontSize = scaled(DEFAULT_FONT_SIZE, scale);
+  const text = renderChallengeText(list);
+  // Dynamic width: widest rendered line + a reserve for a status mark that a
+  // PENDING task does not carry yet (so marking it later cannot overflow),
+  // floored by the absolute minimum and an optional explicit `textWidth`.
+  const contentWidth = Math.max(
+    scaled(CHALLENGE_CONTEST_MIN_TEXT_WIDTH, scale),
+    widthFor(text, fontSize) + scaled(CHALLENGE_MARK_RESERVE, scale),
+    scaled(asNumber(options.textWidth, 0), scale),
+  );
+  const width = contentWidth + 2 * padX;
   const rowHeight = scaled(
     asNumber(options.textHeightPerTask, CHALLENGE_TEXT_HEIGHT_PER_TASK),
     scale,
   );
-  const totalHeight = list.length * rowHeight;
+  const totalHeight = list.length === 0 ? 0 : list.length * rowHeight + 2 * padY;
   const anchor = resolveAnchor(position, options.center, width, totalHeight);
   return {
     type: options.type ?? "r",
     x: anchor.x,
     y: anchor.y,
-    text: renderChallengeText(list),
-    fontSize: scaled(DEFAULT_FONT_SIZE, scale),
+    text,
+    fontSize,
     fontFamily: String(
       options.fontFamily ?? CHALLENGE_SETTING_DEFAULTS.challengeFontFamily,
     ),
@@ -502,35 +667,56 @@ export function challengeDrawingData(tasks, position, options = {}) {
 /**
  * Builds the create payload of the SINGLE state-backed contest Drawing (all
  * sides in one text, one `"<name>: [X][ ][ ]"` line per side joined with blank
- * lines; the `sides[].done` state lives in the module flags). The width is
- * `scaled(700)`, each side row is `scaled(60)` high and the block total height
- * is `n*rowHeight + (n-1)*gap`. Centering mirrors `challengeDrawingData`.
+ * lines; the `sides[].done` state lives in the module flags).
+ *
+ * The shape is sized from the REAL rendered line count, not from the side
+ * count: a `"\n\n"` separator renders as one EMPTY line, so `n` sides occupy
+ * `2n-1` text lines. The width is DYNAMIC — the widest rendered line
+ * (`widthFor`), floored by `CHALLENGE_CONTEST_MIN_TEXT_WIDTH` and any explicit
+ * `textWidth` — so a side name/box chart that would overflow the legacy 700
+ * simply widens the block instead of wrapping; the height stays
+ * `lines * scaled(60) + 2*padY` (the `linesFor` call kept as the lines-aware
+ * contract, which now counts hard lines because no line wraps). The fixed
+ * `CHALLENGE_CONTEST_PAD_X/Y` margins keep the centered text off the block
+ * border. Centering mirrors `challengeDrawingData`.
  * @param {Array<{name: string, boxes: number, done?: number}>} sides
  * @param {{x?: number, y?: number}} [position]  Top-left of the drawing.
  * @param {object} [options]  `{ scale, center, type, widgetId, fontFamily,
  *   textColor, addBackground, backgroundColor, backgroundTexture, textWidth,
- *   textHeight, textGap }`.
+ *   textHeight }`.
  * @returns {object}
  */
 export function contestDrawingData(sides, position, options = {}) {
   const list = normalizeSideState(sides);
   const scale = asNumber(options.scale, 1);
   const texture = options.backgroundTexture ?? "";
-  const width = scaled(asNumber(options.textWidth, CONTEST_TEXT_WIDTH), scale);
+  const padX = scaled(CHALLENGE_CONTEST_PAD_X, scale);
+  const padY = scaled(CHALLENGE_CONTEST_PAD_Y, scale);
+  const fontSize = scaled(DEFAULT_FONT_SIZE, scale);
+  const text = renderContestText(list);
+  // Dynamic width: the widest rendered side line, floored by the absolute
+  // minimum and an optional explicit `textWidth`.
+  const textWidth = Math.max(
+    scaled(CHALLENGE_CONTEST_MIN_TEXT_WIDTH, scale),
+    widthFor(text, fontSize),
+    scaled(asNumber(options.textWidth, 0), scale),
+  );
+  const width = textWidth + 2 * padX;
   const rowHeight = scaled(
     asNumber(options.textHeight, CONTEST_TEXT_HEIGHT),
     scale,
   );
-  const gap = scaled(asNumber(options.textGap, CONTEST_TEXT_GAP), scale);
-  const totalHeight =
-    list.length === 0 ? 0 : list.length * rowHeight + (list.length - 1) * gap;
+  const lineCount = list.length === 0
+    ? 0
+    : linesFor(text, textWidth, fontSize);
+  const totalHeight = lineCount === 0 ? 0 : lineCount * rowHeight + 2 * padY;
   const anchor = resolveAnchor(position, options.center, width, totalHeight);
   return {
     type: options.type ?? "r",
     x: anchor.x,
     y: anchor.y,
-    text: renderContestText(list),
-    fontSize: scaled(DEFAULT_FONT_SIZE, scale),
+    text,
+    fontSize,
     fontFamily: String(
       options.fontFamily ?? CONTEST_SETTING_DEFAULTS.contestFontFamily,
     ),
