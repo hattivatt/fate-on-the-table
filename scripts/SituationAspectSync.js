@@ -44,7 +44,12 @@ import {
   reconcileConsequences,
 } from "./situationAspectConsequences.js";
 import { normalizeAspects as normalizeAspectsData } from "./situationAspectData.js";
-import { toArray, existingDocumentIds, safeDeleteEmbeddedDocuments } from "./utils.js";
+import {
+  toArray,
+  existingDocumentIds,
+  safeDeleteEmbeddedDocuments,
+  tokenActorName,
+} from "./utils.js";
 
 const SA_PARTS = [SA_TEXT_PART, SA_FRAME_PART, SA_BACKGROUND_PART];
 
@@ -512,7 +517,7 @@ function collectSceneActors(scene) {
     for (const token of arr) {
       const actor = token?.actor;
       if (!actor) continue;
-      const name = String(actor.name ?? "").trim();
+      const name = tokenActorName(token, actor);
       if (!name) continue;
       if (seen.has(name)) continue;
       seen.add(name);

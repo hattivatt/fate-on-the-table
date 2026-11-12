@@ -13,7 +13,7 @@
  * linked/token-delta paths, and keeps the scene situation aspects
  * (`fate-core-official.situation_aspects`) in sync
  * with the Fate Core linked-aspect format:
- * `name: "<consequence> (<actor.name>)"`, `linked: true`, deduplicated.
+ * `name: "<consequence> (<token/actor name>)"`, `linked: true`, deduplicated.
  *
  * The check for this part MUST run before the general conflict-card
  * double-click (which opens the sheet), so the integration points in
@@ -28,7 +28,7 @@ import {
 import { consequenceCostTarget } from "./WidgetBuilder.js";
 import { syncConflictBoard } from "./ConflictBoardSync.js";
 import { buildConsequenceMeta } from "./situationAspectConsequences.js";
-import { escapeHtml, dialogField, toArray } from "./utils.js";
+import { escapeHtml, dialogField, toArray, tokenActorName } from "./utils.js";
 import { isConsequenceCostWidget } from "./widgetInteractionRouter.js";
 
 export { CONSEQUENCE_COST_ROWS_PART };
@@ -103,7 +103,7 @@ export async function handleConsequenceCostDoubleClick(document, event) {
   await writeConsequence(actor, resolved?.token ?? null, trackKey, consequenceText);
 
   const scene = canvas?.scene;
-  const actorName = String(actor.name ?? "");
+  const actorName = tokenActorName(resolved?.token, actor);
   if (scene && actorName && (consequenceText || currentName)) {
     const meta = buildConsequenceMeta(trackKey, actor.system?.tracks?.[trackKey]?.harm_can_absorb, actorName);
     await upsertSituationAspect(scene, actorName, consequenceText, currentName, meta);
@@ -224,13 +224,13 @@ async function writeConsequence(actor, token, trackKey, consequenceText) {
 /**
  * Keeps the scene situation aspects in sync after a consequence edit, using
  * the Fate Core linked-aspect format:
- *   - entered consequence: record `{ name: "<consequence> (<actor.name>)",
+ *   - entered consequence: record `{ name: "<consequence> (<token/actor name>)",
  *     free_invokes: 1, linked: true }`, deduplicated by name;
  *   - renamed: the previous linked record (matched by old name) is renamed;
  *   - cleared: the previous linked record is removed.
  * Foreign (unlinked) situation aspects are preserved untouched.
  * @param {object} scene  Scene document.
- * @param {string} actorName  Actor name for the parenthetical.
+ * @param {string} actorName  Token/actor name for the parenthetical.
  * @param {string} consequenceText  New consequence text ('' clears).
  * @param {string} oldText  Previous consequence text ('' = was free).
  * @returns {Promise<void>}

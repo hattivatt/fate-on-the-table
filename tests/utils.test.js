@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { escapeHtml, dialogField, canvasWorldPosition, toArray } from "../scripts/utils.js";
+import { escapeHtml, dialogField, canvasWorldPosition, toArray, tokenActorName } from "../scripts/utils.js";
 import { normalizeAspects as normalizeAspectsData } from "../scripts/situationAspectData.js";
 
 // escapeHtml cases — superset including single-quote (LayoutImportExport previously missed it)
@@ -69,6 +69,15 @@ test("toArray: non-iterable / null returns []", () => {
 test("toArray: preserves order for contents case", () => {
   const col = { contents: [3, 1, 2] };
   assert.deepEqual(toArray(col), [3, 1, 2]);
+});
+
+test("tokenActorName prefers the token name over the synthetic actor name", () => {
+  assert.equal(tokenActorName({ name: "Aria Swift" }, { name: "New Character" }), "Aria Swift");
+  assert.equal(tokenActorName({ name: "  Aria Swift  " }, { name: "New Character" }), "Aria Swift");
+  assert.equal(tokenActorName({ name: "" }, { name: "Grom" }), "Grom");
+  assert.equal(tokenActorName(null, { name: "Grom" }), "Grom");
+  assert.equal(tokenActorName({ name: "   " }, { name: " Grom " }), "Grom");
+  assert.equal(tokenActorName(null, null), "");
 });
 
 // canvasWorldPosition — testable null guards (no canvas)

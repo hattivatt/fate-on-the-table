@@ -95,6 +95,12 @@ export function toArray(collection) {
   }
 }
 
+export function tokenActorName(token, actor) {
+  const tokenName = String(token?.name ?? "").trim();
+  if (tokenName) return tokenName;
+  return String(actor?.name ?? "").trim();
+}
+
 /**
  * Filters ids to those that still exist at delete time. When the scene lacks
  * a `.get` accessor (Node-test mocks without `.drawings`/`.tiles` maps) the

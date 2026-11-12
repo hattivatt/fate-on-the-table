@@ -7,7 +7,7 @@
  * parenthetical suffix, Fate-Core-style (`"Aspect text (Goblin)"`,
  * `"Aspect text (Room)"`). The format must stay exactly `${base} (${choice})`
  * because ConsequenceInteractions.upsertSituationAspect deduplicates linked
- * aspects by the exact name `${text} (${actor.name})`.
+ * aspects by the exact name `${text} (${token/actor name})`.
  */
 
 /**

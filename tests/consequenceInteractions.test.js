@@ -238,6 +238,32 @@ test("save writes a token delta for an unlinked synthetic token actor (text only
   assert.ok(!("harm_can_absorb" in severe), "custom harm cost preserved on token delta");
 });
 
+test("unlinked token actor uses the token name (not the prototype actor name) for the linked aspect", async () => {
+  dialogResult = { name: "On fire" };
+  const actor = consequenceActor({ isToken: true });
+  actor.name = "New Character";
+  const token = {
+    id: "t1",
+    name: "Aria Swift",
+    actor,
+    update: () => Promise.resolve(token),
+  };
+  globalThis.game.combats = {
+    get: () => ({ id: "combat-abc", combatants: [{ id: "c1", token, actor }] }),
+  };
+  const scene = mockScene([]);
+  globalThis.canvas.scene = scene;
+  await handleConsequenceCostDoubleClick(costRow(0, { trackKey: "mild" }), null);
+  assert.deepEqual(scene.getFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY), [
+    {
+      name: "On fire (Aria Swift)",
+      free_invokes: 1,
+      linked: true,
+      consequence: { trackKey: "mild", cost: 2, actorName: "Aria Swift" },
+    },
+  ]);
+});
+
 test("empty OK clears the slot (box_values normalized to [], no consequence checkbox) and removes the linked situation aspect", async () => {
   dialogResult = { name: "" }; // empty -> clear
   let applied = null;
