@@ -1027,6 +1027,17 @@ export function buildStuntMenuItems(actor) {
   });
 }
 
+export function buildRollMenuItems(actor) {
+  const stuntChildren = buildStuntMenuItems(actor);
+  const skillChildren = buildSkillMenuItems(actor);
+  const children = [...stuntChildren];
+  if (skillChildren.length) {
+    if (children.length) children.push({ sep: true, label: "", icon: "" });
+    children.push(...skillChildren);
+  }
+  return children;
+}
+
 /** Re-exported from conflictBoardSchema.js — single source of truth for eliminatedAt. */
 export { markEliminatedInState };
 
@@ -1132,18 +1143,10 @@ async function showCardContextMenu(doc, state, event) {
   } catch (err) {
     cardActor = null;
   }
-  const skillChildren = cardActor ? buildSkillMenuItems(cardActor) : [];
-  const stuntChildren = cardActor ? buildStuntMenuItems(cardActor) : [];
+  const rollChildren = cardActor ? buildRollMenuItems(cardActor) : [];
   // Roll submenu is offered when the actor exposes at least one rollable
   // entry (stunt or skill).
-  const hasRolls = stuntChildren.length + skillChildren.length > 0;
-  // Stunts first, then a separator (only when both sections are non-empty),
-  // then skills. `menu.js` renders `sep` items at any nesting level.
-  const rollChildren = [...stuntChildren];
-  if (skillChildren.length) {
-    if (rollChildren.length) rollChildren.push({ sep: true, label: "", icon: "" });
-    rollChildren.push(...skillChildren);
-  }
+  const hasRolls = rollChildren.length > 0;
 
   const caps = cardMenuCapabilities({
     isGM: game?.user?.isGM === true,

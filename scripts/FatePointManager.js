@@ -49,8 +49,7 @@ import {
   handleConflictDocumentDoubleClick,
   handleConflictContextMenu,
   hitTestConflictPart,
-  buildSkillMenuItems,
-  buildStuntMenuItems,
+  buildRollMenuItems,
   CONFLICT_OWNER_PRIORITY,
 } from "./ConflictInteractions.js";
 import { handleStressBoxClick } from "./StressBoxes.js";
@@ -368,7 +367,7 @@ function openModuleMenu(items, event) {
   showCttMenu({ items, event, menuClass: "ctt-widget-menu" });
 }
 
-/** Actor widget menu: give/take fate points, remove widget. */
+/** Actor widget menu: give/take fate points, roll skills, remove widget. */
 function openWidgetMenu(event, doc) {
   const actorUuid = doc.getFlag?.(FLAG_SCOPE, "actorUuid");
   const widgetId = doc.getFlag?.(FLAG_SCOPE, "widgetId");
@@ -392,6 +391,14 @@ function openWidgetMenu(event, doc) {
       label: ctxT("takeFatePoint"),
       onClick: () => modifyActorFatePoints(actor, -1),
     });
+    const rollChildren = buildRollMenuItems(actor);
+    if (rollChildren.length) {
+      items.push({
+        icon: "fa-dice",
+        label: ctxT("rollSkill"),
+        children: rollChildren,
+      });
+    }
   }
   if (actor && widgetId) {
     items.push({
@@ -409,8 +416,8 @@ function openWidgetMenu(event, doc) {
  *
  * - GM: the full give/take/remove-widget menu (unchanged).
  * - Non-GM user who owns the widget's actor: a single "Roll Skill" submenu
- *   built from `buildStuntMenuItems(actor)` (stunts first, `fa-bolt`) followed
- *   by a separator and `buildSkillMenuItems(actor)` (skills, `fa-dice-d20`).
+ *   built from `buildRollMenuItems(actor)` (stunts first, `fa-bolt` followed
+ *   by a separator and the skills, `fa-dice-d20`).
  *   When the actor exposes neither stunts nor skills no menu is shown — the
  *   event is simply consumed.
  * - Everybody else: event consumed with no menu.
@@ -433,13 +440,7 @@ function handleActorWidgetContextMenu(event, doc) {
   if (!actor || !canEditActor(actor)) return; // consume, no menu
   // Stunts first, then a separator (only when both sections are non-empty),
   // then skills. `menu.js` renders `sep` items at any nesting level.
-  const stuntChildren = buildStuntMenuItems(actor);
-  const skillChildren = buildSkillMenuItems(actor);
-  const children = [...stuntChildren];
-  if (skillChildren.length) {
-    if (children.length) children.push({ sep: true, label: "", icon: "" });
-    children.push(...skillChildren);
-  }
+  const children = buildRollMenuItems(actor);
   if (!children.length) return; // nothing to offer — consume without a menu
   openModuleMenu(
     [{ icon: "fa-dice", label: ctxT("rollSkill"), children }],

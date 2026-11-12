@@ -1871,6 +1871,35 @@ test("buildStuntMenuItems excludes the localized None but keeps Special", () => 
   }
 });
 
+test("buildRollMenuItems groups stunts first, then a separator, then skills", () => {
+  const actor = {
+    system: {
+      stunts: { a: { name: "Mighty Blow", linked_skill: "Fight", bonus: 2 } },
+      skills: { s: { name: "Fight", rank: 4 } },
+    },
+    rollStunt: async () => {},
+    rollSkill: async () => {},
+  };
+  const items = mod.buildRollMenuItems(actor);
+  assert.deepEqual(items.map((it) => (it.sep ? "SEP" : it.label)), [
+    "Mighty Blow (+2) (Fight)",
+    "SEP",
+    "Fight (+4)",
+  ]);
+});
+
+test("buildRollMenuItems omits the separator when only one section is present", () => {
+  const skillsOnly = { system: { skills: { s: { name: "Fight", rank: 1 } } }, rollSkill: async () => {} };
+  const stuntsOnly = {
+    system: { stunts: { a: { name: "Sharp Eyes", linked_skill: "Notice", bonus: 0 } } },
+    rollStunt: async () => {},
+  };
+  assert.deepEqual(mod.buildRollMenuItems(skillsOnly).map((it) => it.label), ["Fight (+1)"]);
+  assert.deepEqual(mod.buildRollMenuItems(stuntsOnly).map((it) => it.label), ["Sharp Eyes (Notice)"]);
+  assert.deepEqual(mod.buildRollMenuItems(null), []);
+  assert.deepEqual(mod.buildRollMenuItems({ system: {} }), []);
+});
+
 test("markEliminatedInState clones correctly and is pure", () => {
   const state = boardState({ cards: { c1: { side: "friendly", area: "side", order: 0 }, c2: { side: "hostile", area: "side", order: 1 } } });
   const next = mod.markEliminatedInState(state, "c1");
