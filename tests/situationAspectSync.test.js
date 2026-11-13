@@ -121,7 +121,7 @@ function mockScene({ flags = {}, drawings = [] } = {}) {
     drawings: [...drawings],
     tiles: [],
     flags,
-    calls: { create: [], update: [], delete: [], unset: [] },
+    calls: { create: [], update: [], delete: [], unset: [], createCalls: 0, updateCalls: 0, deleteCalls: 0 },
     getFlag(scope, key) {
       return this.flags[scope]?.[key];
     },
@@ -135,6 +135,7 @@ function mockScene({ flags = {}, drawings = [] } = {}) {
       return this;
     },
     async deleteEmbeddedDocuments(kind, ids) {
+      this.calls.deleteCalls += 1;
       this.calls.delete.push(...ids);
       const arr = kind === "Drawing" ? this.drawings : this.tiles;
       for (const id of ids ?? []) {
@@ -145,6 +146,7 @@ function mockScene({ flags = {}, drawings = [] } = {}) {
       return this;
     },
     async updateEmbeddedDocuments(kind, docs) {
+      this.calls.updateCalls += 1;
       this.calls.update.push(...docs.map((d) => d._id));
       const arr = kind === "Drawing" ? this.drawings : this.tiles;
       for (const d of docs ?? []) {
@@ -158,6 +160,7 @@ function mockScene({ flags = {}, drawings = [] } = {}) {
       return this;
     },
     async createEmbeddedDocuments(kind, docs) {
+      this.calls.createCalls += 1;
       const arr = kind === "Drawing" ? this.drawings : this.tiles;
       for (const d of docs ?? []) {
         arr.push({
@@ -233,6 +236,9 @@ function resetCalls(scene) {
   scene.calls.create.length = 0;
   scene.calls.update.length = 0;
   scene.calls.delete.length = 0;
+  scene.calls.createCalls = 0;
+  scene.calls.updateCalls = 0;
+  scene.calls.deleteCalls = 0;
 }
 
 /* ------------------------------------------------------------------ *
@@ -369,7 +375,7 @@ test("legacy single-text widget migrates to one clickable part per aspect", asyn
   ]);
 });
 
-test("removing an aspect from the middle reindexes the remaining parts", async () => {
+test("removing an aspect from the middle reindexes the remaining parts in place", async () => {
   installGame();
   const scene = mockScene();
   await placeWidget(scene, [
@@ -386,10 +392,15 @@ test("removing an aspect from the middle reindexes the remaining parts", async (
   resetCalls(scene);
   assert.equal(await syncSituationAspects(scene), true);
 
-  // Set mismatch -> every stale text part is removed, none updated.
-  assert.equal(scene.calls.update.length, 0);
-  assert.equal(scene.calls.delete.length, 3);
-  assert.equal(scene.calls.create.length, 2);
+  // Stored part#index slots are reused: both rows shift (geometry delta),
+  // the second one also changes text, and only the surplus row is deleted.
+  // The two geometry deltas travel in ONE update call and the surplus row is
+  // removed in ONE delete call.
+  assert.equal(scene.calls.update.length, 2);
+  assert.equal(scene.calls.updateCalls, 1);
+  assert.equal(scene.calls.delete.length, 1);
+  assert.equal(scene.calls.deleteCalls, 1);
+  assert.equal(scene.calls.create.length, 0);
   const texts = partDocs(scene, SA_TEXT_PART)
     .sort((a, b) => flagOf(a, "index") - flagOf(b, "index"));
   assert.deepEqual(
@@ -412,7 +423,7 @@ test("removing an aspect from the middle reindexes the remaining parts", async (
   assert.equal(partDocs(scene, SA_BACKGROUND_PART).length, 1);
 });
 
-test("renaming an aspect (same count) also rebuilds the text parts", async () => {
+test("renaming an aspect (same count) updates only that part in place", async () => {
   installGame();
   const scene = mockScene();
   await placeWidget(scene, [
@@ -426,9 +437,10 @@ test("renaming an aspect (same count) also rebuilds the text parts", async () =>
   ]);
   resetCalls(scene);
   await syncSituationAspects(scene);
-  assert.equal(scene.calls.update.length, 0);
-  assert.equal(scene.calls.delete.length, 2);
-  assert.equal(scene.calls.create.length, 2);
+  assert.equal(scene.calls.update.length, 1);
+  assert.equal(scene.calls.updateCalls, 1, "one batched update call");
+  assert.equal(scene.calls.delete.length, 0);
+  assert.equal(scene.calls.create.length, 0);
   assert.deepEqual(
     partDocs(scene, SA_TEXT_PART)
       .sort((a, b) => flagOf(a, "index") - flagOf(b, "index"))
@@ -514,7 +526,7 @@ test("a settings-only change delta-updates the matching parts without churn", as
   assert.equal(text.text, "Only (4)");
 });
 
-test("zero aspects keep a single near-invisible placeholder part; the first aspect replaces it", async () => {
+test("zero aspects keep a single near-invisible placeholder part; the first aspect replaces it in place", async () => {
   installGame();
   const scene = mockScene();
   await placeWidget(scene, []);
@@ -532,8 +544,9 @@ test("zero aspects keep a single near-invisible placeholder part; the first aspe
   withAspects(scene, [{ name: "First", free_invokes: 9 }]);
   resetCalls(scene);
   assert.equal(await syncSituationAspects(scene), true);
-  assert.equal(scene.calls.delete.length, 1);
-  assert.equal(scene.calls.create.length, 1);
+  assert.equal(scene.calls.delete.length, 0);
+  assert.equal(scene.calls.create.length, 0);
+  assert.equal(scene.calls.update.length, 1);
   texts = partDocs(scene, SA_TEXT_PART);
   assert.equal(texts.length, 1);
   assert.equal(texts[0].text, "First (9)");
@@ -591,7 +604,7 @@ test("a manually fully-deleted group clears the registry", async () => {
   assert.equal(scene.getFlag(FLAG_SCOPE, SITUATION_ASPECTS_WIDGET_FLAG), undefined);
 });
 
-test("SA background and frame have non-negative elevation (regression for v13 PrimaryCanvasGroup)", () => {
+test("SA background and frame have non-negative elevation", () => {
   const bg = buildSaBackgroundDoc(OPTS);
   const frame = buildSaFrameDoc(OPTS);
   const texts = buildSaTextDocs([{ name: "A", free_invokes: 1 }], OPTS);

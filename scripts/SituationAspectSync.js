@@ -51,8 +51,6 @@ import {
   tokenActorName,
 } from "./utils.js";
 
-const SA_PARTS = [SA_TEXT_PART, SA_FRAME_PART, SA_BACKGROUND_PART];
-
 /**
  * All drawings of the situation aspects widget on a scene (by widgetId and
  * ownerType, so the group is never confused with any other widget).
@@ -303,14 +301,15 @@ const SYNC_FIELDS = [
  * 2. find the registry and the group documents by widgetId;
  * 3. no registry — nothing is created (never auto-create);
  * 4. registry — update frame and background; RECONCILE the text parts
- *    against the aspect list: when the stored set of text parts diverges
- *    (count or rendered lines), all stale text drawings are deleted and
- *    rebuilt one-per-aspect via `upsertPart` (per part#index idempotence);
- *    a matching set goes through the regular delta upsert, which writes
- *    nothing for unchanged data — a repeated sync is a no-op;
+ *    against the aspect list by part#index: a part that moved or was renamed
+ *    is delta-updated in place, only part#index slots that no longer exist
+ *    (a removed aspect, the legacy combined text drawing, unknown parts) are
+ *    deleted. All deltas and creations of one sync are flushed in a single
+ *    `updateEmbeddedDocuments` / `createEmbeddedDocuments` call each, so a
+ *    rename never churns the whole text block;
  * 5. background is synced separately (fill/texture, size, elevation, sort)
  *    without touching the anchor;
- * 6. unknown widget parts of the group are removed;
+ * 6. a repeated sync writes nothing — it is a strict no-op;
  * 7. when the whole group was deleted manually, the registry is cleared.
  *
  * @param {object} [scene]
@@ -364,10 +363,16 @@ export async function syncSituationAspects(scene = canvas?.scene) {
 
   const anchor = registry.anchor ?? { x: 0, y: 0 };
   const opts = getSituationAspectOptions();
-  const textDocs = buildSaTextDocs(situationAspects(scene), opts);
+  const desired = [
+    buildSaFrameDoc(opts),
+    buildSaBackgroundDoc(opts),
+    ...buildSaTextDocs(situationAspects(scene), opts),
+  ];
 
-  // Frame and background keep their single-part upsert path.
-  for (const doc of [buildSaFrameDoc(opts), buildSaBackgroundDoc(opts)]) {
+  const updates = [];
+  const creations = [];
+  const matched = new Set();
+  for (const doc of desired) {
     const payload = toDocumentData(
       { ...doc, x: doc.x + anchor.x, y: doc.y + anchor.y },
       {
@@ -377,94 +382,60 @@ export async function syncSituationAspects(scene = canvas?.scene) {
         ownerType: SA_OWNER_TYPE,
       },
     );
-    await upsertPart(scene, existing, doc.part, payload);
-  }
-
-  // Text-part reconcile (see the header): rebuild on any set mismatch,
-  // delta-update in place otherwise. Legacy single-part widgets (index -1)
-  // never match the per-aspect indexes and are migrated by the same path.
-  const existingText = existing.filter(
-    (d) => d.getFlag(FLAG_SCOPE, "part") === SA_TEXT_PART,
-  );
-  let liveExisting = existing;
-  if (!saTextPartsInSync(existingText, textDocs) && existingText.length) {
-    const staleIds = existingText.map((d) => d.id);
-    await safeDeleteEmbeddedDocuments(scene, "Drawing", existingDocumentIds(scene, "Drawing", staleIds), { fateOnTheTableSync: true });
-    const stale = new Set(staleIds);
-    liveExisting = existing.filter((d) => !stale.has(d.id));
-  }
-  for (const doc of textDocs) {
-    const payload = toDocumentData(
-      { ...doc, x: doc.x + anchor.x, y: doc.y + anchor.y },
-      {
-        widgetId: registry.widgetId,
-        part: doc.part,
-        index: doc.index,
-        ownerType: SA_OWNER_TYPE,
-      },
+    const current = existing.find(
+      (d) => !matched.has(d.id) && partMatches(d, doc.part, doc.index),
     );
-    await upsertPart(scene, liveExisting, doc.part, payload);
-  }
-
-  const extras = existing.filter(
-    (d) => !SA_PARTS.includes(d.getFlag(FLAG_SCOPE, "part")),
-  );
-  if (extras.length) {
-    await safeDeleteEmbeddedDocuments(scene, "Drawing", existingDocumentIds(scene, "Drawing", extras.map((d) => d.id)), { fateOnTheTableSync: true });
-  }
-  return true;
-}
-
-/**
- * True when the stored text parts already match the desired per-aspect
- * descriptors exactly (same count, same `index` flags, same rendered lines).
- */
-function saTextPartsInSync(existingText, textDocs) {
-  if (existingText.length !== textDocs.length) return false;
-  const actual = existingText
-    .map((d) => ({
-      index: Number(d.getFlag(FLAG_SCOPE, "index")),
-      text: String(d.text ?? ""),
-    }))
-    .sort((a, b) => a.index - b.index);
-  return textDocs.every(
-    (doc, i) =>
-      actual[i].index === Number(doc.index) && actual[i].text === doc.text,
-  );
-}
-
-/**
- * Updates one widget part in place or creates it when missing. Single-part
- * widgets (frame/background, index -1) match by part name; repeated parts
- * (one text drawing per aspect) must also match the `index` flag so every
- * aspect updates exactly its own document.
- */
-async function upsertPart(scene, existing, part, payload) {
-  const index = Number(payload?.flags?.[FLAG_SCOPE]?.index);
-  const byPart = (d) => d.getFlag(FLAG_SCOPE, "part") === part;
-  const current =
-    index === -1
-      ? existing.find(byPart)
-      : existing.find(
-          (d) => byPart(d) && Number(d.getFlag(FLAG_SCOPE, "index")) === index,
-        );
-  if (current) {
+    if (!current) {
+      creations.push(payload);
+      continue;
+    }
+    matched.add(current.id);
     const delta = {};
     for (const field of SYNC_FIELDS) {
       const cur = foundry.utils.getProperty(current, field);
       const next = foundry.utils.getProperty(payload, field);
       if (cur !== next && next !== undefined) delta[field] = next;
     }
-    if (Object.keys(delta).length) {
-      await scene.updateEmbeddedDocuments(
-        "Drawing",
-        [{ _id: current.id, ...delta }],
-        { fateOnTheTableSync: true },
-      );
-    }
-  } else {
-    await scene.createEmbeddedDocuments("Drawing", [payload]);
+    if (Object.keys(delta).length) updates.push({ _id: current.id, ...delta });
   }
+
+  // Every stored part that no desired part claimed is stale: surplus aspect
+  // rows, the legacy combined-text drawing (index -1) and unknown parts.
+  const staleIds = existing.filter((d) => !matched.has(d.id)).map((d) => d.id);
+
+  const syncOptions = { fateOnTheTableSync: true };
+  if (staleIds.length) {
+    await safeDeleteEmbeddedDocuments(
+      scene,
+      "Drawing",
+      existingDocumentIds(scene, "Drawing", staleIds),
+      syncOptions,
+    );
+  }
+  if (updates.length) {
+    await scene.updateEmbeddedDocuments("Drawing", updates, syncOptions);
+  }
+  if (creations.length) {
+    await scene.createEmbeddedDocuments("Drawing", creations);
+  }
+  return true;
+}
+
+/**
+ * True when a stored document is the projection of one desired widget part.
+ * Single parts (frame/background, `index` -1) match by part name; repeated
+ * parts (one text drawing per aspect) must also match the `index` flag so
+ * every aspect owns exactly its own document. A missing `index` flag counts
+ * as -1 so an old single part is updated in place instead of recreated.
+ * @param {object} doc  Stored Drawing document.
+ * @param {string} part  Desired part name.
+ * @param {number} index  Desired part index.
+ * @returns {boolean}
+ */
+function partMatches(doc, part, index) {
+  if (doc.getFlag(FLAG_SCOPE, "part") !== part) return false;
+  const stored = Number(doc.getFlag(FLAG_SCOPE, "index"));
+  return (Number.isFinite(stored) ? stored : -1) === Number(index ?? -1);
 }
 
 /**
