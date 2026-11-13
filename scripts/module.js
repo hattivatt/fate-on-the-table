@@ -626,8 +626,14 @@ function scheduleSituationAspectSync(scene = canvas?.scene) {
  * shapes). No `fateOnTheTableSync` guard: the recon only writes
  * `flags.fate-core-official.situation_aspects`, whose loop
  * `sync → onUpdateScene → schedule → sync` is idempotent and self-extinguishing.
+ * The reconcile only reads `actor.system.tracks` and `actor.name`, so updates
+ * that touch neither bail before the scene/token scan.
  */
 function onActorConsequenceSync(actor, changed, options) {
+  const tracksChanged = foundry?.utils?.hasProperty
+    ? foundry.utils.hasProperty(changed, "system.tracks")
+    : !!(changed?.system?.tracks);
+  if (!tracksChanged && changed?.name === undefined) return;
   const scene = canvas?.scene;
   if (!scene || !actor?.id) return;
   const actorId = actor.id;
