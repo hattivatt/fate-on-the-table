@@ -304,6 +304,14 @@ const saSyncTimers = new Map();
 const conflictTokenTimers = new Map();
 const conflictActorTimers = new Map();
 const pendingConflictTokensByScene = new Map();
+// Hook-driven conflict board syncs are coalesced per scene: one game event can
+// fire several hooks (a "next round" reset fires one updateCombatant per
+// participant, a turn change fires updateCombat + updateCombatant), and each
+// hook used to queue its own full projection sync. The window collapses such a
+// burst into ONE sync that runs with the newest request.
+const CONFLICT_SYNC_DEBOUNCE_MS = 100;
+const conflictSyncTimers = new Map();
+const conflictSyncRequests = new Map();
 let sceneControlsRegistered = false;
 // True while a Combat document (and its combatants) is being deleted, so the
 // board is never auto-cleaned when a conflict/combat ends.
@@ -391,6 +399,7 @@ Hooks.once("ready", () => {
     Hooks.on("preDeleteCombat", () => {
       combatDeleteInProgress = true;
       clearTimeout(combatDeleteResetTimer);
+      cancelPendingConflictSync();
       combatDeleteResetTimer = setTimeout(() => {
         combatDeleteInProgress = false;
       }, 3000);
@@ -531,16 +540,12 @@ function onUpdateScene(scene, changed, options) {
   ) {
     scheduleSituationAspectSync(scene);
     // Zone-bound situation aspects changed: refresh the conflict zone
-    // overlays on the same scene when a live board is present. The sync is
-    // serialized through `syncConflictBoard`'s per-scene queue; its writes
-    // are marked `fateOnTheTableSync` and the conflict-flag branch above
-    // bails on that marker, so no hook loop is possible. Aspect changes are
-    // rare (invoke spend), so an immediate per-change sync is acceptable;
-    // the queue itself coalesces concurrent calls without extra debounce.
+    // overlays on the same scene when a live board is present. The sync goes
+    // through the per-scene debounced scheduler and writes are marked
+    // `fateOnTheTableSync`, so the conflict-flag branch below bails on that
+    // marker and no hook loop is possible.
     if (readConflictBoard(scene) && boardRegistry(scene)?.widgetId) {
-      syncConflictBoard(scene).catch((err) =>
-        console.error("[fate-on-the-table] conflict board sync failed:", err),
-      );
+      scheduleConflictSync(scene);
     }
   }
 
@@ -559,9 +564,7 @@ function onUpdateScene(scene, changed, options) {
   if (conflictFlagChanged) {
     if (options?.fateOnTheTableSync) return;
     if (!canvas?.scene || scene.id !== canvas.scene.id) return;
-    syncConflictBoard(scene).catch((err) =>
-      console.error("[fate-on-the-table] conflict board sync failed:", err),
-    );
+    scheduleConflictSync(scene);
     return;
   }
 
@@ -572,10 +575,47 @@ function onUpdateScene(scene, changed, options) {
     if (!canvas?.scene || scene.id !== canvas.scene.id) return;
     const state = readConflictBoard(scene);
     if (!state || !boardRegistry(scene)?.widgetId) return;
-    syncConflictBoard(scene).catch((err) =>
-      console.error("[fate-on-the-table] conflict board sync failed:", err),
-    );
+    scheduleConflictSync(scene);
   }
+}
+
+/**
+ * Drops the pending debounced conflict syncs (used when a combat deletion takes
+ * over the board teardown).
+ */
+function cancelPendingConflictSync() {
+  for (const timer of conflictSyncTimers.values()) clearTimeout(timer);
+  conflictSyncTimers.clear();
+  conflictSyncRequests.clear();
+}
+
+/**
+ * Queues a debounced, per-scene conflict board projection sync. Repeated calls
+ * inside the debounce window collapse into one `syncConflictBoard` call; the
+ * newest request replaces the pending one so the sync always targets the live
+ * scene state. The serialized queue in ConflictBoardSync keeps ordering against
+ * direct calls (placement, manager actions, canvasReady).
+ * @param {object} [scene]  Scene to project (defaults to the active scene).
+ * @param {object} [options]  `syncConflictBoard` options (e.g. `{ combat }`).
+ */
+function scheduleConflictSync(scene = canvas?.scene, options = {}) {
+  if (!scene?.id) return;
+  conflictSyncRequests.set(scene.id, options);
+  clearTimeout(conflictSyncTimers.get(scene.id));
+  conflictSyncTimers.set(
+    scene.id,
+    setTimeout(() => {
+      conflictSyncTimers.delete(scene.id);
+      const request = conflictSyncRequests.get(scene.id) ?? {};
+      conflictSyncRequests.delete(scene.id);
+      // A combat deletion owns the board teardown: a deferred projection sync
+      // must never prune cards while the combatants are being removed.
+      if (combatDeleteInProgress) return;
+      syncConflictBoard(scene, request).catch((err) =>
+        console.error("[fate-on-the-table] conflict board sync failed:", err),
+      );
+    }, CONFLICT_SYNC_DEBOUNCE_MS),
+  );
 }
 
 /** "New Scene" from the FatePointManager: update an already placed widget. */
@@ -730,9 +770,7 @@ function onUpdateCombat(combat, changed, options) {
     combatId: combat.id,
   });
   if (!combatDoc) return;
-  syncConflictBoard(canvas.scene, { combat: combatDoc }).catch((err) =>
-    console.error("[fate-on-the-table] conflict board sync failed:", err),
-  );
+  scheduleConflictSync(canvas.scene, { combat: combatDoc });
 }
 
 /** Combatant updated (hasActed, sort, flags): re-project the board. */
@@ -744,25 +782,25 @@ function onUpdateCombatant(combatant, changed, options) {
   if (!combatId || !hasActiveBoardForCombat(combatId)) return;
   const combat = resolveSceneConflictCombat(canvas?.scene, { combatId });
   if (!combat) return;
-  syncConflictBoard(canvas.scene, { combat }).catch((err) =>
-    console.error("[fate-on-the-table] conflict board sync failed:", err),
-  );
+  scheduleConflictSync(canvas.scene, { combat });
 }
 
 /**
  * Combatant created (a token enters combat mode mid-conflict): admit its card
- * immediately. Foundry v14 fires ONLY `createCombatant` when a new embedded
- * Combatant is created — the parent Combat document does not emit an
- * `updateCombat` for embedded-document create/delete, so this listener is the
- * single runtime path covering the "new token joins an active board" scenario.
+ * through the per-scene debounced projection sync. Foundry v14 fires ONLY
+ * `createCombatant` when a new embedded Combatant is created — the parent
+ * Combat document does not emit an `updateCombat` for embedded-document
+ * create/delete, so this listener is the single runtime path covering the "new
+ * token joins an active board" scenario.
  *
  * It runs the exact same guards as `updateCombatant` (anti-recursive
- * `fateOnTheTableSync`, no work during a combat deletion) and calls the SAME
- * serialized `syncConflictBoard(scene, { combat })` queue, where
- * `reconcileConflictBoardProjection` -> `reconcileConflictBoard` admits the
- * newcomer card via `admitMissingCards` — but only when the new combatant's
- * token is actually available on the pinned active scene (no card without a
- * token). The hook signature is Foundry v14's `(combatant, options, userId)`.
+ * `fateOnTheTableSync`, no work during a combat deletion) and schedules the
+ * same `syncConflictBoard(scene, { combat })` projection through the per-scene
+ * debounce, where `reconcileConflictBoardProjection` -> `reconcileConflictBoard`
+ * admits the newcomer card via `admitMissingCards` — but only when the new
+ * combatant's token is actually available on the pinned active scene (no card
+ * without a token).
+ * The hook signature is Foundry v14's `(combatant, options, userId)`.
  * @param {object} combatant  The created Combatant document.
  * @param {object} options    Operation options (may carry the module's own
  *   `fateOnTheTableSync` marker from other module writes).
@@ -775,9 +813,7 @@ function onCreateCombatant(combatant, options) {
   if (!combatId || !hasActiveBoardForCombat(combatId)) return;
   const combat = resolveSceneConflictCombat(canvas?.scene, { combatId });
   if (!combat) return;
-  syncConflictBoard(canvas.scene, { combat }).catch((err) =>
-    console.error("[fate-on-the-table] conflict board sync failed:", err),
-  );
+  scheduleConflictSync(canvas.scene, { combat });
   // QoL — auto-enable turn marker for the new combatant's token (GM only, setting-gated).
   maybeEnableTurnMarkerForCombatant(combatant, combatId).catch((err) =>
     console.warn("[fate-on-the-table] turn marker auto-enable failed:", err),
@@ -903,9 +939,7 @@ function onDeleteCombatant(combatant, options) {
   if (!combatId || !hasActiveBoardForCombat(combatId)) return;
   const combat = resolveSceneConflictCombat(canvas?.scene, { combatId });
   if (!combat) return;
-  syncConflictBoard(canvas.scene, { combat }).catch((err) =>
-    console.error("[fate-on-the-table] conflict board sync failed:", err),
-  );
+  scheduleConflictSync(canvas.scene, { combat });
 }
 
 /**
@@ -1094,9 +1128,7 @@ function onDeleteToken(token, options) {
   if (!scene || !token) return;
   const state = readConflictBoard(scene);
   if (!state || !state.combatId || !boardRegistry(scene)?.widgetId) return;
-  syncConflictBoard(scene).catch((err) =>
-    console.error("[fate-on-the-table] conflict board sync failed:", err),
-  );
+  scheduleConflictSync(scene);
 }
 
 /** Extends the module public API with the conflict integration (in `ready`). */
