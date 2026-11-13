@@ -37,6 +37,16 @@ Guidelines for AI agents working in this repository.
 - Debounces are per-scene `Map<sceneId, timer>` (e.g. `saSyncTimers`,
   `conflictTokenTimers`, `conflictActorTimers` in `module.js`), not a single
   global timer — otherwise cross-scene updates are lost.
+- A sync collects its whole diff into one plan and flushes it once, one batch
+  per document type in `delete → update → create` order (`flushPlan` in
+  `ConflictBoardSync.js`, `syncWidget` in `WidgetSync.js`, the single write
+  block in `SituationAspectSync.js`). Widget parts match by `part#index` and
+  are updated in place — never delete-and-recreate a whole group for a rename.
+- Hooks that re-project the conflict board go through `scheduleConflictSync`
+  (`module.js`): one game event fires several `updateCombatant` hooks, and the
+  per-scene debounce collapses the burst into one sync. Only flows that must
+  stay ordered against a pending projection call `syncConflictBoard` directly
+  (`canvasReady`, `ConflictManager.afterChange`, settings sync).
 
 ## Schema versioning
 
