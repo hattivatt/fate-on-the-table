@@ -331,8 +331,8 @@ function resolvePlaceables() {
 }
 
 /**
- * Idempotently wraps `Token.prototype._onDragLeftDrop` — the stable point in
- * Foundry v13/v14 where a native token drag flow completes. The wrapper:
+ * Idempotently wraps `Token.prototype._onDragLeftDrop` — the stable Foundry
+ * v14 point where a native token drag flow completes. The wrapper:
  *
  * 1. resolves the drop BEFORE the native handler so the native destination
  *    (and its standard debounced `TokenDocument.update`) is routed to the

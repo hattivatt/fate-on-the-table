@@ -620,7 +620,7 @@ test("migration T1: aspect with zoneIds lands in correct zone (no suffix needed)
   }
 });
 
-test("zone overlay parts have non-negative elevation (regression for v13 PrimaryCanvasGroup)", () => {
+test("zone overlay parts have non-negative elevation", () => {
   const state = validState();
   const geometry = getConflictBoardGeometry({ sizePreset: "medium" });
   const zone = state.zones[0];

@@ -7,9 +7,8 @@
  * `DrawingShapeControls` + `RectangleShapeData.moveControlHandle("scale")`.
  * Its default (non-`unlinked`) "scale" (corner) branch CONSTRAINS the aspect
  * ratio: the shorter axis is recomputed from the longer one, so a challenge /
- * contest block can never change width and height independently. The v13 core
- * (`Drawing.rescaleDimensions`) changed `width += dx` and `height += dy`
- * independently, which is the behaviour the module wants back.
+ * contest block can never change width and height independently. The module
+ * wants width and height to change independently.
  *
  * The thin glue in `drawingFreeResize.js` wraps `DrawingShapeControls` ONLY for
  * documents flagged with the module's challenge / contest `ownerType` and

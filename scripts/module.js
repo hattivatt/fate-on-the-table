@@ -702,12 +702,10 @@ function hasActiveBoardForCombat(combatId) {
  * `combatant.parent` (checked first, both alive and already-dropped parents).
  * A deleted combatant may have lost both links already, so the active scene's
  * board `combatId` is used as a last-resort fallback only when the
- * combatant's token is still present on that scene (v13 `combatId` is kept
- * for older API compatibility).
+ * combatant's token is still present on that scene.
  */
 function combatIdOfCombatant(combatant) {
-  const id =
-    combatant?.combat?.id ?? combatant?.parent?.id ?? combatant?.combatId ?? null;
+  const id = combatant?.combat?.id ?? combatant?.parent?.id ?? null;
   if (id) return id;
   const scene = canvas?.scene;
   if (!scene || !combatant?.tokenId) return null;
@@ -1134,14 +1132,10 @@ function registerPublicApi() {
   }
 }
 
-/** Resolves the DOM root of a render hook payload (v13 jQuery or v14 node). */
+/** Resolves the DOM root of an ApplicationV2 render hook payload (v14 HTMLElement). */
 function resolveHtmlRoot(html) {
-  if (!html) return null;
-  if (typeof html.querySelector === "function") return html;
-  if (Array.isArray(html)) return html[0] ?? null;
-  const first = html?.[0];
-  if (first && typeof first.querySelector === "function") return first;
-  return null;
+  if (!html || typeof html.querySelector !== "function") return null;
+  return html;
 }
 
 /**
@@ -1234,7 +1228,8 @@ function registerSceneControl() {
 function onRenderFateUtilities(app, html) {
   if (!game.user.isGM) return;
   const root = resolveHtmlRoot(html);
-  const input = html.querySelector?.(
+  if (!root) return;
+  const input = root.querySelector?.(
     `input[name="gmfp"][data-gmid="${game.user.id}"]`,
   );
   const cell = input?.closest?.("td");
@@ -1261,7 +1256,7 @@ function onRenderFateUtilities(app, html) {
 
   // The situation aspects section of the scene tab: the first child div is
   // the GM-only action row (Add New Aspect, label settings, countdowns).
-  const saRow = html.querySelector?.("#fu_scene_sit_aspects_container > div");
+  const saRow = root.querySelector?.("#fu_scene_sit_aspects_container > div");
   if (saRow && !saRow.querySelector("[data-ctt-sa-place]")) {
     const button = document.createElement("button");
     button.type = "button";
@@ -1292,7 +1287,7 @@ function onRenderFateUtilities(app, html) {
   // shared `placeBoard()` handler as the Combat Tracker; no second board
   // variant. Hidden when no combat is pinned to the scene, and panes without
   // the conflict controls never break the rest of the utilities.
-  if (root?.querySelector && canPlaceConflictBoard(canvas?.scene, game.combat)) {
+  if (root.querySelector && canPlaceConflictBoard(canvas?.scene, game.combat)) {
     const button = createFateUtilsPlaceButton(
       game.i18n.localize(`${MODULE_ID}.conflict.placement.fromFateUtils`),
     );

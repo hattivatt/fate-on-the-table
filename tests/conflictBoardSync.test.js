@@ -3159,7 +3159,7 @@ test("conflict card layer ordering: non-eliminated tile 1, acted 2, strike 2 and
   }
 });
 
-test("all conflict board service parts have non-negative elevation (regression for v13 PrimaryCanvasGroup)", () => {
+test("all conflict board service parts have non-negative elevation", () => {
   const state = validState();
   const geometry = getConflictBoardGeometry({ sizePreset: "medium" });
   const boardParts = buildBoardPartDescriptors(state, geometry, { round: 2 });

@@ -6,8 +6,8 @@
  * `challenge` / `contest`). In Foundry v14 the core `DrawingShapeControls`
  * corner "scale" handle preserves the aspect ratio
  * (`RectangleShapeData.moveControlHandle("scale")`), so dragging any handle
- * changes width and height together. v13's `Drawing.rescaleDimensions` resized
- * freely, so this wrapper restores that behaviour ONLY for our drawings.
+ * changes width and height together. The module wants width and height to
+ * change independently, so this wrapper does that ONLY for our drawings.
  *
  * Design:
  *  - patch `foundry.canvas.placeables.drawings.DrawingShapeControls.prototype`

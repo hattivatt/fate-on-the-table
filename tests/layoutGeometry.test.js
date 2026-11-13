@@ -1099,7 +1099,7 @@ test("aspects content is top-aligned inside its block (not vertically centered)"
   assert.equal(scaled.h, 144, "scaled aspects height is content height * scale");
 });
 
-test("service parts have non-negative elevation (regression for v13 PrimaryCanvasGroup)", () => {
+test("service parts have non-negative elevation", () => {
   for (const id of ["default", "minimal", "full"]) {
     const layout = loadNormalized(id);
     const { docs } = computeLayoutDocs(layout, resolvedData(), {
@@ -1117,7 +1117,7 @@ test("service parts have non-negative elevation (regression for v13 PrimaryCanva
   }
 });
 
-test("all tile descriptors have non-negative elevation (regression for v13 tiles under background)", async () => {
+test("all tile descriptors have non-negative elevation", async () => {
   const prevGame = globalThis.game;
   const prevCONST = globalThis.CONST;
   const prevFoundry = globalThis.foundry;
