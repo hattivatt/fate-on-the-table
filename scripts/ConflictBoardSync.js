@@ -66,9 +66,10 @@
  *   absent or invalid flag never creates a board and never touches documents
  *   owned by anyone else.
  * - Diff/upsert is idempotent by `widgetId` + `ownerType` + `part#index`
- *   (same pattern as WidgetSync/SituationAspectSync) with batch
- *   create/update/delete on `scene.createEmbeddedDocuments` /
- *   `scene.updateEmbeddedDocuments` / `scene.deleteEmbeddedDocuments`.
+ *   (same pattern as WidgetSync/SituationAspectSync). All widget groups of a
+ *   sync are collected into one plan and flushed once: delete -> update ->
+ *   create, one batch per document type on `scene.deleteEmbeddedDocuments` /
+ *   `scene.updateEmbeddedDocuments` / `scene.createEmbeddedDocuments`.
  * - Every update initiated by this module passes `{ fateOnTheTableSync: true }`
  *   so widgetDrag/hooks never run a recursive reconcile.
  * - Foreign documents are never located or deleted by coordinates or text.
@@ -283,13 +284,53 @@ async function clearBoardRegistry(scene) {
  * ------------------------------------------------------------------ */
 
 /**
+ * Index of the module-owned documents of a scene, built once per sync.
+ * `all` keeps scene order (drawings, then tiles); `byWidget` groups the same
+ * entries by `widgetId` so a widget lookup never rescans the scene.
+ * @param {object} scene
+ * @returns {{all: Array<{doc: object, kind: "Drawing"|"Tile"}>,
+ *   byWidget: Map<string, Array<{doc: object, kind: "Drawing"|"Tile"}>>}}
+ */
+function sceneDocIndex(scene) {
+  const all = [];
+  const byWidget = new Map();
+  for (const [kind, docs] of [
+    ["Drawing", scene?.drawings],
+    ["Tile", scene?.tiles],
+  ]) {
+    for (const doc of docs ?? []) {
+      const widgetId = doc.getFlag(FLAG_SCOPE, "widgetId");
+      if (!widgetId) continue;
+      const entry = { doc, kind };
+      all.push(entry);
+      const group = byWidget.get(widgetId);
+      if (group) group.push(entry);
+      else byWidget.set(widgetId, [entry]);
+    }
+  }
+  return { all, byWidget };
+}
+
+/**
  * All drawings/tiles of a widget group on a scene.
  * @param {object} scene
  * @param {string|null} widgetId  Widget id (or a Set of ids).
  * @param {string|null} ownerType  Optional ownerType filter.
+ * @param {Set<string>|null} [widgetIds]  Widget id set (overrides widgetId).
+ * @param {object|null} [index]  Pre-built `sceneDocIndex(scene)`.
  */
-function docsOf(scene, widgetId, ownerType, widgetIds) {
+function docsOf(scene, widgetId, ownerType, widgetIds, index = null) {
   const set = widgetIds ?? (widgetId ? new Set([widgetId]) : null);
+  if (index) {
+    const entries = widgetIds ? index.all : index.byWidget.get(widgetId) ?? [];
+    return entries
+      .filter(
+        ({ doc }) =>
+          (!set || set.has(doc.getFlag(FLAG_SCOPE, "widgetId"))) &&
+          (!ownerType || doc.getFlag(FLAG_SCOPE, "ownerType") === ownerType),
+      )
+      .map(({ doc }) => doc);
+  }
   return [...scene.drawings, ...scene.tiles].filter((d) => {
     if (set && !set.has(d.getFlag(FLAG_SCOPE, "widgetId"))) return false;
     if (ownerType && d.getFlag(FLAG_SCOPE, "ownerType") !== ownerType) return false;
@@ -298,23 +339,23 @@ function docsOf(scene, widgetId, ownerType, widgetIds) {
 }
 
 /** Board-level projection docs (background, area frames, labels, marker). */
-export function boardLevelDocs(scene, widgetId) {
-  return docsOf(scene, widgetId, CONFLICT_BOARD_OWNER_TYPE);
+export function boardLevelDocs(scene, widgetId, index = null) {
+  return docsOf(scene, widgetId, CONFLICT_BOARD_OWNER_TYPE, null, index);
 }
 
 /** Zone projection docs of one zone widget. */
-export function zoneDocs(scene, widgetId) {
-  return docsOf(scene, widgetId, CONFLICT_ZONE_OWNER_TYPE);
+export function zoneDocs(scene, widgetId, index = null) {
+  return docsOf(scene, widgetId, CONFLICT_ZONE_OWNER_TYPE, null, index);
 }
 
 /** Card projection docs of one participant card widget. */
-export function cardDocs(scene, widgetId) {
-  return docsOf(scene, widgetId, CONFLICT_CARD_OWNER_TYPE);
+export function cardDocs(scene, widgetId, index = null) {
+  return docsOf(scene, widgetId, CONFLICT_CARD_OWNER_TYPE, null, index);
 }
 
 /** Every module-owned conflict doc referenced by the registry. */
-export function allConflictDocs(scene, registry) {
-  return docsOf(scene, null, null, collectWidgetIds(registry));
+export function allConflictDocs(scene, registry, index = null) {
+  return docsOf(scene, null, null, collectWidgetIds(registry), index);
 }
 
 function collectWidgetIds(registry) {
@@ -1298,12 +1339,13 @@ export async function buildConflictBoardDocuments(scene, state, combat, options 
  * are intentionally left untouched (no automatic cleanup on conflict end).
  * @param {object} scene
  * @param {object} [options]  See header (combat/combatants/availability).
+ * @param {object|null} [index]  Pre-built `sceneDocIndex(scene)` of the sync.
  * @returns {Promise<{changed: boolean, state: object|null,
  *   removedCombatantIds: string[], removedTokenUuids: string[],
  *   removedZoneEntries: Array<{tokenUuid, zoneId}>, removedZoneIds: string[],
  *   admittedCombatantIds: string[]}>}
  */
-export async function reconcileConflictBoardProjection(scene, options = {}) {
+export async function reconcileConflictBoardProjection(scene, options = {}, index = null) {
   if (!scene) {
     return {
       changed: false,
@@ -1386,8 +1428,8 @@ export async function reconcileConflictBoardProjection(scene, options = {}) {
   }
 
   const removedDocs =
-    (await deleteWidgetDocsByIds(scene, orphanZoneWidgetIds, CONFLICT_ZONE_OWNER_TYPE)) +
-    (await deleteWidgetDocsByIds(scene, orphanCardWidgetIds, CONFLICT_CARD_OWNER_TYPE));
+    (await deleteWidgetDocsByIds(scene, orphanZoneWidgetIds, CONFLICT_ZONE_OWNER_TYPE, {}, index)) +
+    (await deleteWidgetDocsByIds(scene, orphanCardWidgetIds, CONFLICT_CARD_OWNER_TYPE, {}, index));
 
   let registryChanged = false;
   if (removedZoneIds.length || orphanCardWidgetIds.size) {
@@ -1459,7 +1501,9 @@ export function syncConflictBoard(scene, options = {}) {
  * Full scene-side sync of a conflict board: reconciles the state against the
  * live combat, then idempotently upserts the projection documents (board
  * background/areas/labels/marker, per-zone bodies/labels, per-card minimal
- * widgets) in batches by `widgetId + ownerType + part#index`.
+ * widgets). Every group is diffed by `widgetId + ownerType + part#index` into
+ * ONE plan that is flushed once at the end: delete -> update -> create, one
+ * batch per document type.
  *
  * Guards:
  * - absent/invalid flag: nothing is created, nothing foreign is deleted;
@@ -1501,12 +1545,15 @@ async function syncConflictBoardNow(scene, options = {}) {
     return { ok: true, changed: false, state, registry: null };
   }
 
+  // Scene documents are scanned once for every lookup of the sync.
+  const index = sceneDocIndex(scene);
+
   // Manual whole-board deletion guard. Skipped when `options.forceProjection`
   // is set (the placement commit passes it): at that moment the registry has
   // just been written but no projection documents exist yet, so a premature
   // sync (e.g. from the updateScene hook fired by the registry write) must
   // NOT treat the missing projection as a manual deletion.
-  const existingAll = allConflictDocs(scene, registry);
+  const existingAll = allConflictDocs(scene, registry, index);
   if (!existingAll.length && !options.forceProjection) {
     await clearBoardRegistry(scene);
     return {
@@ -1521,12 +1568,16 @@ async function syncConflictBoardNow(scene, options = {}) {
   const combat =
     options.combat !== undefined ? options.combat : resolveCombatForState(state, options);
 
-  const rec = await reconcileConflictBoardProjection(scene, {
-    ...options,
-    state,
-    registry,
-    combat,
-  });
+  const rec = await reconcileConflictBoardProjection(
+    scene,
+    {
+      ...options,
+      state,
+      registry,
+      combat,
+    },
+    index,
+  );
 
   // Build from the FINAL projected state (after hasActed -> acted). Using
   // rec.state guarantees the documents reflect the live turn state even when
@@ -1566,53 +1617,44 @@ async function syncConflictBoardNow(scene, options = {}) {
   const origin = nextState.board?.origin ?? { x: 0, y: 0 };
   const ox = origin.x ?? 0;
   const oy = origin.y ?? 0;
-  let created = 0;
-  let updated = 0;
-  let deleted = 0;
+  const plan = emptyPlan();
 
-  const boardRes = await upsertParts(
-    scene,
-    boardLevelDocs(scene, fullRegistry.widgetId),
+  collectParts(
+    boardLevelDocs(scene, fullRegistry.widgetId, index),
     built.board,
     fullRegistry.widgetId,
     CONFLICT_BOARD_OWNER_TYPE,
     { ox, oy },
+    plan,
   );
-  created += boardRes.created;
-  updated += boardRes.updated;
-  deleted += boardRes.deleted;
 
   for (const zone of nextState.zones ?? []) {
     const widgetId = zoneWidgetIds[zone.id];
     if (!widgetId) continue;
-    const res = await upsertParts(
-      scene,
-      zoneDocs(scene, widgetId),
+    collectParts(
+      zoneDocs(scene, widgetId, index),
       built.zones[zone.id] ?? [],
       widgetId,
       CONFLICT_ZONE_OWNER_TYPE,
       { ox, oy },
+      plan,
     );
-    created += res.created;
-    updated += res.updated;
-    deleted += res.deleted;
   }
 
   for (const [combatantId, descriptors] of Object.entries(built.cards)) {
     const widgetId = cardWidgetIds[combatantId];
     if (!widgetId) continue;
-    const res = await upsertParts(
-      scene,
-      cardDocs(scene, widgetId),
+    collectParts(
+      cardDocs(scene, widgetId, index),
       descriptors,
       widgetId,
       CONFLICT_CARD_OWNER_TYPE,
       { ox, oy },
+      plan,
     );
-    created += res.created;
-    updated += res.updated;
-    deleted += res.deleted;
   }
+
+  const { created, updated, deleted } = await flushPlan(scene, plan);
 
   if (registryChanged) await writeBoardRegistry(scene, fullRegistry);
 
@@ -1708,23 +1750,32 @@ async function removeConflictBoardNow(scene, options = {}) {
 }
 
 /* ------------------------------------------------------------------ *
- * Batch upsert / delete helpers (runtime)
+ * Batch plan / flush / delete helpers (runtime)
  * ------------------------------------------------------------------ */
 
+/** One sync-wide diff plan: per-document-type update/create/delete batches. */
+function emptyPlan() {
+  return {
+    updates: { Drawing: [], Tile: [] },
+    creations: { Drawing: [], Tile: [] },
+    deletions: { Drawing: [], Tile: [] },
+  };
+}
+
 /**
- * Idempotent diff/upsert of one widget group: creates missing parts, updates
- * changed parts and deletes extra parts, each in a single batch per document
- * type. Keyed by `widgetId + ownerType + part#index`; foreign documents are
- * never touched.
- * @param {object} scene
+ * Idempotent diff of one widget group, collected into the sync plan: creates
+ * missing parts, updates changed parts and deletes extra parts. Keyed by
+ * `widgetId + ownerType + part#index`; foreign documents are never touched.
+ * Nothing is written here — `flushPlan` issues one batch per document type for
+ * the whole sync.
  * @param {object[]} existing  Current module-owned docs of the widget group.
  * @param {object[]} descriptors  Target descriptors (BOARD-LOCAL coords).
  * @param {string} widgetId
  * @param {string} ownerType
  * @param {object} [opts]  { ox, oy } origin offset.
- * @returns {Promise<{created: number, updated: number, deleted: number}>}
+ * @param {object} plan  Plan accumulated across every widget group.
  */
-async function upsertParts(scene, existing, descriptors, widgetId, ownerType, opts = {}) {
+function collectParts(existing, descriptors, widgetId, ownerType, opts = {}, plan) {
   const ox = opts.ox ?? 0;
   const oy = opts.oy ?? 0;
   const extraFlags = opts.extraFlags ?? {};
@@ -1740,10 +1791,6 @@ async function upsertParts(scene, existing, descriptors, widgetId, ownerType, op
     const index = doc.getFlag(FLAG_SCOPE, "index") ?? -1;
     byKey.set(`${part}#${index}`, doc);
   }
-
-  const updates = { Drawing: [], Tile: [] };
-  const creations = { Drawing: [], Tile: [] };
-  const deletions = { Drawing: [], Tile: [] };
 
   for (const [key, doc] of target) {
     const payload = toDocumentData(
@@ -1763,42 +1810,53 @@ async function upsertParts(scene, existing, descriptors, widgetId, ownerType, op
       const fields = kind === "Tile" ? TILE_FIELDS : DRAWING_FIELDS;
       const delta = diff(existingDoc, payload, fields);
       if (Object.keys(delta).length) {
-        updates[kind].push({ _id: existingDoc.id, ...delta });
+        plan.updates[kind].push({ _id: existingDoc.id, ...delta });
       }
       byKey.delete(key);
     } else {
-      creations[doc.kind === "tile" ? "Tile" : "Drawing"].push(payload);
+      plan.creations[doc.kind === "tile" ? "Tile" : "Drawing"].push(payload);
     }
   }
 
   for (const doc of byKey.values()) {
-    deletions[doc.documentName === "Tile" ? "Tile" : "Drawing"].push(doc.id);
+    plan.deletions[doc.documentName === "Tile" ? "Tile" : "Drawing"].push(doc.id);
   }
+}
 
+/**
+ * Flushes the sync plan: delete -> update -> create, one batch per document
+ * type (Drawing, then Tile). Deletions stay filtered by `existingDocumentIds`
+ * inside `safeDeleteEmbeddedDocuments`; every write is marked
+ * `fateOnTheTableSync: true` where the API allows it.
+ * @param {object} scene
+ * @param {object} plan
+ * @returns {Promise<{created: number, updated: number, deleted: number}>}
+ */
+async function flushPlan(scene, plan) {
   const syncOptions = { fateOnTheTableSync: true };
-  if (updates.Drawing.length) {
-    await scene.updateEmbeddedDocuments("Drawing", updates.Drawing, syncOptions);
+  if (plan.deletions.Drawing.length) {
+    await safeDeleteEmbeddedDocuments(scene, "Drawing", plan.deletions.Drawing, syncOptions);
   }
-  if (updates.Tile.length) {
-    await scene.updateEmbeddedDocuments("Tile", updates.Tile, syncOptions);
+  if (plan.deletions.Tile.length) {
+    await safeDeleteEmbeddedDocuments(scene, "Tile", plan.deletions.Tile, syncOptions);
   }
-  if (deletions.Drawing.length) {
-    await safeDeleteEmbeddedDocuments(scene, "Drawing", deletions.Drawing, syncOptions);
+  if (plan.updates.Drawing.length) {
+    await scene.updateEmbeddedDocuments("Drawing", plan.updates.Drawing, syncOptions);
   }
-  if (deletions.Tile.length) {
-    await safeDeleteEmbeddedDocuments(scene, "Tile", deletions.Tile, syncOptions);
+  if (plan.updates.Tile.length) {
+    await scene.updateEmbeddedDocuments("Tile", plan.updates.Tile, syncOptions);
   }
-  if (creations.Drawing.length) {
-    await scene.createEmbeddedDocuments("Drawing", creations.Drawing);
+  if (plan.creations.Drawing.length) {
+    await scene.createEmbeddedDocuments("Drawing", plan.creations.Drawing);
   }
-  if (creations.Tile.length) {
-    await scene.createEmbeddedDocuments("Tile", creations.Tile);
+  if (plan.creations.Tile.length) {
+    await scene.createEmbeddedDocuments("Tile", plan.creations.Tile);
   }
 
   return {
-    created: creations.Drawing.length + creations.Tile.length,
-    updated: updates.Drawing.length + updates.Tile.length,
-    deleted: deletions.Drawing.length + deletions.Tile.length,
+    created: plan.creations.Drawing.length + plan.creations.Tile.length,
+    updated: plan.updates.Drawing.length + plan.updates.Tile.length,
+    deleted: plan.deletions.Drawing.length + plan.deletions.Tile.length,
   };
 }
 
@@ -1806,25 +1864,41 @@ async function upsertParts(scene, existing, descriptors, widgetId, ownerType, op
  * Deletes module-owned docs by widget id (optionally filtered by ownerType).
  * All writes carry `options` (the module marks its own deletes
  * `fateOnTheTableSync: true` so hooks never re-enter the sync).
+ * @param {object} scene
+ * @param {Set<string>} widgetIds
+ * @param {string|null} ownerType
+ * @param {object} [options]
+ * @param {object|null} [index]  Pre-built `sceneDocIndex(scene)`.
  */
-async function deleteWidgetDocsByIds(scene, widgetIds, ownerType, options = {}) {
+async function deleteWidgetDocsByIds(scene, widgetIds, ownerType, options = {}, index = null) {
   if (!widgetIds?.size) return 0;
   const drawIds = [];
   const tileIds = [];
-  for (const doc of scene.drawings) {
-    if (
-      widgetIds.has(doc.getFlag(FLAG_SCOPE, "widgetId")) &&
-      (!ownerType || doc.getFlag(FLAG_SCOPE, "ownerType") === ownerType)
-    ) {
-      drawIds.push(doc.id);
+  if (index) {
+    for (const { doc, kind } of index.all) {
+      if (
+        widgetIds.has(doc.getFlag(FLAG_SCOPE, "widgetId")) &&
+        (!ownerType || doc.getFlag(FLAG_SCOPE, "ownerType") === ownerType)
+      ) {
+        (kind === "Tile" ? tileIds : drawIds).push(doc.id);
+      }
     }
-  }
-  for (const doc of scene.tiles) {
-    if (
-      widgetIds.has(doc.getFlag(FLAG_SCOPE, "widgetId")) &&
-      (!ownerType || doc.getFlag(FLAG_SCOPE, "ownerType") === ownerType)
-    ) {
-      tileIds.push(doc.id);
+  } else {
+    for (const doc of scene.drawings) {
+      if (
+        widgetIds.has(doc.getFlag(FLAG_SCOPE, "widgetId")) &&
+        (!ownerType || doc.getFlag(FLAG_SCOPE, "ownerType") === ownerType)
+      ) {
+        drawIds.push(doc.id);
+      }
+    }
+    for (const doc of scene.tiles) {
+      if (
+        widgetIds.has(doc.getFlag(FLAG_SCOPE, "widgetId")) &&
+        (!ownerType || doc.getFlag(FLAG_SCOPE, "ownerType") === ownerType)
+      ) {
+        tileIds.push(doc.id);
+      }
     }
   }
   const filteredDrawIds = existingDocumentIds(scene, "Drawing", drawIds);
