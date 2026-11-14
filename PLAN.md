@@ -88,6 +88,27 @@
   `escapeHtml`, отказ от прототип-патчей где возможно (референс —
   паттерны `fate-core-official`).
 
+- **LevelDB-пак вне git (приоритет: средний):**
+  `packs/challenge-contest/` сейчас лежит в репозитории, а Foundry
+  переписывает его на месте (новые `MANIFEST-*`, `*.ldb`, `*.log`, каталог
+  `lost/` после восстановления). На сервере `thecomet`, где модуль
+  обновляется через `git pull`, это рано или поздно блокирует деплой или
+  даёт рассинхрон (`CURRENT` из git ссылается на один манифест, рядом
+  лежит более новый). План: добавить `packs/challenge-contest/` в
+  `.gitignore` (источник истины — `packs/challenge-contest.jsonl` и
+  `packs/challenge-contest.macro.js`), собирать пак через
+  `npm run build:packs` в `release.yml` перед упаковкой `module.zip`, а в
+  деплое на `thecomet` после `git pull` выполнять `npm ci && npm run
+  build:packs` (при остановленном Foundry или с закрытым компендиумом).
+  Обновить `docs/DEVELOPMENT.md`, `docs/RELEASE.md` и раздел Deploy в
+  `AGENTS.md`.
+
+- **Передача хода игроком (идея, не запланировано):** черновик
+  ретранслятора «Передать ход» через сокет (игрок → активный ГМ, проверка
+  владельца по `senderId`) сохранён в ветке `archive/turn-action-relay`.
+  От функции отказались в `d403806`; если вернёмся, брать как основу,
+  добавить `"socket": true` в `module.json` и адаптировать к `main`.
+
 ### 4. Проверки и полировка
 
 - Сквозная ручная проверка в Foundry v14 с Advanced Drawing Tools:
