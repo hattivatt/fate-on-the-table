@@ -176,7 +176,6 @@ test("cancelling the dialog is a no-op (no actor/track/aspect writes)", async ()
   installLinkedCombat(actor);
   const scene = mockScene([]);
   globalThis.canvas.scene = scene;
-  let syncCalled = false;
   const handled = await handleConsequenceCostDoubleClick(costRow(0), null);
   assert.equal(handled, true);
   assert.deepEqual(scene.changedFlags, []);

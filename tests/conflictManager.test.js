@@ -27,10 +27,6 @@ import {
   getActiveConflictForScene,
   canPlaceConflictBoard,
   placeBoard,
-  openConflictManager,
-  ConflictManager,
-  newRound,
-  addCombatant,
 } from "../scripts/ConflictManager.js";
 import { createConflictBoard } from "../scripts/conflictBoardSchema.js";
 import { FLAG_SCOPE } from "../scripts/constants.js";

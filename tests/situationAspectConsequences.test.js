@@ -13,30 +13,12 @@ import {
   SITUATION_ASPECTS_WIDGET_FLAG,
   SA_OWNER_TYPE,
   SA_TEXT_PART,
-  SA_FRAME_PART,
-  SA_BACKGROUND_PART,
   CONFLICT_BOARD_FLAG,
 } from "../scripts/constants.js";
+import { installFoundryStub } from "./helpers/foundryStub.js";
 
-globalThis.foundry = {
-  applications: { api: { ApplicationV2: class {} } },
-  utils: {
-    duplicate: (v) => structuredClone(v),
-    getProperty: (obj, path) => {
-      let t = obj;
-      for (const k of String(path).split(".") ) {
-        if (t == null) return undefined;
-        t = t[k];
-      }
-      return t;
-    },
-  },
-};
-globalThis.CONST = {
-  DRAWING_TYPES: { RECTANGLE: "r" },
-  DRAWING_FILL_TYPES: { NONE: 0, SOLID: 1, PATTERN: 2 },
-};
-globalThis.CONFIG = { fontDefinitions: {}, tileMappings: {} };
+installFoundryStub();
+
 let settingsOverrides = {};
 globalThis.game = {
   user: { id: "u1" },
@@ -135,8 +117,6 @@ const OPTS = { width:500,height:800,fontFamily:"Montserrat",fontSize:32,textColo
 const WIDGET_ID="sa-widget-1";
 const ANCHOR={x:100,y:200};
 function validBoard(overrides={}){ return { version:CONFLICT_BOARD_VERSION, combatId:"combat-abc", sizePreset:"medium", board:{origin:{x:1000,y:800}}, zones:[], cards:{}, ...overrides }; }
-function zone(id,name){ return { id,name, rect:{x:10,y:10,width:100,height:100}, style:{fill:"#ffffff",alpha:0.12,stroke:"#000000"}, sort:0 }; }
-function withAspects(scene, rawAspects){ scene.flags[SITUATION_ASPECTS_SCOPE]={[SITUATION_ASPECTS_KEY]: structuredClone(rawAspects)}; }
 
 /* ------------------------------------------------------------------ *
  * pure: consequenceMarker
@@ -269,6 +249,7 @@ test("reconcile: aspects without linked not touched", () => {
   const { list: out, changed } = reconcileConsequences(list, actors);
   // First untouched, second has no linked -> untouched
   assert.equal(changed,false);
+  assert.equal(out, list);
 });
 
 test("reconcile: idempotent", () => {

@@ -9,34 +9,10 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { installFoundryStub } from "./helpers/foundryStub.js";
 
-globalThis.foundry = {
-  applications: { api: { ApplicationV2: class {} } },
-  utils: {
-    duplicate: (v) => structuredClone(v),
-    getProperty: (obj, path) => {
-      let t = obj;
-      for (const k of String(path).split(".")) {
-        if (t == null) return undefined;
-        t = t[k];
-      }
-      return t;
-    },
-    hasProperty: (obj, path) => {
-      let t = obj;
-      for (const k of String(path).split(".")) {
-        if (t == null || !(k in t)) return false;
-        t = t[k];
-      }
-      return true;
-    },
-  },
-};
-globalThis.CONST = {
-  DRAWING_TYPES: { RECTANGLE: "r" },
-  DRAWING_FILL_TYPES: { NONE: 0, SOLID: 1, PATTERN: 2 },
-};
-globalThis.CONFIG = { fontDefinitions: {}, tileMappings: {} };
+installFoundryStub();
+
 let settingsOverrides = {};
 globalThis.game = {
   user: { id: "u1" },

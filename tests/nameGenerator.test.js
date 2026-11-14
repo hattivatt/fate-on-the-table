@@ -153,7 +153,7 @@ test("pickNewName: handles triple letter filter (c1===c2)", () => {
     upper: "AB",
     lower: "ab",
     beg: { "AAB": 1 },
-    mid: { A: { A: { A: 10, B: 1 } }, A: { B: { A: 1 } } },
+    mid: { A: { A: { A: 10, B: 1 }, B: { A: 1 } } },
     end: { A: { A: { A: 10, B: 1 } } },
     all: { A: { A: { A: 10, B: 1 } } },
   };

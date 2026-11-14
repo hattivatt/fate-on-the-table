@@ -14,19 +14,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FLAG_SCOPE } from "../scripts/constants.js";
+import { installFoundryStub } from "./helpers/foundryStub.js";
 
 // WidgetSync pulls in settings.js which imports LayoutImportExport (a
 // Foundry ApplicationV2 subclass) at module top level, so provide the
 // minimal Foundry runtime stubs before importing it.
-globalThis.foundry = {
-  applications: { api: { ApplicationV2: class {} } },
-  utils: { duplicate: (v) => structuredClone(v) },
-};
-globalThis.CONST = {
-  DOCUMENT_OWNERSHIP_LEVELS: { OWNER: 2 },
-  DRAWING_TYPES: { RECTANGLE: 1 },
-};
-globalThis.CONFIG = { tileMappings: {} };
+installFoundryStub({
+  CONST: {
+    DOCUMENT_OWNERSHIP_LEVELS: { OWNER: 2 },
+    DRAWING_TYPES: { RECTANGLE: 1 },
+  },
+  CONFIG: { tileMappings: {} },
+});
 const { cleanupStaleConsequenceBoxes } = await import("../scripts/WidgetSync.js");
 
 function mockDoc(id, documentName, flags, extra = {}) {

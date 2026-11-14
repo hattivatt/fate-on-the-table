@@ -18,26 +18,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { installFoundryStub } from "./helpers/foundryStub.js";
 
-globalThis.foundry = {
-  applications: { api: { ApplicationV2: class {} } },
-  utils: {
-    duplicate: (v) => structuredClone(v),
-    getProperty: (obj, path) => {
-      let t = obj;
-      for (const k of String(path).split(".")) {
-        if (t == null) return undefined;
-        t = t[k];
-      }
-      return t;
-    },
-  },
-};
-globalThis.CONST = {
-  DRAWING_TYPES: { RECTANGLE: "r" },
-  DRAWING_FILL_TYPES: { NONE: 0, SOLID: 1, PATTERN: 2 },
-};
-globalThis.CONFIG = { fontDefinitions: {}, tileMappings: {} };
+installFoundryStub();
 
 const {
   adjustInvokesInList,

@@ -2159,11 +2159,6 @@ test("card context menu Leave combat action marks defeated and eliminated", asyn
 
 test("card context menu with only Leave combat (no Pass/Return, no Roll) still shows menu", async () => {
   const dom = installMenuDomStub();
-  const combat = {
-    id: "combat-abc",
-    turn: 0,
-    combatants: [menuCombatant("c1", { hasActed: true }), menuCombatant("c2")], // c2? actually we test c1 current acted: no pass, but return available -> would be return. Let's make solitary card that is current so no pass/return
-  };
   // single combatant current => no pass, no return if not acted, but leave should still show
   const singleCombat = { id: "combat-abc", turn: 0, combatants: [menuCombatant("c1")] };
   const scene = menuScene("combat-abc", ["c1"]);

@@ -14,30 +14,12 @@ import {
   SITUATION_ASPECTS_WIDGET_FLAG,
   SA_OWNER_TYPE,
   SA_TEXT_PART,
-  SA_FRAME_PART,
-  SA_BACKGROUND_PART,
   CONFLICT_BOARD_FLAG,
 } from "../scripts/constants.js";
+import { installFoundryStub } from "./helpers/foundryStub.js";
 
-globalThis.foundry = {
-  applications: { api: { ApplicationV2: class {} } },
-  utils: {
-    duplicate: (v) => structuredClone(v),
-    getProperty: (obj, path) => {
-      let t = obj;
-      for (const k of String(path).split(".")) {
-        if (t == null) return undefined;
-        t = t[k];
-      }
-      return t;
-    },
-  },
-};
-globalThis.CONST = {
-  DRAWING_TYPES: { RECTANGLE: "r" },
-  DRAWING_FILL_TYPES: { NONE: 0, SOLID: 1, PATTERN: 2 },
-};
-globalThis.CONFIG = { fontDefinitions: {}, tileMappings: {} };
+installFoundryStub();
+
 let settingsOverrides = {};
 globalThis.game = {
   user: { id: "u1" },
@@ -130,20 +112,6 @@ const WIDGET_ID="sa-widget-1";
 const ANCHOR={x:100,y:200};
 function validBoard(overrides={}){ return { version:CONFLICT_BOARD_VERSION, combatId:"combat-abc", sizePreset:"medium", board:{origin:{x:1000,y:800}}, zones:[], cards:{}, ...overrides }; }
 function zone(id,name){ return { id,name, rect:{x:10,y:10,width:100,height:100}, style:{fill:"#ffffff",alpha:0.12,stroke:"#000000"}, sort:0 }; }
-async function placeWidget(scene, rawAspects, { legacy=false }={}){
-  withAspects(scene, rawAspects);
-  const normalized = normalizeAspects(rawAspects);
-  const docs = legacy? [buildSaFrameDoc(OPTS), buildSaBackgroundDoc(OPTS)] : [...buildSaTextDocs(normalized,OPTS), buildSaFrameDoc(OPTS), buildSaBackgroundDoc(OPTS)];
-  // For legacy test we need text doc too, but our new OPTS builds per-aspect; just use per-aspect for new tests
-  // Simpler: always use buildSaTextDocs
-  const allDocs = [...buildSaTextDocs(normalized,OPTS), buildSaFrameDoc(OPTS), buildSaBackgroundDoc(OPTS)];
-  for(const doc of allDocs){
-    const payload = toDocumentData({ ...doc, x:doc.x+ANCHOR.x, y:doc.y+ANCHOR.y }, { widgetId:WIDGET_ID, part:doc.part, index:doc.index, ownerType:SA_OWNER_TYPE });
-    await scene.createEmbeddedDocuments("Drawing",[payload]);
-  }
-  await scene.setFlag(FLAG_SCOPE, SITUATION_ASPECTS_WIDGET_FLAG, { widgetId:WIDGET_ID, anchor:ANCHOR });
-}
-function withAspects(scene, rawAspects){ scene.flags[SITUATION_ASPECTS_SCOPE]={[SITUATION_ASPECTS_KEY]: structuredClone(rawAspects)}; }
 
 /* ------------------------------------------------------------------ *
  * normalizeZoneIds
@@ -275,6 +243,7 @@ test("sync migrates zone suffix, widget redrawn, second sync no-op", async () =>
   }
   const beforeFlagCalls = scene.calls.setFlag.length;
   await syncSituationAspects(scene);
+  assert.equal(scene.calls.setFlag.length, beforeFlagCalls + 1, "migration persists the flag once");
   // flag migrated
   const stored = scene.getFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY);
   assert.deepEqual(stored, [{name:"Fire", free_invokes:2, zoneIds:["z1"]}]);
@@ -283,7 +252,6 @@ test("sync migrates zone suffix, widget redrawn, second sync no-op", async () =>
   assert.equal(texts[0].text, `${SA_ZONE_MARKER} Fire (2)`);
   // second sync no-op: no additional flag write, no drawing churn
   scene.calls.setFlag.length=0;
-  const snapshot = scene.calls.setFlag.length;
   const beforeCreate = scene.calls.create.length;
   const beforeUpdate = scene.calls.update.length;
   const beforeDelete = scene.calls.delete.length;
@@ -295,7 +263,6 @@ test("sync migrates zone suffix, widget redrawn, second sync no-op", async () =>
 });
 
 test("sync cleans dangling zoneId after zone deletion", async () => {
-  const boardBefore = validBoard({ zones:[zone("z1","Bridge"), zone("z2","Cellar")] });
   const boardAfter = validBoard({ zones:[zone("z1","Bridge")] });
   const scene = mockScene({ flags:{ [FLAG_SCOPE]:{ [CONFLICT_BOARD_FLAG]: boardAfter, [SITUATION_ASPECTS_WIDGET_FLAG]:{widgetId:WIDGET_ID, anchor:ANCHOR} }, [SITUATION_ASPECTS_SCOPE]:{[SITUATION_ASPECTS_KEY]:[{name:"Fire", free_invokes:1, zoneIds:["z1","z2"]},{name:"Ice", free_invokes:0, zoneIds:["z2"]}]} }, tokens:[] });
   // place widget with old aspects (with dangling)

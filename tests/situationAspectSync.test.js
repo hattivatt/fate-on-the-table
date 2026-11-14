@@ -37,26 +37,9 @@ import {
   SITUATION_ASPECTS_SCOPE,
   SITUATION_ASPECTS_KEY,
 } from "../scripts/constants.js";
+import { installFoundryStub } from "./helpers/foundryStub.js";
 
-globalThis.foundry = {
-  applications: { api: { ApplicationV2: class {} } },
-  utils: {
-    duplicate: (v) => structuredClone(v),
-    getProperty: (obj, path) => {
-      let t = obj;
-      for (const k of String(path).split(".")) {
-        if (t == null) return undefined;
-        t = t[k];
-      }
-      return t;
-    },
-  },
-};
-globalThis.CONST = {
-  DRAWING_TYPES: { RECTANGLE: "r" },
-  DRAWING_FILL_TYPES: { NONE: 0, SOLID: 1, PATTERN: 2 },
-};
-globalThis.CONFIG = { fontDefinitions: {}, tileMappings: {} };
+installFoundryStub();
 
 const {
   syncSituationAspects,
@@ -85,7 +68,6 @@ const OPTS = {
   backgroundAlpha: 1,
 };
 // Derived geometry: PIXI line height 32*1.25 = 40, slot = row + blank line.
-const LINE_H = 40;
 const SLOT_H = 80;
 
 const WIDGET_ID = "sa-widget-1";

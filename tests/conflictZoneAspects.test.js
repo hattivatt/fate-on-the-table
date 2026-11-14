@@ -14,8 +14,6 @@ import {
   buildZoneDescriptors,
   buildConflictBoardDocuments,
   syncConflictBoard,
-  readConflictBoard,
-  boardRegistry,
   zoneDocs,
   zoneAspectsText,
   ZONE_ASPECTS_LINE_HEIGHT,
@@ -32,6 +30,7 @@ import {
 } from "../scripts/constants.js";
 import { CONFLICT_BOARD_WIDGET_FLAG } from "../scripts/ConflictBoardSync.js";
 import { getConflictBoardGeometry } from "../scripts/conflictBoardGeometry.js";
+import { installFoundryStub, uninstallFoundryStub } from "./helpers/foundryStub.js";
 
 // ------------------------------------------------------------------
 // Mocks (copied from conflictBoardSync.test.js)
@@ -175,37 +174,18 @@ function docFlags(flags) {
 }
 
 function installGlobals() {
-  globalThis.CONST = {
-    DRAWING_TYPES: { RECTANGLE: "r" },
-    DRAWING_FILL_TYPES: { NONE: 0, SOLID: 1, PATTERN: 2 },
-  };
-  globalThis.foundry = {
-    utils: {
-      getProperty: (obj, path) => {
-        let t = obj;
-        for (const k of String(path).split(".")) {
-          if (t == null) return undefined;
-          t = t[k];
-        }
-        return t;
+  installFoundryStub({
+    foundry: {
+      utils: {
+        randomID: () => `id-${Math.random().toString(36).slice(2, 8)}`,
       },
-      hasProperty: (obj, path) => {
-        let t = obj;
-        for (const k of String(path).split(".")) {
-          if (t == null || !(k in t)) return false;
-          t = t[k];
-        }
-        return true;
-      },
-      randomID: () => `id-${Math.random().toString(36).slice(2, 8)}`,
     },
-  };
+    CONFIG: {},
+  });
   globalThis.game = { user: { id: "u1" } };
 }
 function uninstallGlobals() {
-  delete globalThis.CONST;
-  delete globalThis.foundry;
-  // keep game for other tests? remove if we created
+  uninstallFoundryStub();
 }
 
 // ------------------------------------------------------------------
@@ -494,6 +474,7 @@ test("sync creates aspect overlay and deletes it when binding removed (byKey del
     // reset deleted tracker for clarity
     scene.deleted.Drawing.length = 0;
     const third = await syncConflictBoard(scene);
+    assert.equal(third.ok, true);
     zDocs = zoneDocs(scene, "wZone1");
     aspDoc = zDocs.find((d) => d.getFlag(FLAG_SCOPE, "part") === CONFLICT_ZONE_ASPECTS_PART);
     assert.ok(aspDoc);

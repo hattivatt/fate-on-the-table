@@ -331,7 +331,7 @@ test("findChallengeStateCarrier: a legacy row resolves the index-0 sibling", () 
 
 test("legacy multi-drawing block: setting status updates the task row text", async () => {
   const scene = makeScene();
-  const carrier = makeDoc(
+  makeDoc(
     {
       widgetId: "w1",
       ownerType: "challenge",
