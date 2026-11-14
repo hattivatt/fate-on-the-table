@@ -1,0 +1,7 @@
+node_modules/
+.devenv/
+.direnv/
+dist/
+packs/challenge-contest/
+package-lock.json
+*.zip
