@@ -10,8 +10,10 @@
  * change independently, so this wrapper does that ONLY for our drawings.
  *
  * Design:
- *  - patch `foundry.canvas.placeables.drawings.DrawingShapeControls.prototype`
- *    AFTER `init` (classes resolved lazily, never at import time):
+ *  - wrap `foundry.canvas.placeables.drawings.DrawingShapeControls.prototype`
+ *    through `wrapMethod` (patchMethod.js: libWrapper "WRAPPER" when
+ *    available, direct patch otherwise; classes resolved lazily, never at
+ *    import time):
  *      `_onDragMove`           — recompute the live preview shape freely;
  *      `_prepareDragDropUpdate` — recompute the committed update freely.
  *  - every wrapper calls the original first, then only overrides the shape for
@@ -32,6 +34,11 @@ import {
   CONTEST_OWNER_TYPE,
 } from "./constants.js";
 import { freeResizeUpdate } from "./drawingResizeMath.js";
+import { wrapMethod } from "./patchMethod.js";
+
+/** Global path of the wrapped prototype (libWrapper target prefix). */
+const SHAPE_CONTROLS_PATH =
+  "foundry.canvas.placeables.drawings.DrawingShapeControls.prototype";
 
 /** Owner types that receive the free resize. */
 const FREE_RESIZE_OWNER_TYPES = new Set([
@@ -97,30 +104,43 @@ export function initDrawingFreeResize() {
  * @param {object} proto  `DrawingShapeControls.prototype`.
  */
 function wrapShapeControls(proto) {
-  const originalMove = proto._onDragMove;
-  proto._onDragMove = function (event) {
-    const result = originalMove.call(this, event);
-    try {
-      if (isFreeResizeTarget(this.document)) applyFreeResizeToPreview(this, event);
-    } catch (err) {
-      warnOnce(`free resize preview failed: ${err?.message ?? err}`);
-    }
-    return result;
-  };
+  const spec = (method) => ({
+    cls: "DrawingShapeControls",
+    path: SHAPE_CONTROLS_PATH,
+    method,
+  });
+  wrapMethod(
+    proto,
+    spec("_onDragMove"),
+    function (wrapped, event, ...rest) {
+      const result = wrapped(event, ...rest);
+      try {
+        if (isFreeResizeTarget(this.document)) applyFreeResizeToPreview(this, event);
+      } catch (err) {
+        warnOnce(`free resize preview failed: ${err?.message ?? err}`);
+      }
+      return result;
+    },
+    { type: "WRAPPER" },
+  );
 
-  const originalPrepare = proto._prepareDragDropUpdate;
-  proto._prepareDragDropUpdate = function (event) {
-    const base = originalPrepare.call(this, event);
-    if (!isFreeResizeTarget(this.document)) return base;
-    const free = computeFreeResize(this, event);
-    if (!free) return base;
-    return {
-      ...base,
-      x: free.x,
-      y: free.y,
-      shape: { ...(base?.shape ?? {}), width: free.width, height: free.height },
-    };
-  };
+  wrapMethod(
+    proto,
+    spec("_prepareDragDropUpdate"),
+    function (wrapped, event, ...rest) {
+      const base = wrapped(event, ...rest);
+      if (!isFreeResizeTarget(this.document)) return base;
+      const free = computeFreeResize(this, event);
+      if (!free) return base;
+      return {
+        ...base,
+        x: free.x,
+        y: free.y,
+        shape: { ...(base?.shape ?? {}), width: free.width, height: free.height },
+      };
+    },
+    { type: "WRAPPER" },
+  );
 }
 
 /**

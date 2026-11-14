@@ -108,6 +108,7 @@ import {
 import { escapeHtml, dialogField, canvasWorldPosition, toArray } from "./utils.js";
 import { showCttMenu, closeCttMenu, getActiveMenu } from "./menu.js";
 import { CONFLICT_OWNER_TYPES, isConflictWidget } from "./widgetInteractionRouter.js";
+import { wrapMethod } from "./patchMethod.js";
 
 /** System flag scope + key carrying `hasActed` on Combatants. */
 const SYSTEM_FLAG_SCOPE = GM_FP_SCOPE;
@@ -353,33 +354,42 @@ function patchTokenDragDrop() {
   // `Token` global is deprecated, removed in v15). Under Node this is null.
   const { Token } = resolvePlaceables() ?? {};
   if (!Token) return;
-  const proto = Token.prototype;
-  if (proto.__fateOnTheTableTokenDrag) return;
-  proto.__fateOnTheTableTokenDrag = true;
-  const original = proto._onDragLeftDrop;
-  proto._onDragLeftDrop = function (event) {
-    const drop = prepareConflictTokenDrop(this);
-    if (drop) {
-      try {
-        if (this._dragData) {
-          this._dragData.destination = {
-            ...(this._dragData.destination ?? {}),
-            x: drop.world.x,
-            y: drop.world.y,
-          };
-        }
-      } catch (err) {
-        /* destination override is best-effort */
+  // WRAPPER: the native drop handler always runs (libWrapper when available).
+  wrapMethod(
+    Token.prototype,
+    {
+      cls: "Token",
+      path: "foundry.canvas.placeables.Token.prototype",
+      method: "_onDragLeftDrop",
+    },
+    tokenDragLeftDropWrapper,
+    { type: "WRAPPER" },
+  );
+}
+
+/** `Token#_onDragLeftDrop` wrapper (see `patchTokenDragDrop`). */
+function tokenDragLeftDropWrapper(wrapped, event, ...rest) {
+  const drop = prepareConflictTokenDrop(this);
+  if (drop) {
+    try {
+      if (this._dragData) {
+        this._dragData.destination = {
+          ...(this._dragData.destination ?? {}),
+          x: drop.world.x,
+          y: drop.world.y,
+        };
       }
+    } catch (err) {
+      /* destination override is best-effort */
     }
-    const result = original ? original.call(this, event) : undefined;
-    if (drop) {
-      handleTokenDropOnConflictZone(this, drop.world).catch((err) =>
-        console.error("[fate-on-the-table] conflict token drop failed:", err),
-      );
-    }
-    return result;
-  };
+  }
+  const result = wrapped(event, ...rest);
+  if (drop) {
+    handleTokenDropOnConflictZone(this, drop.world).catch((err) =>
+      console.error("[fate-on-the-table] conflict token drop failed:", err),
+    );
+  }
+  return result;
 }
 
 /**
@@ -697,7 +707,7 @@ export async function commitZonePlacement(scene, name, anchor) {
     appendZoneToState(state, zone),
   );
   if (!written.ok) return false;
-  await syncConflictBoard(scene);
+  await syncConflictBoard(scene, { manual: true });
   return true;
 }
 
@@ -800,7 +810,7 @@ export async function handleTokenDropOnConflictZone(tokenDocument, point) {
 
   if (changed) {
     await writeConflictBoard(scene, { ...state, tokenZones: nextZones });
-    await syncConflictBoard(scene);
+    await syncConflictBoard(scene, { manual: true });
   }
   return { changed, moved, zoneId };
 }
@@ -874,14 +884,14 @@ export async function reconcileTokenZoneMembership(scene, tokenDocument) {
       ...state,
       tokenZones: { ...(state.tokenZones ?? {}), [tokenUuid]: hit.zoneId },
     });
-    await syncConflictBoard(scene);
+    await syncConflictBoard(scene, { manual: true });
     return { changed: true, zoneId: hit.zoneId };
   }
   if (current !== undefined) {
     const tokenZones = { ...(state.tokenZones ?? {}) };
     delete tokenZones[tokenUuid];
     await writeConflictBoard(scene, { ...state, tokenZones });
-    await syncConflictBoard(scene);
+    await syncConflictBoard(scene, { manual: true });
     return { changed: true, zoneId: null };
   }
   return { changed: false, zoneId: null };
@@ -1214,7 +1224,7 @@ async function showCardContextMenu(doc, state, event) {
           const nextState = markEliminatedInState(current, targetCombatantId);
           if (nextState !== current) {
             const written = await writeConflictBoard(scene, nextState);
-            if (written?.ok !== false) await syncConflictBoard(scene);
+            if (written?.ok !== false) await syncConflictBoard(scene, { manual: true });
           }
         } catch (err) {
           console.warn("[fate-on-the-table] leave combat state update failed:", err);
@@ -1310,7 +1320,7 @@ async function removeBoardFromScene(scene) {
   if (!confirmed) return;
   await removeConflictBoard(scene, { clearState: true });
   try {
-    await syncSituationAspects(scene);
+    await syncSituationAspects(scene, { manual: true });
   } catch (err) {
     console.warn("[fate-on-the-table] situation aspects zone cleanup failed:", err);
   }
@@ -1385,7 +1395,7 @@ async function renameZone(scene, zoneId, currentName) {
   const state = readConflictBoard(scene);
   if (!state || !(state.zones ?? []).some((z) => z?.id === zoneId)) return;
   await writeConflictBoard(scene, renameZoneInState(state, zoneId, name));
-  await syncConflictBoard(scene);
+  await syncConflictBoard(scene, { manual: true });
   if (typeof ui !== "undefined") {
     ui.notifications?.info?.(
       game.i18n.format(`${MODULE_ID}.conflict.zone.renamed`, { name }),
@@ -1424,9 +1434,9 @@ async function removeZone(scene, zoneId, name) {
   const current = readConflictBoard(scene);
   if (!current) return;
   await writeConflictBoard(scene, nextStateWithoutZone(current, zoneId));
-  await syncConflictBoard(scene);
+  await syncConflictBoard(scene, { manual: true });
   try {
-    await syncSituationAspects(scene);
+    await syncSituationAspects(scene, { manual: true });
   } catch (err) {
     console.warn("[fate-on-the-table] situation aspects zone cleanup failed:", err);
   }
@@ -1749,10 +1759,10 @@ function tokenAtPoint(scene, point) {
 }
 
 /**
- * Тонкая обёртка над общим меню (ConflictInteractions.js:1397 / menu.js:showCttMenu).
- * Позиционирование: point имеет приоритет (world→client), иначе event.clientX/Y с флипом;
- * закрытие по Escape/outside/scroll/resize — надмножество обеих реализаций — делегировано в menu.js.
- * Сигнатура showMenu(items, event, point) сохранена для всех вызовов (зоны/карточки/поле/борда).
+ * Thin wrapper over the shared menu (ConflictInteractions.showMenu / menu.js:showCttMenu).
+ * Positioning: `point` wins (world→client), otherwise event.clientX/Y with edge flipping;
+ * closing on Escape/outside/scroll/resize — the superset of both implementations — is delegated to menu.js.
+ * The showMenu(items, event, point) signature is preserved for all call sites (zones/cards/field/board).
  */
 function showMenu(items, event, point) {
   return showCttMenu({ items, event, point, menuClass: "ctt-conflict-menu" });

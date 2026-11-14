@@ -3,8 +3,6 @@
   "title": "Fate on the Table",
   "description": "Fate Core on the virtual table: place character sheets as editable drawing groups, manage Fate Points, situation aspects and conflict boards on the scene — all synced with the system data.",
   "version": "1.1.0",
-  "library": "false",
-  "manifestPlusVersion": "1.2.0",
   "compatibility": {
     "minimum": "14",
     "verified": "14"
@@ -25,11 +23,14 @@
         }
       }
     ],
-    "requires": []
+    "requires": [],
+    "recommends": [
+      {
+        "id": "lib-wrapper",
+        "type": "module"
+      }
+    ]
   },
-  "system": [
-    "fate-core-official"
-  ],
   "esmodules": [
     "scripts/module.js"
   ],

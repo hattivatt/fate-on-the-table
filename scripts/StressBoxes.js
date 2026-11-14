@@ -20,6 +20,7 @@
  * is re-projected by the existing updateActor/updateToken hooks.
  */
 
+import { canEditActor, warnNotOwner } from "./utils.js";
 import {
   FLAG_SCOPE,
   CONFLICT_CARD_OWNER_TYPE,
@@ -27,6 +28,7 @@ import {
 } from "./constants.js";
 import { isStressBoxWidget } from "./widgetInteractionRouter.js";
 import { stressBoxTarget } from "./WidgetBuilder.js";
+import { wrapMethod } from "./patchMethod.js";
 
 export { STRESS_BOX_PART };
 
@@ -44,7 +46,8 @@ function resolvePlaceables() {
 }
 
 /**
- * Patches Drawing#_onClickLeft. Runs at module load (top level), so it
+ * Wraps Drawing#_onClickLeft (via `wrapMethod`: libWrapper when available,
+ * MIXED because a box click never reaches the native handler). Runs at module load (top level), so it
  * survives page reloads. Only the native PIXI path (the Drawing layer is
  * active) reaches this handler; the module's DOM canvas fallback routes
  * box clicks through `handleStressBoxClick` as well, so owners can toggle
@@ -57,18 +60,22 @@ export function initStressBoxInteractions() {
   // `Drawing` global is deprecated, removed in v15). Under Node this is null.
   const { Drawing } = resolvePlaceables() ?? {};
   if (!Drawing) return;
-  const proto = Drawing.prototype;
-  if (proto.__fateOnTheTableStressClick) return;
-  proto.__fateOnTheTableStressClick = true;
-
-  const original = proto._onClickLeft;
-  proto._onClickLeft = async function (event) {
-    const doc = this.document ?? this;
-    if (!isBoxDrawing(doc)) {
-      return original?.call(this, event);
-    }
-    return handleStressBoxClick(doc, event);
-  };
+  wrapMethod(
+    Drawing.prototype,
+    {
+      cls: "Drawing",
+      path: "foundry.canvas.placeables.Drawing.prototype",
+      method: "_onClickLeft",
+    },
+    async function (wrapped, event, ...rest) {
+      const doc = this.document ?? this;
+      if (!isBoxDrawing(doc)) {
+        return wrapped(event, ...rest);
+      }
+      return handleStressBoxClick(doc, event);
+    },
+    { type: "MIXED" },
+  );
 }
 
 /**
@@ -125,11 +132,7 @@ export async function handleStressBoxClick(doc, event) {
     const actor = resolved?.actor;
     if (!actor) return;
     if (!canEditActor(actor)) {
-      if (typeof ui !== "undefined") {
-        try {
-          ui.notifications.warn(game.i18n.localize("fate-on-the-table.stressBoxes.notOwner"));
-        } catch {}
-      }
+      warnNotOwner("fate-on-the-table.stressBoxes.notOwner");
       return;
     }
     await toggleStressBox(actor, index, resolved?.token ?? null);
@@ -195,26 +198,6 @@ async function resolveConflictCardActor(doc) {
 }
 
 /**
- * True when the current user may edit the actor (GM or OWNER). Node tests
- * (no global `game`) are treated as allowed.
- * @param {object} actor
- * @returns {boolean}
- */
-function canEditActor(actor) {
-  if (typeof game === "undefined" || !game?.user) return true;
-  if (game.user.isGM === true) return true;
-  try {
-    const level = globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 3;
-    if (typeof actor?.testUserPermission === "function") {
-      if (actor.testUserPermission(game.user, level)) return true;
-      if (actor.testUserPermission(game.user, "OWNER")) return true;
-    }
-  } catch {}
-  if (actor?.isOwner) return true;
-  return false;
-}
-
-/**
  * Toggles the checked state of a stress box on the actor.
  * @param {object} actor
  * @param {number} flatIndex  Flat box index (the drawing's `index` flag).
@@ -224,11 +207,7 @@ function canEditActor(actor) {
  */
 export async function toggleStressBox(actor, flatIndex, token = null) {
   if (!canEditActor(actor)) {
-    if (typeof ui !== "undefined" && typeof game !== "undefined") {
-      try {
-        ui.notifications.warn(game.i18n.localize("fate-on-the-table.stressBoxes.notOwner"));
-      } catch {}
-    }
+    warnNotOwner("fate-on-the-table.stressBoxes.notOwner");
     return false;
   }
   const target = stressBoxTarget(actor, flatIndex);
