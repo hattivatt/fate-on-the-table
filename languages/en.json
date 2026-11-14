@@ -54,6 +54,7 @@
   "fate-on-the-table.layouts.deleted": "Layout \"{name}\" deleted.",
   "fate-on-the-table.layouts.missing": "The layout selected for \"{setting}\" is missing; using Default.",
   "fate-on-the-table.layouts.notFound": "The selected layout could not be found.",
+  "fate-on-the-table.layouts.builtinLoadFailed": "The module's built-in layouts could not be loaded. The module install is broken — reinstall fate-on-the-table.",
   "fate-on-the-table.layouts.change.title": "Change widget layout",
   "fate-on-the-table.layouts.change.prompt": "Choose the layout for the widgets of \"{name}\":",
   "fate-on-the-table.layouts.change.confirm": "Apply",

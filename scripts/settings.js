@@ -182,17 +182,32 @@ function updateSettingsSelects(choices) {
   }
 }
 
-export function registerSettings() {
-  game.settings.register(MODULE_ID, "defaultTemplate", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.defaultTemplate`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.defaultTemplateHint`),
+/**
+ * Registers one setting. `name`/`hint` are derived from the i18n keys
+ * `<nameKey>` / `<nameKey>Hint` under the module's `settings.` namespace;
+ * settings are world-scoped and shown in the config by default, so the table
+ * entries only spell out what differs from those defaults.
+ */
+function registerSetting(key, config, nameKey = key) {
+  game.settings.register(MODULE_ID, key, {
+    name: game.i18n.localize(`${MODULE_ID}.settings.${nameKey}`),
+    hint: game.i18n.localize(`${MODULE_ID}.settings.${nameKey}Hint`),
     scope: "world",
+    config: true,
+    ...config,
+  });
+}
+
+export function registerSettings() {
+  const layoutChoices = Object.fromEntries(
+    getLayoutIds().map((id) => [id, layoutDisplayName(id)]),
+  );
+
+  registerSetting("defaultTemplate", {
     config: false,
     type: String,
     default: "default",
-    choices: Object.fromEntries(
-      getLayoutIds().map((id) => [id, layoutDisplayName(id)]),
-    ),
+    choices: layoutChoices,
   });
 
   // "Layouts" menu button: opens the layout manager dialog (list, export,
@@ -206,454 +221,296 @@ export function registerSettings() {
     restricted: true,
   });
 
-  game.settings.register(MODULE_ID, "playerLayout", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.playerLayout`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.playerLayoutHint`),
-    scope: "world",
-    config: true,
-    type: String,
-    default: "default",
-    choices: Object.fromEntries(
-      getLayoutIds().map((id) => [id, layoutDisplayName(id)]),
-    ),
-  });
-
-  game.settings.register(MODULE_ID, "npcLayout", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.npcLayout`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.npcLayoutHint`),
-    scope: "world",
-    config: true,
-    type: String,
-    default: "default",
-    choices: Object.fromEntries(
-      getLayoutIds().map((id) => [id, layoutDisplayName(id)]),
-    ),
-  });
-
-  game.settings.register(MODULE_ID, "scale", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.scale`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.scaleHint`),
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 1,
-    range: { min: 0.25, max: 4, step: 0.05 },
-  });
-
-  game.settings.register(MODULE_ID, "fontFamily", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.fontFamily`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.fontFamilyHint`),
-    scope: "world",
-    config: true,
-    type: String,
-    default: "",
-    choices: {},
-  });
-
-  game.settings.register(MODULE_ID, "textColor", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.textColor`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.textColorHint`),
-    scope: "world",
-    config: true,
-    type: String,
-    default: "#000000",
-  });
-
-  game.settings.register(MODULE_ID, "backgroundTexture", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.backgroundTexture`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.backgroundTextureHint`),
-    scope: "world",
-    config: true,
-    type: String,
-    default: "",
-  });
-
-  game.settings.register(MODULE_ID, "fatePointImage", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.fatePointImage`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.fatePointImageHint`),
-    scope: "world",
-    config: true,
-    type: String,
-    default: "",
-  });
-
-  game.settings.register(MODULE_ID, "fatePointTileSize", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.fatePointTileSize`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.fatePointTileSizeHint`),
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 70,
-    range: { min: 16, max: 256, step: 1 },
-  });
-
-  game.settings.register(MODULE_ID, "fatePointStep", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.fatePointStep`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.fatePointStepHint`),
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 20,
-    range: { min: 0, max: 256, step: 1 },
-  });
-
-  game.settings.register(MODULE_ID, "gmFatePointDirection", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.gmFatePointDirection`),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.gmFatePointDirectionHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: String,
-    default: "ltr",
-    choices: {
-      ltr: game.i18n.localize(`${MODULE_ID}.settings.direction.ltr`),
-      rtl: game.i18n.localize(`${MODULE_ID}.settings.direction.rtl`),
-      ttb: game.i18n.localize(`${MODULE_ID}.settings.direction.ttb`),
-      btt: game.i18n.localize(`${MODULE_ID}.settings.direction.btt`),
-    },
-  });
-
-  game.settings.register(MODULE_ID, "situationAspectsWidth", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.situationAspectsWidth`),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.situationAspectsWidthHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 500,
-    range: { min: 100, max: 4000, step: 10 },
-  });
-
-  game.settings.register(MODULE_ID, "situationAspectsHeight", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.situationAspectsHeight`),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.situationAspectsHeightHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 800,
-    range: { min: 100, max: 4000, step: 10 },
-  });
-
-  game.settings.register(MODULE_ID, "situationAspectsFontFamily", {
-    name: game.i18n.localize(
-      `${MODULE_ID}.settings.situationAspectsFontFamily`,
-    ),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.situationAspectsFontFamilyHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: String,
-    default: "",
-    choices: {},
-  });
-
-  game.settings.register(MODULE_ID, "situationAspectsFontSize", {
-    name: game.i18n.localize(
-      `${MODULE_ID}.settings.situationAspectsFontSize`,
-    ),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.situationAspectsFontSizeHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 32,
-    range: { min: 8, max: 300, step: 1 },
-  });
-
-  game.settings.register(MODULE_ID, "situationAspectsTextColor", {
-    name: game.i18n.localize(
-      `${MODULE_ID}.settings.situationAspectsTextColor`,
-    ),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.situationAspectsTextColorHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: String,
-    default: "#000000",
-  });
-
-  game.settings.register(MODULE_ID, "situationAspectsBackgroundTexture", {
-    name: game.i18n.localize(
-      `${MODULE_ID}.settings.situationAspectsBackgroundTexture`,
-    ),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.situationAspectsBackgroundTextureHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: String,
-    default: "",
-  });
-
-  game.settings.register(MODULE_ID, "situationAspectsBackgroundColor", {
-    name: game.i18n.localize(
-      `${MODULE_ID}.settings.situationAspectsBackgroundColor`,
-    ),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.situationAspectsBackgroundColorHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: String,
-    default: "#ffffff",
-  });
-
-  game.settings.register(MODULE_ID, "situationAspectsBackgroundAlpha", {
-    name: game.i18n.localize(
-      `${MODULE_ID}.settings.situationAspectsBackgroundAlpha`,
-    ),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.situationAspectsBackgroundAlphaHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 1,
-    range: { min: 0, max: 1, step: 0.05 },
-  });
-
-  // Conflict board (feature 5): independent world settings. They configure
-  // only the board itself and never the actor-widget or situation aspect
-  // backgrounds. Preset sizes are editable so GMs can tune the placement
-  // dialog; a stored `board.boardSize` still wins over these values.
-  for (const key of [
-    "conflictBoardSizeSmall",
-    "conflictBoardSizeMedium",
-    "conflictBoardSizeLarge",
-  ]) {
-    game.settings.register(MODULE_ID, key, {
-      name: game.i18n.localize(`${MODULE_ID}.settings.${key}`),
-      hint: game.i18n.localize(`${MODULE_ID}.settings.${key}Hint`),
-      scope: "world",
-      config: true,
-      type: Number,
-      default: CONFLICT_BOARD_SETTING_DEFAULTS[key],
-      range: { min: 100, max: 4000, step: 10 },
+  // Role -> layout mapping. The choices come from the layout registry and are
+  // rebuilt in place by refreshLayoutChoices() after a custom layout changes.
+  for (const key of ["playerLayout", "npcLayout"]) {
+    registerSetting(key, {
+      type: String,
+      default: "default",
+      choices: layoutChoices,
     });
   }
 
-  game.settings.register(MODULE_ID, "conflictBoardBackgroundColor", {
-    name: game.i18n.localize(
-      `${MODULE_ID}.settings.conflictBoardBackgroundColor`,
-    ),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.conflictBoardBackgroundColorHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: String,
-    default: CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardBackgroundColor,
-  });
+  /**
+   * Declarative settings table: `[key, config]` in registration (= display)
+   * order. An `i18n` key overrides the name/hint namespace when the i18n key
+   * differs from the setting key.
+   */
+  const SETTINGS = [
+    [
+      "scale",
+      {
+        type: Number,
+        default: 1,
+        range: { min: 0.25, max: 4, step: 0.05 },
+      },
+    ],
+    ["fontFamily", { type: String, default: "", choices: {} }],
+    ["textColor", { type: String, default: "#000000" }],
+    ["backgroundTexture", { type: String, default: "" }],
+    ["fatePointImage", { type: String, default: "" }],
+    [
+      "fatePointTileSize",
+      {
+        type: Number,
+        default: 70,
+        range: { min: 16, max: 256, step: 1 },
+      },
+    ],
+    [
+      "fatePointStep",
+      {
+        type: Number,
+        default: 20,
+        range: { min: 0, max: 256, step: 1 },
+      },
+    ],
+    [
+      "gmFatePointDirection",
+      {
+        type: String,
+        default: "ltr",
+        choices: {
+          ltr: game.i18n.localize(`${MODULE_ID}.settings.direction.ltr`),
+          rtl: game.i18n.localize(`${MODULE_ID}.settings.direction.rtl`),
+          ttb: game.i18n.localize(`${MODULE_ID}.settings.direction.ttb`),
+          btt: game.i18n.localize(`${MODULE_ID}.settings.direction.btt`),
+        },
+      },
+    ],
+    [
+      "situationAspectsWidth",
+      {
+        type: Number,
+        default: 500,
+        range: { min: 100, max: 4000, step: 10 },
+      },
+    ],
+    [
+      "situationAspectsHeight",
+      {
+        type: Number,
+        default: 800,
+        range: { min: 100, max: 4000, step: 10 },
+      },
+    ],
+    ["situationAspectsFontFamily", { type: String, default: "", choices: {} }],
+    [
+      "situationAspectsFontSize",
+      {
+        type: Number,
+        default: 32,
+        range: { min: 8, max: 300, step: 1 },
+      },
+    ],
+    ["situationAspectsTextColor", { type: String, default: "#000000" }],
+    ["situationAspectsBackgroundTexture", { type: String, default: "" }],
+    ["situationAspectsBackgroundColor", { type: String, default: "#ffffff" }],
+    [
+      "situationAspectsBackgroundAlpha",
+      {
+        type: Number,
+        default: 1,
+        range: { min: 0, max: 1, step: 0.05 },
+      },
+    ],
 
-  game.settings.register(MODULE_ID, "conflictBoardBackgroundTexture", {
-    name: game.i18n.localize(
-      `${MODULE_ID}.settings.conflictBoardBackgroundTexture`,
-    ),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.conflictBoardBackgroundTextureHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: String,
-    default: CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardBackgroundTexture,
-  });
+    // Conflict board (feature 5): independent world settings. They configure
+    // only the board itself and never the actor-widget or situation aspect
+    // backgrounds. Preset sizes are editable so GMs can tune the placement
+    // dialog; a stored `board.boardSize` still wins over these values.
+    [
+      "conflictBoardSizeSmall",
+      {
+        type: Number,
+        default: CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardSizeSmall,
+        range: { min: 100, max: 4000, step: 10 },
+      },
+    ],
+    [
+      "conflictBoardSizeMedium",
+      {
+        type: Number,
+        default: CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardSizeMedium,
+        range: { min: 100, max: 4000, step: 10 },
+      },
+    ],
+    [
+      "conflictBoardSizeLarge",
+      {
+        type: Number,
+        default: CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardSizeLarge,
+        range: { min: 100, max: 4000, step: 10 },
+      },
+    ],
+    [
+      "conflictBoardBackgroundColor",
+      {
+        type: String,
+        default: CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardBackgroundColor,
+      },
+    ],
+    [
+      "conflictBoardBackgroundTexture",
+      {
+        type: String,
+        default:
+          CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardBackgroundTexture,
+      },
+    ],
+    [
+      "conflictBoardBackgroundAlpha",
+      {
+        type: Number,
+        default: CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardBackgroundAlpha,
+        range: { min: 0, max: 1, step: 0.05 },
+      },
+    ],
+    [
+      "conflictBoardOverflowPolicy",
+      {
+        type: String,
+        default: CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardOverflowPolicy,
+        choices: Object.fromEntries(
+          CONFLICT_BOARD_OVERFLOW_POLICIES.map((policy) => [
+            policy,
+            game.i18n.localize(CONFLICT_BOARD_OVERFLOW_CHOICES[policy]),
+          ]),
+        ),
+      },
+    ],
 
-  game.settings.register(MODULE_ID, "conflictBoardBackgroundAlpha", {
-    name: game.i18n.localize(
-      `${MODULE_ID}.settings.conflictBoardBackgroundAlpha`,
-    ),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.conflictBoardBackgroundAlphaHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: Number,
-    default: CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardBackgroundAlpha,
-    range: { min: 0, max: 1, step: 0.05 },
-  });
+    [
+      TURN_MARKER_SETTING,
+      {
+        i18n: "autoTurnMarker",
+        type: Boolean,
+        default: true,
+        requiresReload: false,
+      },
+    ],
 
-  game.settings.register(MODULE_ID, "conflictBoardOverflowPolicy", {
-    name: game.i18n.localize(
-      `${MODULE_ID}.settings.conflictBoardOverflowPolicy`,
-    ),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.conflictBoardOverflowPolicyHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: String,
-    default: CONFLICT_BOARD_SETTING_DEFAULTS.conflictBoardOverflowPolicy,
-    choices: Object.fromEntries(
-      CONFLICT_BOARD_OVERFLOW_POLICIES.map((policy) => [
-        policy,
-        game.i18n.localize(CONFLICT_BOARD_OVERFLOW_CHOICES[policy]),
-      ]),
-    ),
-  });
+    // Random name generation for unlinked tokens (adapted from Token Mold)
+    ["nameGenEnable", { type: Boolean, default: true }],
+    [
+      "nameGenLanguage",
+      {
+        type: String,
+        default: "random",
+        choices: {
+          random: game.i18n.localize(
+            `${MODULE_ID}.settings.nameGenLanguageChoices.random`,
+          ),
+          english: game.i18n.localize(
+            `${MODULE_ID}.settings.nameGenLanguageChoices.english`,
+          ),
+          russian: game.i18n.localize(
+            `${MODULE_ID}.settings.nameGenLanguageChoices.russian`,
+          ),
+        },
+      },
+    ],
+    [
+      "nameGenMinLength",
+      {
+        type: Number,
+        default: 6,
+        range: { min: 3, max: 15, step: 1 },
+      },
+    ],
+    [
+      "nameGenMaxLength",
+      {
+        type: Number,
+        default: 9,
+        range: { min: 3, max: 15, step: 1 },
+      },
+    ],
 
-  game.settings.register(MODULE_ID, TURN_MARKER_SETTING, {
-    name: game.i18n.localize(`${MODULE_ID}.settings.autoTurnMarker`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.autoTurnMarkerHint`),
-    scope: "world",
-    config: true,
-    type: Boolean,
-    default: true,
-    requiresReload: false,
-  });
+    // Challenge / Contest macro (shipped in the `challenge-contest` Macro
+    // pack). These replace the legacy journal-page settings of the standalone
+    // macro; the old journal data is intentionally NOT migrated. Defaults
+    // mirror the old `ChallengeContestManager` page (see challengeContest.js).
+    // Font size is intentionally NOT configurable: one fixed constant
+    // multiplied by the module-wide `scale` setting.
+    [
+      "challengeFontFamily",
+      {
+        type: String,
+        default: CHALLENGE_SETTING_DEFAULTS.challengeFontFamily,
+        choices: {},
+      },
+    ],
+    [
+      "challengeAddBackground",
+      {
+        type: Boolean,
+        default: CHALLENGE_SETTING_DEFAULTS.challengeAddBackground,
+      },
+    ],
+    [
+      "challengeBackgroundColor",
+      {
+        type: String,
+        default: CHALLENGE_SETTING_DEFAULTS.challengeBackgroundColor,
+      },
+    ],
+    [
+      "challengeTextColor",
+      {
+        type: String,
+        default: CHALLENGE_SETTING_DEFAULTS.challengeTextColor,
+      },
+    ],
+    [
+      "contestFontFamily",
+      {
+        type: String,
+        default: CONTEST_SETTING_DEFAULTS.contestFontFamily,
+        choices: {},
+      },
+    ],
+    [
+      "contestAddBackground",
+      {
+        type: Boolean,
+        default: CONTEST_SETTING_DEFAULTS.contestAddBackground,
+      },
+    ],
+    [
+      "contestBackgroundColor",
+      {
+        type: String,
+        default: CONTEST_SETTING_DEFAULTS.contestBackgroundColor,
+      },
+    ],
+    [
+      "contestTextColor",
+      {
+        type: String,
+        default: CONTEST_SETTING_DEFAULTS.contestTextColor,
+      },
+    ],
 
-  // Random name generation for unlinked tokens (adapted from Token Mold)
-  game.settings.register(MODULE_ID, "nameGenEnable", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.nameGenEnable`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.nameGenEnableHint`),
-    scope: "world",
-    config: true,
-    type: Boolean,
-    default: true,
-  });
+    // Shared background texture of the Challenge / Contest macro: one setting
+    // drives BOTH kinds of drawing. When set, each drawing is filled with the
+    // texture (PATTERN fill, the background color is ignored); when empty the
+    // `challengeAddBackground` / `contestAddBackground` color rule applies.
+    // Registered like the other file-picker texture settings.
+    [
+      "challengeContestBackgroundTexture",
+      {
+        type: String,
+        default:
+          CHALLENGE_CONTEST_SETTING_DEFAULTS.challengeContestBackgroundTexture,
+      },
+    ],
+  ];
 
-  game.settings.register(MODULE_ID, "nameGenLanguage", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.nameGenLanguage`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.nameGenLanguageHint`),
-    scope: "world",
-    config: true,
-    type: String,
-    default: "random",
-    choices: {
-      random: game.i18n.localize(`${MODULE_ID}.settings.nameGenLanguageChoices.random`),
-      english: game.i18n.localize(`${MODULE_ID}.settings.nameGenLanguageChoices.english`),
-      russian: game.i18n.localize(`${MODULE_ID}.settings.nameGenLanguageChoices.russian`),
-    },
-  });
-
-  game.settings.register(MODULE_ID, "nameGenMinLength", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.nameGenMinLength`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.nameGenMinLengthHint`),
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 6,
-    range: { min: 3, max: 15, step: 1 },
-  });
-
-  game.settings.register(MODULE_ID, "nameGenMaxLength", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.nameGenMaxLength`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.nameGenMaxLengthHint`),
-    scope: "world",
-    config: true,
-    type: Number,
-    default: 9,
-    range: { min: 3, max: 15, step: 1 },
-  });
-
-  // Challenge / Contest macro (shipped in the `challenge-contest` Macro pack).
-  // These replace the legacy journal-page settings of the standalone macro;
-  // the old journal data is intentionally NOT migrated. Defaults mirror the
-  // old `ChallengeContestManager` page (see challengeContest.js). Font size is
-  // intentionally NOT configurable: one fixed constant multiplied by the
-  // module-wide `scale` setting.
-  game.settings.register(MODULE_ID, "challengeFontFamily", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.challengeFontFamily`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.challengeFontFamilyHint`),
-    scope: "world",
-    config: true,
-    type: String,
-    default: CHALLENGE_SETTING_DEFAULTS.challengeFontFamily,
-    choices: {},
-  });
-
-  game.settings.register(MODULE_ID, "challengeAddBackground", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.challengeAddBackground`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.challengeAddBackgroundHint`),
-    scope: "world",
-    config: true,
-    type: Boolean,
-    default: CHALLENGE_SETTING_DEFAULTS.challengeAddBackground,
-  });
-
-  game.settings.register(MODULE_ID, "challengeBackgroundColor", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.challengeBackgroundColor`),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.challengeBackgroundColorHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: String,
-    default: CHALLENGE_SETTING_DEFAULTS.challengeBackgroundColor,
-  });
-
-  game.settings.register(MODULE_ID, "challengeTextColor", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.challengeTextColor`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.challengeTextColorHint`),
-    scope: "world",
-    config: true,
-    type: String,
-    default: CHALLENGE_SETTING_DEFAULTS.challengeTextColor,
-  });
-
-  game.settings.register(MODULE_ID, "contestFontFamily", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.contestFontFamily`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.contestFontFamilyHint`),
-    scope: "world",
-    config: true,
-    type: String,
-    default: CONTEST_SETTING_DEFAULTS.contestFontFamily,
-    choices: {},
-  });
-
-  game.settings.register(MODULE_ID, "contestAddBackground", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.contestAddBackground`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.contestAddBackgroundHint`),
-    scope: "world",
-    config: true,
-    type: Boolean,
-    default: CONTEST_SETTING_DEFAULTS.contestAddBackground,
-  });
-
-  game.settings.register(MODULE_ID, "contestBackgroundColor", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.contestBackgroundColor`),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.contestBackgroundColorHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: String,
-    default: CONTEST_SETTING_DEFAULTS.contestBackgroundColor,
-  });
-
-  game.settings.register(MODULE_ID, "contestTextColor", {
-    name: game.i18n.localize(`${MODULE_ID}.settings.contestTextColor`),
-    hint: game.i18n.localize(`${MODULE_ID}.settings.contestTextColorHint`),
-    scope: "world",
-    config: true,
-    type: String,
-    default: CONTEST_SETTING_DEFAULTS.contestTextColor,
-  });
-
-  // Shared background texture of the Challenge / Contest macro: one setting
-  // drives BOTH kinds of drawing. When set, each drawing is filled with the
-  // texture (PATTERN fill, the background color is ignored); when empty the
-  // `challengeAddBackground` / `contestAddBackground` color rule applies.
-  // Registered like the other file-picker texture settings.
-  game.settings.register(MODULE_ID, "challengeContestBackgroundTexture", {
-    name: game.i18n.localize(
-      `${MODULE_ID}.settings.challengeContestBackgroundTexture`,
-    ),
-    hint: game.i18n.localize(
-      `${MODULE_ID}.settings.challengeContestBackgroundTextureHint`,
-    ),
-    scope: "world",
-    config: true,
-    type: String,
-    default:
-      CHALLENGE_CONTEST_SETTING_DEFAULTS.challengeContestBackgroundTexture,
-  });
+  for (const [key, config] of SETTINGS) {
+    const { i18n: nameKey = key, ...rest } = config;
+    registerSetting(key, rest, nameKey);
+  }
 
   Hooks.on("renderSettingsConfig", onRenderSettingsConfig);
   Hooks.on("closeSettingsConfig", () => {

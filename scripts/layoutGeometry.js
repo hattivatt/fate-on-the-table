@@ -6,8 +6,8 @@
  * builder (WidgetBuilder) and later by `toDocumentData`.
  *
  * This module must stay free of any Foundry runtime dependency (no `game`,
- * `canvas`, `CONFIG`): it is covered by the Node test suite and its output is
- * compared against the legacy `layouts.js` geometry for parity.
+ * `canvas`, `CONFIG`): its output is covered by the Node test suite, which
+ * checks it against values derived by hand from the layout documents.
  *
  * Coordinates produced by `computeLayoutDocs` are CANVAS-LOCAL (relative to
  * the layout's virtual canvas). The runtime builder adds

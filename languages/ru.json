@@ -54,6 +54,7 @@
   "fate-on-the-table.layouts.deleted": "Раскладка «{name}» удалена.",
   "fate-on-the-table.layouts.missing": "Раскладка, выбранная для «{setting}», недоступна; используется Стандартная.",
   "fate-on-the-table.layouts.notFound": "Выбранная раскладка не найдена.",
+  "fate-on-the-table.layouts.builtinLoadFailed": "Не удалось загрузить встроенные раскладки модуля. Установка модуля повреждена — переустановите fate-on-the-table.",
   "fate-on-the-table.layouts.change.title": "Изменить раскладку виджета",
   "fate-on-the-table.layouts.change.prompt": "Выберите раскладку для виджетов персонажа «{name}»:",
   "fate-on-the-table.layouts.change.confirm": "Применить",

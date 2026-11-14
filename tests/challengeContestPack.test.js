@@ -243,13 +243,16 @@ test("every settings key the API reads is registered in settings.js", async () =
   );
   const settingsSource = readFileSync(SETTINGS_PATH, "utf8");
   // The API reads each challenge/contest default key plus the module-wide
-  // `scale` setting. A key renamed on only one side fails here.
+  // `scale` setting. A key renamed on only one side fails here. Most settings
+  // live in the declarative `[key, config]` table, the rest are registered by
+  // an explicit `registerSetting(key, …)` / `game.settings.register` call.
   const keys = [...CHALLENGE_CONTEST_SETTING_KEYS, "scale"];
   const problems = [];
   for (const key of keys) {
-    const registered = settingsSource.includes(
-      `game.settings.register(MODULE_ID, "${key}"`,
-    );
+    const registered =
+      new RegExp(`\\[\\s*"${key}"\\s*,`).test(settingsSource) ||
+      settingsSource.includes(`registerSetting("${key}"`) ||
+      settingsSource.includes(`game.settings.register(MODULE_ID, "${key}"`);
     if (!registered) problems.push(`not registered in settings.js: ${key}`);
   }
   assert.deepEqual(problems, [], problems.join("\n"));

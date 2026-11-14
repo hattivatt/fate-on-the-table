@@ -1,7 +1,7 @@
 /**
  * Node tests for layoutGeometry.js — geometry of the "default" layout
  * (the version reworked in the standalone layout-editor) in anchor-relative
- * coordinates at scale 1, plus the legacy fallback parity check.
+ * coordinates at scale 1.
  *
  * The expected values were derived by hand from the layout JSON and the
  * geometry rules of LAYOUT-FORMAT.md.
@@ -12,8 +12,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { analyzeLayout } from "../scripts/layoutSchema.js";
 import { computeLayoutDocs } from "../scripts/layoutGeometry.js";
-import { legacyToJson } from "../scripts/layoutLoader.js";
-import { layouts as legacyLayouts } from "../scripts/layouts.js";
 
 function loadNormalized(id) {
   const raw = JSON.parse(
@@ -318,56 +316,6 @@ test("runtime overrides (scale, font, color, token size/step) are applied", () =
   assert.equal(canvas.width, 1318);
   // canvas-local maxY = (575 + 2 * 68) * 2 = 1422; minY = name y 1 * 2 = 2.
   assert.equal(canvas.height, 1420);
-});
-
-test("legacy fallback conversion reproduces the legacy default.json geometry", () => {
-  // The legacy JS template is the pre-editor default; it must still render
-  // exactly like the snapshot of the old layout JSON.
-  const legacyFixture = JSON.parse(
-    readFileSync(new URL("./fixtures/default-legacy.json", import.meta.url), "utf8"),
-  );
-  const legacyLayout = legacyToJson(legacyLayouts.default);
-  assert.ok(legacyLayout);
-  const data = resolvedData({ rows: 4, tokens: 3 });
-
-  const fromLegacy = computeLayoutDocs(legacyLayout, data, {});
-  const fromJson = computeLayoutDocs(
-    analyzeLayout(legacyFixture).normalized,
-    data,
-    {},
-  );
-
-  const strip = ({ docs, canvas }) => ({
-    canvas,
-    docs: docs.map(({ x, y, w, h, part, index, kind, text }) => ({
-      part,
-      index,
-      kind,
-      x: Math.round(x),
-      y: Math.round(y),
-      w: Math.round(w),
-      h: Math.round(h),
-      text,
-    })),
-  });
-
-  assert.deepEqual(strip(fromJson), strip(fromLegacy));
-});
-
-test("legacy fallback conversion handles rows/FP changes like the legacy default", () => {
-  const legacyFixture = JSON.parse(
-    readFileSync(new URL("./fixtures/default-legacy.json", import.meta.url), "utf8"),
-  );
-  const legacyLayout = legacyToJson(legacyLayouts.default);
-  const data = resolvedData({ rows: 0, tokens: 0 });
-  const fromLegacy = computeLayoutDocs(legacyLayout, data, {});
-  const fromJson = computeLayoutDocs(
-    analyzeLayout(legacyFixture).normalized,
-    data,
-    {},
-  );
-  assert.equal(fromLegacy.docs.length, fromJson.docs.length);
-  assert.deepEqual(fromLegacy.canvas, fromJson.canvas);
 });
 
 test("minimal layout creates no empty sections for a bare actor", () => {
@@ -1110,10 +1058,12 @@ test("service parts have non-negative elevation", () => {
       assert.ok((d.elevation ?? 0) >= 0, `${id} doc ${d.part}#${d.index} elevation ${d.elevation} must be >=0`);
     }
   }
-  const legacyLayout = legacyToJson(legacyLayouts.default);
-  const { docs: legacyDocs } = computeLayoutDocs(legacyLayout, resolvedData(), {});
-  for (const d of legacyDocs) {
-    assert.ok((d.elevation ?? 0) >= 0, `legacy doc ${d.part}#${d.index} elevation ${d.elevation} must be >=0`);
+  const layout = loadNormalized("default");
+  const { docs } = computeLayoutDocs(layout, resolvedData(), {});
+  const serviceDocs = docs.filter((d) => d.part.startsWith("widget"));
+  assert.ok(serviceDocs.length > 0, "the default layout has service parts");
+  for (const d of serviceDocs) {
+    assert.ok((d.elevation ?? 0) >= 0, `default service doc ${d.part} elevation ${d.elevation} must be >=0`);
   }
 });
 
@@ -1184,11 +1134,15 @@ test("all tile descriptors have non-negative elevation", async () => {
     assert.equal(customDocs.find((d) => d.part === "portrait").elevation, 1);
     assert.equal(customDocs.find((d) => d.part === "tokens").elevation, 1);
 
-    // Legacy layout portrait also on elevation >=1
-    const legacyLayout = legacyToJson(legacyLayouts.default);
-    const { docs: legacyDocs } = computeLayoutDocs(legacyLayout, resolvedData(), {});
-    for (const d of legacyDocs.filter((x) => x.kind === "tile")) {
-      assert.ok((d.elevation ?? -1) >= 1, `legacy tile ${d.part} elevation ${d.elevation} must be >=1`);
+    // The shipped default layout keeps the portrait as a tile on elevation >=1
+    const defaultLayout = loadNormalized("default");
+    const { docs: defaultDocs } = computeLayoutDocs(defaultLayout, resolvedData(), {});
+    const defaultTileParts = new Set(
+      defaultDocs.filter((x) => x.kind === "tile").map((x) => x.part),
+    );
+    assert.ok(defaultTileParts.has("portrait"), "default portrait is a tile");
+    for (const d of defaultDocs.filter((x) => x.kind === "tile")) {
+      assert.ok((d.elevation ?? -1) >= 1, `default tile ${d.part} elevation ${d.elevation} must be >=1`);
     }
   } finally {
     if (prevGame !== undefined) globalThis.game = prevGame; else delete globalThis.game;
