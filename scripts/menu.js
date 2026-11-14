@@ -1,24 +1,24 @@
 /**
- * menu.js — общий модуль контекстных меню (объединение FatePointManager.openModuleMenu
- * и ConflictInteractions.showMenu).
+ * menu.js — shared context menu module (merges FatePointManager.openModuleMenu
+ * and ConflictInteractions.showMenu).
  *
- * Единственная публичная функция `showCttMenu({ items, event, point, menuClass? })`
- * рендерит .ctt-меню в document.body:
- *  - point имеет приоритет (конвертация world→client через canvas.stage.worldTransform),
- *    иначе event.clientX/Y, иначе 0/0;
- *  - флип у краёв окна: Math.min(x, innerWidth - rect.width - 8) (объединённая логика обеих реализаций);
- *  - закрытие по Escape / outside pointerdown (capture) / scroll / resize — надмножество поведения обеих.
+ * The single public function `showCttMenu({ items, event, point, menuClass? })`
+ * renders a .ctt menu into document.body:
+ *  - point wins (world→client conversion via canvas.stage.worldTransform),
+ *    otherwise event.clientX/Y, otherwise 0/0;
+ *  - edge flipping: Math.min(x, innerWidth - rect.width - 8) (merged logic of both implementations);
+ *  - closing on Escape / outside pointerdown (capture) / scroll / resize — the superset of both behaviours.
  *
- * Форма элемента: { icon, label, disabled?, sep?, iconColor?, onClick, children?: array }
- *  - iconColor — опциональный CSS-цвет иконки (inline style color на <i>),
- *    напр. зелёный для успеха / красный для провала.
- *  - children — массив таких же items; пункт с children открывает вложенное меню
- *    справа от пункта (при нехватке места — слева; вертикально флип у краёв).
- *    Закрытие вложенного: mouseleave с delay ~250мс, клик вне, закрытие родителя.
- *    Клик по пункту с children не закрывает меню и не выполняет onClick.
- * label/icon уже экранируются через escapeHtml.
- * Поддерживает disabled, sep, кликабельность 1:1.
- * Не использует top-level foundry — только DOM.
+ * Item shape: { icon, label, disabled?, sep?, iconColor?, onClick, children?: array }
+ *  - iconColor — optional CSS colour for the icon (inline style color on <i>),
+ *    e.g. green for success / red for failure.
+ *  - children — array of the same items; an item with children opens a submenu
+ *    to the right of the item (left when space runs out; vertical flip at the edges).
+ *    Submenu closing: mouseleave with ~250ms delay, click outside, parent closing.
+ *    Clicking an item with children neither closes the menu nor runs onClick.
+ * label/icon are already escaped via escapeHtml.
+ * Keeps disabled, sep and click behaviour 1:1.
+ * Uses no top-level foundry — only the DOM.
  */
 
 import { escapeHtml } from "./utils.js";
@@ -28,7 +28,7 @@ const activeSubmenus = [];
 const submenuCloseTimers = new Map();
 
 function clientPosition(event, point) {
-  // point имеет приоритет (мир→клиент)
+  // point wins (world→client)
   if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) {
     try {
       if (
@@ -50,7 +50,7 @@ function clientPosition(event, point) {
         }
       }
     } catch {
-      // fallback к event
+      // fall back to event
     }
   }
   if (Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY)) {
@@ -230,7 +230,7 @@ function positionSubmenu(submenu, anchorBtn) {
 }
 
 export function closeCttMenu() {
-  for (const [sub, id] of submenuCloseTimers) clearTimeout(id);
+  for (const id of submenuCloseTimers.values()) clearTimeout(id);
   submenuCloseTimers.clear();
   for (const sub of [...activeSubmenus]) {
     try {
@@ -257,7 +257,7 @@ export function closeCttMenu() {
   window.removeEventListener("resize", closeCttMenu);
 }
 
-// Совместимость: прежние имена
+// Compatibility: previous names
 export const closeMenu = closeCttMenu;
 
 export function getActiveMenu() {

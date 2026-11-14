@@ -1,6 +1,6 @@
 /**
  * conflictBoardSchema — validation and normalization of the conflict board
- * scene flag (schema v2) for feature 5 ("Розыгрыш конфликта на столе").
+ * scene flag (schema v2) for feature 5 ("Playing out a conflict on the table").
  *
  * Persisted under `scene.flags["fate-on-the-table"].conflictBoard`. This
  * module is pure: no `game`, `canvas`, `CONFIG` or other Foundry runtime
@@ -520,11 +520,9 @@ function normalizeDocument(input) {
     if (next.eliminated === true) next.eliminated = true;
     else delete next.eliminated;
     // eliminatedAt: integer >=1, only when eliminated
-    if (next.eliminated === true && Number.isInteger(next.eliminatedAt) && next.eliminatedAt >= 1) {
-      next.eliminatedAt = next.eliminatedAt;
-    } else {
-      delete next.eliminatedAt;
-    }
+    const keepEliminatedAt =
+      next.eliminated === true && Number.isInteger(next.eliminatedAt) && next.eliminatedAt >= 1;
+    if (!keepEliminatedAt) delete next.eliminatedAt;
     // ensure side/order are coerced even if ...record overwrote with invalid
     next.side = side;
     next.order = order;
