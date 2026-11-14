@@ -253,8 +253,8 @@ JSON -> validate/normalize (layoutSchema) -> resolve data (resolver catalog)
 - Resolver-каталог — единственное место исполнения кода; JSON декларативен.
   Resolver'ы: `@name`, `@portrait`, `@aspects`, `@shortAspects`, `@skill*`,
   `@fatePointTokens`, `@stress*`, `@consequenceCostRows` и т.д. (см. `WidgetBuilder.js`).
-- Встроенные: `Default`, `Minimal`, `Full` (`layouts/*.json`); `layouts.js` —
-  legacy fallback при недоступности JSON.
+- Встроенные: `Default`, `Minimal`, `Full` (`layouts/*.json`); legacy-JS-фолбэка нет,
+  при недоступности JSON — ошибка в консоли и уведомление.
 - Реестр: `layoutRegistry.js` (`registerLayout`, `getLayout`, `getLayoutIds`,
   `validateLayout`, `getLayoutJson`); `layoutLoader.js` грузит `fetch` в `init`.
 - Выбор: `playerLayout`/`npcLayout` (`hasPlayerOwner` + fallback на

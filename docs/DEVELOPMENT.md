@@ -100,3 +100,21 @@ npm run dev
 ```sh
 npm test
 ```
+
+## Деплой на сервер `thecomet`
+
+На сервере `thecomet` модуль установлен git-клоном этого репозитория (ветка
+`main`), поэтому деплой — это обычный `git pull` после пуша:
+
+```sh
+git push origin main
+ssh thecomet 'cd /home/hattivatt/.local/share/FoundryVTT/v14/Data/modules/fate-on-the-table && git pull --ff-only'
+```
+
+После `git pull` перезагрузите страницу мира в браузере (F5). Перезапуск
+Foundry нужен только при изменении `module.json` (манифест, паки, языки).
+
+Foundry пишет в LevelDB-каталог `packs/challenge-contest/` на сервере, поэтому
+там могут появляться неотслеживаемые или изменённые файлы пака. Если `git pull`
+отказывается из-за них, сначала посмотрите `git status` на сервере и не
+удаляйте чужие файлы вслепую.

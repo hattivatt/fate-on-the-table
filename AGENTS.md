@@ -15,14 +15,20 @@ Guidelines for AI agents working in this repository.
   importable from Node (`layoutSchema`, `layoutGeometry`, `conflictBoardSchema`,
   `conflictBoardGeometry`, `situationAspect*`, `utils.js`, `nameGenerator.js`,
   etc.). They never touch top-level `foundry`/`game`/`canvas`/`CONFIG` at
-  import time. Thin glue (`module.js`, `WidgetSync`, `ConflictBoardSync`, …)
-  wires hooks, `ApplicationV2`, `Drawing`/`Tile` I/O.
+  import time. Thin glue (`module.js` + `scripts/hooks/*`, `WidgetSync`,
+  `ConflictBoardSync`, …) wires hooks, `ApplicationV2`, `Drawing`/`Tile` I/O.
 - **Lazy `ApplicationV2` guard:** UI managers must use the lazy guard pattern
   from `ConflictManager.js` — reference `foundry.applications.api.ApplicationV2`
   only inside a getter / init function so the module imports cleanly in Node
   tests. Pure rendering / actions are extracted to testable modules.
 - **Resolver catalog:** JSON layouts are declarative; runtime logic is only
   via an allow-listed resolver catalog (`WidgetBuilder.js`). No code in JSON.
+- **Method wrapping:** never assign to a Foundry/system prototype directly.
+  Use `wrapMethod` (`scripts/patchMethod.js`): libWrapper (recommended
+  dependency) when present, otherwise an idempotent direct patch with the same
+  `(wrapped, ...args)` signature. "WRAPPER" if the original is always called,
+  "MIXED" if the wrapper may consume the call. Widget canvas wraps and the DOM
+  click fallback live in `widgetCanvasPatches.js`.
 - **Pure extract:** domain logic that can be pure must be extracted:
   `situationAspectNames` / `Zones` / `Consequences`, `utils.js`
   (`escapeHtml`, `dialogField`, `canvasWorldPosition`, `toArray`), `chatSpeaker.js`,
@@ -33,18 +39,26 @@ Guidelines for AI agents working in this repository.
 - Every own write that creates/updates/deletes `EmbeddedDocuments` or the
   `conflictBoard` scene flag must be marked `{ fateOnTheTableSync: true }`.
   The opposite hook branch bails on that marker — no recursion.
+- Sync authority: automatic, hook-driven writes run only on the active GM's
+  client (`isSyncAuthority()` / `canRunSync()` in `syncAuthority.js`), never
+  on a bare `game.user.isGM` check — Assistant GMs are GMs too, and two
+  writers duplicate documents. Sync calls triggered by the acting user's own
+  UI pass `{ manual: true }`.
 - A repeated sync with identical input must be strictly no-op (asserted by tests).
-- Debounces are per-scene `Map<sceneId, timer>` (e.g. `saSyncTimers`,
-  `conflictTokenTimers`, `conflictActorTimers` in `module.js`), not a single
-  global timer — otherwise cross-scene updates are lost.
+- Debounces are per-scene `Map<sceneId, timer>` (e.g. `saSyncTimers` in
+  `hooks/situationAspects.js`, `conflictTokenTimers` / `conflictActorTimers`
+  in `hooks/conflict.js`), not a single global timer — otherwise cross-scene
+  updates are lost. A Combat being deleted is tracked by id between
+  `preDeleteCombat` and `deleteCombat` (`hooks/combatDeletion.js`) so its
+  board is never auto-cleaned when the combat ends.
 - A sync collects its whole diff into one plan and flushes it once, one batch
   per document type in `delete → update → create` order (`flushPlan` in
   `ConflictBoardSync.js`, `syncWidget` in `WidgetSync.js`, the single write
   block in `SituationAspectSync.js`). Widget parts match by `part#index` and
   are updated in place — never delete-and-recreate a whole group for a rename.
 - Hooks that re-project the conflict board go through `scheduleConflictSync`
-  (`module.js`): one game event fires several `updateCombatant` hooks, and the
-  per-scene debounce collapses the burst into one sync. Only flows that must
+  (`scripts/hooks/conflict.js`): one game event fires several
+  `updateCombatant` hooks, and the per-scene debounce collapses the burst into one sync. Only flows that must
   stay ordered against a pending projection call `syncConflictBoard` directly
   (`canvasReady`, `ConflictManager.afterChange`, settings sync).
 
@@ -95,6 +109,14 @@ Guidelines for AI agents working in this repository.
   layout-format work. Its `tests/moduleCompatibility.test.ts` and
   `tests/moduleGeometry.test.ts` read this checkout through
   `../fate-on-the-table`; text metric constants are kept in sync.
+
+## Deploy
+
+- Server `thecomet` runs the module from a git clone of `main` at
+  `/home/hattivatt/.local/share/FoundryVTT/v14/Data/modules/fate-on-the-table`.
+  Deploy = commit, `git push origin main`, then
+  `ssh thecomet 'cd <that path> && git pull --ff-only'`. See
+  `docs/DEVELOPMENT.md`.
 
 ## Release
 
