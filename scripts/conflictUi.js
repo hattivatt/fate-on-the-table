@@ -5,8 +5,10 @@
  *
  * Kept dependency-free (browser DOM only, no Foundry globals, no i18n) so the
  * insertion strategy can be regression-tested under Node with a minimal DOM
- * stub. Localization and permission gating stay in the hooks in module.js.
+ * stub. Localization and permission gating stay in `hooks/ui.js`.
  */
+
+import { escapeHtml } from "./utils.js";
 
 /** Marker used to guard against duplicate insertion across re-renders. */
 export const CONFLICT_PLACE_MARKER = "data-ctt-conflict-place";
@@ -30,7 +32,7 @@ export function createCombatTrackerPlaceButton(label) {
   button.dataset.cttConflictPlace = "";
   button.className = "combat-control ctt-combat-place";
   button.title = label;
-  button.innerHTML = `<i class="fas fa-th-large"></i> ${label}`;
+  button.innerHTML = `<i class="fas fa-th-large"></i> ${escapeHtml(label)}`;
   return button;
 }
 
