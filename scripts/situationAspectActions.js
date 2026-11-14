@@ -172,7 +172,7 @@ function isGm() {
  */
 async function commitList(scene, list) {
   await scene.setFlag(SITUATION_ASPECTS_SCOPE, SITUATION_ASPECTS_KEY, list);
-  await syncSituationAspects(scene);
+  await syncSituationAspects(scene, { manual: true });
 }
 
 /**

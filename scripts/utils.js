@@ -145,3 +145,29 @@ export async function safeDeleteEmbeddedDocuments(scene, type, ids, options) {
     throw err;
   }
 }
+
+/**
+ * True when the current user may edit the actor (GM or actor owner). Without
+ * a `game.user` (Node tests) the action is allowed.
+ * @param {object|null} actor
+ * @returns {boolean}
+ */
+export function canEditActor(actor) {
+  if (typeof game === "undefined" || !game?.user) return true;
+  if (game.user.isGM === true) return true;
+  if (typeof actor?.testUserPermission === "function") {
+    const level = globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 3;
+    if (actor.testUserPermission(game.user, level)) return true;
+    if (actor.testUserPermission(game.user, "OWNER")) return true;
+  }
+  return actor?.isOwner === true;
+}
+
+/**
+ * Shows the localized "you do not own this actor" warning, when the UI exists.
+ * @param {string} i18nKey
+ */
+export function warnNotOwner(i18nKey) {
+  if (typeof ui === "undefined" || typeof game === "undefined") return;
+  ui.notifications?.warn(game.i18n.localize(i18nKey));
+}

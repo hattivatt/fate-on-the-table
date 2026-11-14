@@ -1,7 +1,7 @@
 /**
  * ConflictBoardSync — scene-side projection and reconcile for the conflict
  * board scene flag `scene.flags["fate-on-the-table"].conflictBoard`
- * (feature 5, "Розыгрыш конфликта на столе", PLAN.md).
+ * (feature 5, "Playing out a conflict on the table", PLAN.md).
  *
  * This module turns the NORMALIZED conflict board state (schema v1,
  * `conflictBoardSchema.js`) into module-owned Drawing/Tile documents on a
@@ -89,6 +89,7 @@
  *   compatibility; it runs the same removal logic directly, outside the queue.
  */
 
+import { canRunSync } from "./syncAuthority.js";
 import {
   FLAG_SCOPE,
   GM_FP_SCOPE,
@@ -1224,7 +1225,7 @@ export async function buildConflictBoardDocuments(scene, state, combat, options 
   const byId = new Map(resolveCombatants(combat, options).map((c) => [c.id, c]));
   const layout = getLayout("minimal");
   const cardOpts = cardBuildOptions(options);
-  for (const [combatantId, record] of Object.entries(state.cards ?? {})) {
+  for (const combatantId of Object.keys(state.cards ?? {})) {
     const position = positions[combatantId];
     if (!position) continue;
     const combatant = byId.get(combatantId);
@@ -1484,7 +1485,7 @@ const syncQueues = new Map();
  *   removedCombatantIds: string[], removedZoneIds: string[]}>}
  */
 export function syncConflictBoard(scene, options = {}) {
-  if (typeof game !== "undefined" && game?.user?.isGM === false) return Promise.resolve({ ok: false, changed: false, reason: "notGm" });
+  if (!canRunSync(options)) return Promise.resolve({ ok: false, changed: false, reason: "notGm" });
   if (!scene) {
     return Promise.resolve({ ok: false, changed: false, error: "No scene." });
   }

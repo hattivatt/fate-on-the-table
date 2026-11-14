@@ -6,6 +6,7 @@
  * when the row is fully deleted manually.
  */
 
+import { canRunSync } from "./syncAuthority.js";
 import { buildTileRow, toDocumentData } from "./WidgetBuilder.js";
 import { getPlacementOptions } from "./settings.js";
 import {
@@ -49,7 +50,7 @@ const FRAME_PAD = 7;
 
 /** The first active GM user, exactly like the legacy macro. */
 export function activeGm() {
-  return game.users.find((u) => u.isGM && u.active) ?? null;
+  return game.users.activeGM ?? game.users.find((u) => u.isGM && u.active) ?? null;
 }
 
 /** Current GM fate points value (0 when missing). */
@@ -184,8 +185,8 @@ export function buildGmRowDocs() {
  * @param {object} [scene]
  * @returns {Promise<boolean>}  True when the scene has a live box.
  */
-export async function syncGmFatePointRow(scene = canvas?.scene) {
-  if (typeof game !== "undefined" && game?.user?.isGM === false) return false;
+export async function syncGmFatePointRow(scene = canvas?.scene, options = {}) {
+  if (!canRunSync(options)) return false;
   if (!scene) return false;
   const gm = activeGm();
   if (!gm) {

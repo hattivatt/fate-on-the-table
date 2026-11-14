@@ -1,6 +1,6 @@
 /**
- * ConflictManager — GM conflict manager for feature 5 ("Розыгрыш конфликта
- * на столе", PLAN.md). Provides:
+ * ConflictManager — GM conflict manager for feature 5 ("Playing out a
+ * conflict on the table", PLAN.md). Provides:
  *
  *  1. GM-only ApplicationV2 window (read-only for players) listing the
  *     combatants of the ACTIVE combat bound to the current scene, their
@@ -19,7 +19,7 @@
  *     Fate Utilities buttons: size dialog -> PlacementManager preview over
  *     the FULL `getConflictBoardGeometry().bounds` -> initial state written
  *     through `writeConflictBoard` -> projection via
- *     `ConflictBoardSync.syncConflictBoard(scene, { combat })`.
+ *     `ConflictBoardSync.syncConflictBoard(scene, { combat, manual: true })`.
  *
  * ==========================================================================
  * API CONTRACT (for the module.js integration agent)
@@ -96,10 +96,7 @@ import {
   GM_FP_SCOPE,
   TURN_MARKER_SETTING,
 } from "./constants.js";
-import {
-  turnMarkerPatchFor,
-  collectTurnMarkerPatches,
-} from "./turnMarkerQol.js";
+import { collectTurnMarkerPatches } from "./turnMarkerQol.js";
 import {
   createConflictBoard,
   assignInitialCardAreas,
@@ -240,13 +237,6 @@ function assertGm(options = {}) {
   return game.user.isGM === true;
 }
 
-function nextActiveIndex(combatants, fromIndex) {
-  for (let i = fromIndex + 1; i < combatants.length; i++) {
-    if (isActive(combatants[i])) return i;
-  }
-  return null;
-}
-
 function previousActiveIndex(combatants, fromIndex) {
   for (let i = fromIndex - 1; i >= 0; i--) {
     if (isActive(combatants[i])) return i;
@@ -372,14 +362,14 @@ function refreshFateUtilities() {
 /**
  * Called after every mutation. Unless `options.sync === false`, re-projects
  * the conflict board of the combat's scene through
- * `syncConflictBoard(scene, { combat })`. Always fires the documented
+ * `syncConflictBoard(scene, { combat, manual: true })`. Always fires the documented
  * `options.onStateChanged` callback (`({ action, combat, scene }) => ...`).
  */
 async function afterChange(combat, options = {}, action) {
   const scene = resolveSyncScene(combat, options);
   if (scene && options.sync !== false) {
     try {
-      await syncConflictBoard(scene, { combat });
+      await syncConflictBoard(scene, { combat, manual: true });
     } catch (err) {
       console.warn?.("[fate-on-the-table] conflict board sync failed:", err);
     }
@@ -836,7 +826,7 @@ export function canPlaceConflictBoard(scene, combat) {
  * (small/medium/large from the module settings) -> interactive placement via
  * `PlacementManager.placeGroup` (preview covers the FULL
  * `getConflictBoardGeometry().bounds`) -> initial state written through
- * `writeConflictBoard` + `syncConflictBoard(scene, { combat })`.
+ * `writeConflictBoard` + `syncConflictBoard(scene, { combat, manual: true })`.
  *
  * Calling it again for an already-placed board does NOT create a second
  * board: it re-syncs the existing board and opens the manager
@@ -857,7 +847,7 @@ export async function placeBoard(options = {}) {
   const existingState = readConflictBoard(scene);
   const existingRegistry = boardRegistry(scene);
   if (existingState && existingRegistry?.widgetId) {
-    await syncConflictBoard(scene, { combat });
+    await syncConflictBoard(scene, { combat, manual: true });
     openConflictManager({ scene, combat });
     return {
       ok: true,
@@ -973,7 +963,7 @@ async function commitBoardPlacement(
     { fateOnTheTableSync: true },
   );
 
-  await syncConflictBoard(scene, { combat, forceProjection: true });
+  await syncConflictBoard(scene, { combat, forceProjection: true, manual: true });
 
   // QoL — auto-enable turn markers for every combatant already on the scene.
   // GM-only, setting-gated, one batch write when the token field is mode 0.

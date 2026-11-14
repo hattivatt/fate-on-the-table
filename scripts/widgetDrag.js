@@ -170,7 +170,7 @@ async function shiftConflictZone(scene, widgetId, dx, dy) {
     ...state,
     zones: state.zones.map((z) => (z?.id === zoneId ? { ...z, rect } : z)),
   });
-  await syncConflictBoard(scene);
+  await syncConflictBoard(scene, { manual: true });
 }
 
 /** Updates a scene-owned widget anchor stored in a scene flag registry. */

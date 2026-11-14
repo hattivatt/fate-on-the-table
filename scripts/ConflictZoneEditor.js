@@ -27,7 +27,7 @@
  * clamped to the central field; the caller decides the final name.
  */
 
-import { MODULE_ID, FLAG_SCOPE } from "./constants.js";
+import { MODULE_ID } from "./constants.js";
 import { DEFAULT_ZONE_STYLE } from "./conflictBoardSchema.js";
 import {
   getConflictBoardGeometry,
@@ -508,7 +508,7 @@ async function saveZone(scene, zone) {
     ? { ...state, zones: state.zones.map((z) => (z?.id === zone.id ? zone : z)) }
     : { ...state, zones: [...(state.zones ?? []), zone] };
   await writeConflictBoard(scene, next);
-  await syncConflictBoard(scene);
+  await syncConflictBoard(scene, { manual: true });
 }
 
 function makeZone(name, rect, state) {

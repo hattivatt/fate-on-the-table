@@ -19,6 +19,7 @@
  *   a guaranteed no-op (no creates, updates or deletes).
  */
 
+import { canRunSync } from "./syncAuthority.js";
 import { toDocumentData } from "./WidgetBuilder.js";
 import { getSituationAspectOptions } from "./settings.js";
 import { normalizeConflictBoard } from "./conflictBoardSchema.js";
@@ -315,8 +316,8 @@ const SYNC_FIELDS = [
  * @param {object} [scene]
  * @returns {Promise<boolean>}  True when the scene has a live widget.
  */
-export async function syncSituationAspects(scene = canvas?.scene) {
-  if (typeof game !== "undefined" && game?.user?.isGM === false) return false;
+export async function syncSituationAspects(scene = canvas?.scene, options = {}) {
+  if (!canRunSync(options)) return false;
   if (!scene) return false;
 
   // Coalesced structural passes: zone migration/cleanup + consequence

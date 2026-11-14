@@ -766,7 +766,7 @@ async function commitAspects(app) {
     SITUATION_ASPECTS_KEY,
     app.aspects,
   );
-  await syncSituationAspects(scene);
+  await syncSituationAspects(scene, { manual: true });
   app.aspects = situationAspects(scene);
 }
 

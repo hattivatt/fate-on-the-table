@@ -12,6 +12,7 @@ import {
 import { FLAG_SCOPE, WIDGETS_FLAG } from "./constants.js";
 import { allWidgetDocs } from "./widgetDocs.js";
 import { existingDocumentIds, safeDeleteEmbeddedDocuments } from "./utils.js";
+import { canRunSync, isSyncAuthority } from "./syncAuthority.js";
 
 const DEBOUNCE_MS = 400;
 
@@ -54,7 +55,7 @@ const pending = new Map();
 
 /** Debounced hook entry: schedules a sync for a modified actor. */
 export function scheduleActorSync(actor) {
-  if (typeof game !== "undefined" && game?.user?.isGM === false) return;
+  if (!isSyncAuthority()) return;
   if (actor.type !== "fate-core-official") return;
   const t = pending.get(actor.id);
   if (t) clearTimeout(t);
@@ -129,9 +130,11 @@ export async function removeWidgetRecord(actor, widgetId) {
  * Re-syncs every widget present on a scene (used on scene load, so widgets
  * placed with an older module version get current layout/settings/ADT flags).
  * @param {object} scene
+ * @param {{manual?: boolean}} [options]  `manual: true` for user-triggered calls (any GM);
+ *   default is the automatic path (active GM only).
  */
-export async function reconcileScene(scene) {
-  if (typeof game !== "undefined" && game?.user?.isGM === false) return;
+export async function reconcileScene(scene, options = {}) {
+  if (!canRunSync(options)) return;
   const actorUuids = new Set();
   for (const doc of [...scene.drawings, ...scene.tiles]) {
     const actorUuid = doc.getFlag(FLAG_SCOPE, "actorUuid");

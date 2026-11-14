@@ -28,27 +28,10 @@ import {
 import { consequenceCostTarget } from "./WidgetBuilder.js";
 import { syncConflictBoard } from "./ConflictBoardSync.js";
 import { buildConsequenceMeta } from "./situationAspectConsequences.js";
-import { escapeHtml, dialogField, toArray, tokenActorName } from "./utils.js";
+import { escapeHtml, dialogField, toArray, tokenActorName, canEditActor, warnNotOwner } from "./utils.js";
 import { isConsequenceCostWidget } from "./widgetInteractionRouter.js";
 
 export { CONSEQUENCE_COST_ROWS_PART };
-
-const OWNER = globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 2;
-
-function canEditActor(actor) {
-  if (typeof game === "undefined" || !game?.user) return true;
-  if (game.user.isGM === true) return true;
-  try {
-    if (typeof actor?.testUserPermission === "function") {
-      if (actor.testUserPermission(game.user, OWNER)) return true;
-      if (actor.testUserPermission(game.user, "OWNER")) return true;
-      const alt = globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 3;
-      if (alt !== OWNER && actor.testUserPermission(game.user, alt)) return true;
-    }
-  } catch {}
-  if (actor?.isOwner) return true;
-  return false;
-}
 
 /**
  * True when a Drawing document is an editable consequence cost row:
@@ -81,11 +64,7 @@ export async function handleConsequenceCostDoubleClick(document, event) {
   const actor = resolved?.actor;
   if (!actor) return true;
   if (!canEditActor(actor)) {
-    if (typeof ui !== "undefined") {
-      try {
-        ui.notifications.warn(game.i18n.localize("fate-on-the-table.consequence.notOwner"));
-      } catch {}
-    }
+    warnNotOwner("fate-on-the-table.consequence.notOwner");
     return true;
   }
   const index = Number(doc.getFlag(FLAG_SCOPE, "index"));
@@ -115,7 +94,7 @@ export async function handleConsequenceCostDoubleClick(document, event) {
   // (a later hook-fired sync of unchanged state is a no-op).
   if (scene && typeof syncConflictBoard === "function") {
     try {
-      await syncConflictBoard(scene);
+      await syncConflictBoard(scene, { manual: true });
     } catch (err) {
       /* best-effort re-projection */
     }
@@ -195,11 +174,7 @@ async function resolveConflictCardActor(doc) {
  */
 async function writeConsequence(actor, token, trackKey, consequenceText) {
   if (!canEditActor(actor)) {
-    if (typeof ui !== "undefined") {
-      try {
-        ui.notifications.warn(game.i18n.localize("fate-on-the-table.consequence.notOwner"));
-      } catch {}
-    }
+    warnNotOwner("fate-on-the-table.consequence.notOwner");
     return;
   }
   const current = actor.system?.tracks?.[trackKey];
